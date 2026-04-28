@@ -1,0 +1,265 @@
+{
+  "id": "hh_sandra_mike_chen",
+  "display_name": "Sandra & Mike Chen",
+  "household_type": "couple",
+  "household_risk_score": 6,
+  "external_assets": [
+    {
+      "type": "home",
+      "description": "Primary residence, approximate value",
+      "value": 950000
+    }
+  ],
+  "notes": "Fully synthetic Phase 1 demo persona. No real client data.",
+  "members": [
+    {
+      "id": "person_mike_chen",
+      "name": "Mike Chen",
+      "dob": "1964-02-12",
+      "marital_status": "married",
+      "citizenship": "Canada",
+      "residency": "Canada",
+      "longevity_assumption": 92,
+      "employment": {
+        "type": "consulting executive",
+        "income_gross": 185000,
+        "expected_changes": "Plans to reduce workload over the next four years."
+      },
+      "pensions": [
+        {
+          "type": "CPP/OAS",
+          "status": "eligible"
+        }
+      ],
+      "investment_knowledge": "medium",
+      "will_status": "current",
+      "beneficiary_designations": [
+        {
+          "account": "RRSP",
+          "beneficiary": "Sandra Chen"
+        }
+      ]
+    },
+    {
+      "id": "person_sandra_chen",
+      "name": "Sandra Chen",
+      "dob": "1968-07-04",
+      "marital_status": "married",
+      "citizenship": "Canada",
+      "residency": "Canada",
+      "longevity_assumption": 95,
+      "employment": {
+        "type": "part-time consulting",
+        "income_gross": 85000,
+        "expected_changes": "May continue part-time work into retirement."
+      },
+      "pensions": [
+        {
+          "type": "CPP/OAS",
+          "status": "eligible"
+        }
+      ],
+      "investment_knowledge": "medium",
+      "will_status": "current"
+    }
+  ],
+  "accounts": [
+    {
+      "id": "acct_mike_rrsp",
+      "owner_person_id": "person_mike_chen",
+      "type": "RRSP",
+      "regulatory_objective": "growth_and_income",
+      "regulatory_time_horizon": "3-10y",
+      "regulatory_risk_rating": "medium",
+      "current_value": 620000,
+      "contribution_room": 18000,
+      "is_held_at_purpose": true,
+      "holdings": [
+        {
+          "sleeve_id": "income_fund",
+          "sleeve_name": "Income Fund",
+          "weight": 0.42,
+          "market_value": 260400
+        },
+        {
+          "sleeve_id": "equity_fund",
+          "sleeve_name": "Equity Fund",
+          "weight": 0.38,
+          "market_value": 235600
+        },
+        {
+          "sleeve_id": "global_equity_fund",
+          "sleeve_name": "Global Equity Fund",
+          "weight": 0.2,
+          "market_value": 124000
+        }
+      ]
+    },
+    {
+      "id": "acct_sandra_rrsp",
+      "owner_person_id": "person_sandra_chen",
+      "type": "RRSP",
+      "regulatory_objective": "growth_and_income",
+      "regulatory_time_horizon": "3-10y",
+      "regulatory_risk_rating": "medium",
+      "current_value": 430000,
+      "contribution_room": 22000,
+      "is_held_at_purpose": true,
+      "holdings": [
+        {
+          "sleeve_id": "income_fund",
+          "sleeve_name": "Income Fund",
+          "weight": 0.45,
+          "market_value": 193500
+        },
+        {
+          "sleeve_id": "equity_fund",
+          "sleeve_name": "Equity Fund",
+          "weight": 0.35,
+          "market_value": 150500
+        },
+        {
+          "sleeve_id": "global_equity_fund",
+          "sleeve_name": "Global Equity Fund",
+          "weight": 0.2,
+          "market_value": 86000
+        }
+      ]
+    },
+    {
+      "id": "acct_joint_tfsa",
+      "owner_person_id": "person_sandra_chen",
+      "type": "TFSA",
+      "regulatory_objective": "growth",
+      "regulatory_time_horizon": ">10y",
+      "regulatory_risk_rating": "medium",
+      "current_value": 150000,
+      "contribution_room": 12000,
+      "is_held_at_purpose": true,
+      "holdings": [
+        {
+          "sleeve_id": "equity_fund",
+          "sleeve_name": "Equity Fund",
+          "weight": 0.5,
+          "market_value": 75000
+        },
+        {
+          "sleeve_id": "global_equity_fund",
+          "sleeve_name": "Global Equity Fund",
+          "weight": 0.35,
+          "market_value": 52500
+        },
+        {
+          "sleeve_id": "income_fund",
+          "sleeve_name": "Income Fund",
+          "weight": 0.15,
+          "market_value": 22500
+        }
+      ]
+    },
+    {
+      "id": "acct_non_registered",
+      "owner_person_id": "person_mike_chen",
+      "type": "Non-Registered",
+      "regulatory_objective": "growth_and_income",
+      "regulatory_time_horizon": "3-10y",
+      "regulatory_risk_rating": "medium",
+      "current_value": 80000,
+      "contribution_room": null,
+      "is_held_at_purpose": true,
+      "holdings": [
+        {
+          "sleeve_id": "cash_savings",
+          "sleeve_name": "Cash / Savings",
+          "weight": 0.5,
+          "market_value": 40000
+        },
+        {
+          "sleeve_id": "income_fund",
+          "sleeve_name": "Income Fund",
+          "weight": 0.5,
+          "market_value": 40000
+        }
+      ]
+    }
+  ],
+  "goals": [
+    {
+      "id": "goal_retirement_income",
+      "name": "Retirement income",
+      "target_amount": 1600000,
+      "target_date": "2030-06-30",
+      "necessity_score": 5,
+      "current_funded_amount": 1120000,
+      "contribution_plan": {
+        "monthly": 3500
+      },
+      "goal_risk_score": 3,
+      "status": "watch",
+      "notes": "Core need: retire in roughly four years with confidence.",
+      "account_allocations": [
+        {
+          "account_id": "acct_mike_rrsp",
+          "allocated_amount": 620000
+        },
+        {
+          "account_id": "acct_sandra_rrsp",
+          "allocated_amount": 430000
+        },
+        {
+          "account_id": "acct_joint_tfsa",
+          "allocated_amount": 70000
+        }
+      ]
+    },
+    {
+      "id": "goal_emma_education",
+      "name": "Emma education",
+      "target_amount": 80000,
+      "target_date": "2027-09-01",
+      "necessity_score": 5,
+      "current_funded_amount": 68000,
+      "contribution_plan": {
+        "monthly": 500
+      },
+      "goal_risk_score": 1,
+      "status": "on_track",
+      "notes": "Short-horizon need for their daughter's first university years.",
+      "account_allocations": [
+        {
+          "account_id": "acct_non_registered",
+          "allocated_amount": 68000
+        }
+      ]
+    },
+    {
+      "id": "goal_ski_cabin",
+      "name": "Ski cabin option",
+      "target_amount": 350000,
+      "target_date": "2033-12-31",
+      "necessity_score": 1,
+      "current_funded_amount": 120000,
+      "contribution_plan": {
+        "monthly": 1000
+      },
+      "goal_risk_score": 4,
+      "status": "watch",
+      "notes": "A wish-level goal that should not compromise retirement.",
+      "account_allocations": [
+        {
+          "account_id": "acct_joint_tfsa",
+          "allocated_amount": 80000
+        },
+        {
+          "account_id": "acct_non_registered",
+          "allocated_amount": 40000
+        }
+      ]
+    }
+  ],
+  "mocked_engine_output_seeds": {
+    "baseline_retirement_probability": 0.91,
+    "education_probability": 0.98,
+    "ski_cabin_probability": 0.64
+  }
+}

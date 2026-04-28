@@ -1,0 +1,1 @@
+"""Conquest adapter placeholder."""

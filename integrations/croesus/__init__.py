@@ -1,0 +1,1 @@
+"""Croesus adapter package."""

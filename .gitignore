@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Django
+db.sqlite3
+staticfiles/
+media/
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+
+# Persona privacy guardrails
+personas/*/raw/
+personas/*/real/
+personas/**/*_raw.*
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
