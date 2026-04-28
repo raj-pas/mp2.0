@@ -27,3 +27,12 @@
   responses for client list, client detail, and generate-portfolio calls.
 - `npm install` reported 2 moderate dependency audit findings; no automatic fix
   was applied during scaffold implementation.
+
+## 2026-04-28 — Detail Financial Summary Fix
+
+- Fixed `$NaN` in the advisor shell by adding `goal_count` and `total_assets`
+  to the household detail API response, matching the list API shape.
+- Added a backend regression test that asserts the Sandra/Mike detail payload
+  includes `goal_count = 3` and `total_assets = 1280000`.
+- Also moved the Docker backend virtualenv to `/opt/mp20-venv` so local `uv run`
+  commands do not break the bind-mounted container runtime.

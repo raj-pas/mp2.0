@@ -20,6 +20,19 @@ def test_client_list_returns_synthetic_persona() -> None:
 
 
 @pytest.mark.django_db
+def test_client_detail_includes_summary_financial_fields() -> None:
+    call_command("load_synthetic_personas")
+    client = APIClient()
+
+    response = client.get(reverse("client-detail", args=["hh_sandra_mike_chen"]))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["goal_count"] == 3
+    assert payload["total_assets"] == 1_280_000
+
+
+@pytest.mark.django_db
 def test_generate_portfolio_runs_engine_and_writes_audit() -> None:
     call_command("load_synthetic_personas")
     client = APIClient()

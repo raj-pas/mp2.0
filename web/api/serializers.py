@@ -104,6 +104,8 @@ class HouseholdListSerializer(serializers.ModelSerializer):
 
 class HouseholdDetailSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source="external_id")
+    goal_count = serializers.SerializerMethodField()
+    total_assets = serializers.SerializerMethodField()
     members = PersonSerializer(many=True)
     goals = GoalSerializer(many=True)
     accounts = AccountSerializer(many=True)
@@ -115,6 +117,8 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
             "display_name",
             "household_type",
             "household_risk_score",
+            "goal_count",
+            "total_assets",
             "external_assets",
             "notes",
             "members",
@@ -122,3 +126,9 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
             "accounts",
             "last_engine_output",
         ]
+
+    def get_goal_count(self, obj: models.Household) -> int:
+        return obj.goals.count()
+
+    def get_total_assets(self, obj: models.Household) -> float:
+        return float(sum(account.current_value for account in obj.accounts.all()))
