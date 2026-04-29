@@ -94,6 +94,15 @@ STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 MP20_SECURE_DATA_ROOT = os.getenv("MP20_SECURE_DATA_ROOT", "")
+MP20_REQUIRE_POSTGRES_FOR_REAL_UPLOADS = (
+    os.getenv("MP20_REQUIRE_POSTGRES_FOR_REAL_UPLOADS", "1") == "1"
+)
+MP20_ENGINE_ENABLED = os.getenv("MP20_ENGINE_ENABLED", "1") == "1"
+MP20_REVIEW_TEAM_SLUG = os.getenv("MP20_REVIEW_TEAM_SLUG", "steadyhand")
+MP20_WORKER_NAME = os.getenv("MP20_WORKER_NAME", "local-worker")
+MP20_WORKER_STALE_SECONDS = int(os.getenv("MP20_WORKER_STALE_SECONDS", "60"))
+MP20_OCR_MAX_PAGES = int(os.getenv("MP20_OCR_MAX_PAGES", "12"))
+MP20_TEXT_EXTRACTION_MAX_CHARS = int(os.getenv("MP20_TEXT_EXTRACTION_MAX_CHARS", "24000"))
 AWS_REGION = os.getenv("AWS_REGION", "ca-central-1")
 BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "global.anthropic.claude-sonnet-4-6")
 

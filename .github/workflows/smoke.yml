@@ -31,3 +31,42 @@ jobs:
           node-version: "22"
       - run: npm install
       - run: npm run build
+
+  browser-e2e:
+    runs-on: ubuntu-latest
+    needs: [python, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: astral-sh/setup-uv@v5
+      - name: Configure secure local E2E env
+        run: |
+          mkdir -p "$RUNNER_TEMP/mp20-secure-data"
+          cat > .env <<EOF
+          MP20_SECURE_DATA_ROOT=$RUNNER_TEMP/mp20-secure-data
+          MP20_LOCAL_ADMIN_EMAIL=advisor@example.com
+          MP20_LOCAL_ADMIN_PASSWORD=change-this-local-password
+          MP20_ENGINE_ENABLED=true
+          EOF
+      - name: Start Docker Compose stack
+        run: docker compose up -d --build
+      - name: Install Playwright
+        working-directory: frontend
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+      - name: Run synthetic browser E2E
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:5173
+          MP20_LOCAL_ADMIN_EMAIL: advisor@example.com
+          MP20_LOCAL_ADMIN_PASSWORD: change-this-local-password
+        run: npm run e2e:synthetic
+      - name: Docker Compose logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop Docker Compose stack
+        if: always()
+        run: docker compose down -v

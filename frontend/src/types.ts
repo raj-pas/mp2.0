@@ -108,6 +108,8 @@ export type SessionPayload = {
     email: string;
     name: string;
     role: string;
+    team?: string;
+    engine_enabled?: boolean;
   };
 };
 
@@ -130,6 +132,10 @@ export type ReviewDocument = {
   document_type: string;
   status: string;
   failure_reason: string;
+  failure_code: string;
+  failure_stage: string;
+  retry_eligible: boolean;
+  ocr_overflow: Record<string, unknown>;
   processing_metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -143,6 +149,12 @@ export type ProcessingJob = {
   attempts: number;
   max_attempts: number;
   last_error: string;
+  metadata: Record<string, unknown>;
+  locked_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  is_stale: boolean;
+  retry_eligible: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -193,6 +205,20 @@ export type ReviewWorkspace = ReviewWorkspaceSummary & {
   documents: ReviewDocument[];
   processing_jobs: ProcessingJob[];
   section_approvals: SectionApproval[];
+  worker_health: {
+    status: string;
+    name?: string;
+    last_seen_at: string | null;
+    active_job_count: number;
+  };
+  timeline: Array<{
+    id: number;
+    action: string;
+    entity_type: string;
+    entity_id: string;
+    metadata: Record<string, unknown>;
+    created_at: string;
+  }>;
 };
 
 export type ExtractedFact = {

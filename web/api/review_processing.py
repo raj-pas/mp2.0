@@ -4,15 +4,17 @@ import base64
 import json
 import mimetypes
 import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.utils import timezone
+from pydantic import BaseModel, Field, ValidationError
 
 from web.api import models
 from web.api.review_redaction import (
@@ -60,6 +62,37 @@ class ParsedDocument:
     metadata: dict[str, Any]
 
 
+class BedrockFact(BaseModel):
+    field: str = Field(min_length=1)
+    value: Any
+    confidence: Literal["high", "medium", "low"] = "medium"
+    derivation_method: Literal["extracted", "inferred", "defaulted"] = "extracted"
+    source_location: str = ""
+    source_page: int | None = None
+    evidence_quote: str = ""
+
+
+class BedrockFactsPayload(BaseModel):
+    facts: list[BedrockFact] = Field(default_factory=list)
+
+
+def record_worker_heartbeat(
+    *,
+    name: str | None = None,
+    current_job: models.ProcessingJob | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> models.WorkerHeartbeat:
+    heartbeat, _ = models.WorkerHeartbeat.objects.update_or_create(
+        name=name or settings.MP20_WORKER_NAME,
+        defaults={
+            "last_seen_at": timezone.now(),
+            "current_job": current_job,
+            "metadata": metadata or {},
+        },
+    )
+    return heartbeat
+
+
 def claim_next_job() -> models.ProcessingJob | None:
     with transaction.atomic():
         job = (
@@ -74,12 +107,25 @@ def claim_next_job() -> models.ProcessingJob | None:
         job.attempts += 1
         job.locked_at = timezone.now()
         job.started_at = job.started_at or timezone.now()
-        job.save(update_fields=["status", "attempts", "locked_at", "started_at", "updated_at"])
+        job.metadata = {**job.metadata, "stage": "claimed"}
+        job.save(
+            update_fields=[
+                "status",
+                "attempts",
+                "locked_at",
+                "started_at",
+                "metadata",
+                "updated_at",
+            ]
+        )
         return job
 
 
 def process_job(job: models.ProcessingJob) -> None:
+    record_worker_heartbeat(current_job=job, metadata={"stage": "processing"})
     try:
+        job.metadata = {**job.metadata, "stage": job.job_type}
+        job.save(update_fields=["metadata", "updated_at"])
         if job.job_type == models.ProcessingJob.JobType.PROCESS_DOCUMENT:
             if job.document is None:
                 raise ValueError("process_document job requires a document")
@@ -95,7 +141,9 @@ def process_job(job: models.ProcessingJob) -> None:
     job.status = models.ProcessingJob.Status.COMPLETED
     job.completed_at = timezone.now()
     job.last_error = ""
-    job.save(update_fields=["status", "completed_at", "last_error", "updated_at"])
+    job.metadata = {**job.metadata, "stage": "completed"}
+    job.save(update_fields=["status", "completed_at", "last_error", "metadata", "updated_at"])
+    record_worker_heartbeat(current_job=None, metadata={"stage": "idle"})
 
 
 def process_document(document: models.ReviewDocument) -> None:
@@ -187,15 +235,27 @@ def reconcile_workspace(workspace: models.ReviewWorkspace) -> dict[str, Any]:
         action="review_workspace_reconciled",
         entity_type="review_workspace",
         entity_id=workspace.external_id,
-        metadata={"engine_ready": state["readiness"]["engine_ready"]},
+        metadata={
+            "workspace_id": workspace.external_id,
+            "engine_ready": state["readiness"]["engine_ready"],
+            "missing_count": len(state["readiness"].get("missing", [])),
+        },
     )
     return state
 
 
 def enqueue_reconcile(workspace: models.ReviewWorkspace) -> models.ProcessingJob:
+    pending = models.ProcessingJob.objects.filter(
+        workspace=workspace,
+        job_type=models.ProcessingJob.JobType.RECONCILE_WORKSPACE,
+        status__in=[models.ProcessingJob.Status.QUEUED, models.ProcessingJob.Status.PROCESSING],
+    ).first()
+    if pending:
+        return pending
     return models.ProcessingJob.objects.create(
         workspace=workspace,
         job_type=models.ProcessingJob.JobType.RECONCILE_WORKSPACE,
+        metadata={"stage": "queued_reconcile"},
     )
 
 
@@ -257,7 +317,8 @@ def _bedrock_extract_facts(
     document: models.ReviewDocument, text: str, extraction_run_id: str
 ) -> list[dict[str, Any]]:
     client = _bedrock_client()
-    prompt = _fact_extraction_prompt(document=document, text=text[:24000])
+    limit = getattr(settings, "MP20_TEXT_EXTRACTION_MAX_CHARS", 24000)
+    prompt = _fact_extraction_prompt(document=document, text=text[:limit])
     response = client.messages.create(
         model=os.getenv("BEDROCK_MODEL", settings.BEDROCK_MODEL),
         max_tokens=4096,
@@ -270,11 +331,17 @@ def _bedrock_extract_visual_facts(
     document: models.ReviewDocument, extraction_run_id: str
 ) -> list[dict[str, Any]]:
     client = _bedrock_client()
-    image_blocks = _visual_content_blocks(document)
+    image_blocks, overflow = _visual_content_blocks(document)
     if not image_blocks:
         raise ValueError(
             "Document requires OCR, but no supported visual payload could be prepared."
         )
+    if overflow:
+        document.processing_metadata = {
+            **document.processing_metadata,
+            "ocr_overflow": overflow,
+        }
+        document.save(update_fields=["processing_metadata", "updated_at"])
     prompt = _fact_extraction_prompt(
         document=document,
         text="Use the attached page or image content as the source.",
@@ -319,31 +386,43 @@ def _fact_extraction_prompt(*, document: models.ReviewDocument, text: str) -> st
 def _facts_from_bedrock_response(response, extraction_run_id: str) -> list[dict[str, Any]]:  # noqa: ANN001
     content = "".join(block.text for block in response.content if hasattr(block, "text"))
     payload = _json_payload_from_model_text(content)
-    facts = payload.get("facts", [])
-    if not isinstance(facts, list):
-        raise ValueError("Bedrock extraction JSON must include facts list.")
-    for fact in facts:
-        fact.setdefault("extraction_run_id", extraction_run_id)
-        fact.setdefault("confidence", "medium")
-        fact.setdefault("derivation_method", "extracted")
+    try:
+        parsed = BedrockFactsPayload.model_validate(payload)
+    except ValidationError as exc:
+        raise ValueError("Bedrock extraction JSON did not match the expected fact schema.") from exc
+    facts = []
+    for fact in parsed.facts:
+        item = fact.model_dump(mode="json")
+        item["extraction_run_id"] = extraction_run_id
+        facts.append(item)
     return facts
 
 
 def _json_payload_from_model_text(content: str) -> dict[str, Any]:
+    normalized = content.strip()
+    normalized = re.sub(r"^```(?:json)?\s*", "", normalized)
+    normalized = re.sub(r"\s*```$", "", normalized)
     try:
-        return json.loads(content)
+        return json.loads(normalized)
     except json.JSONDecodeError as exc:
-        start = content.find("{")
-        end = content.rfind("}")
+        repaired = re.sub(r",(\s*[}\]])", r"\1", normalized)
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError:
+            pass
+        start = normalized.find("{")
+        end = normalized.rfind("}")
         if start == -1 or end == -1 or end <= start:
             raise ValueError("Bedrock extraction did not return valid JSON.") from exc
         try:
-            return json.loads(content[start : end + 1])
+            return json.loads(re.sub(r",(\s*[}\]])", r"\1", normalized[start : end + 1]))
         except json.JSONDecodeError as nested_exc:
             raise ValueError("Bedrock extraction did not return valid JSON.") from nested_exc
 
 
-def _visual_content_blocks(document: models.ReviewDocument) -> list[dict[str, Any]]:
+def _visual_content_blocks(
+    document: models.ReviewDocument,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     path = secure_data_root() / document.storage_path
     extension = path.suffix.lower()
     if extension == ".pdf":
@@ -354,10 +433,10 @@ def _visual_content_blocks(document: models.ReviewDocument) -> list[dict[str, An
         raise ValueError(
             f"Bedrock vision OCR does not support {extension or 'this file type'} yet."
         )
-    return [_image_block(path.read_bytes(), media_type)]
+    return [_image_block(path.read_bytes(), media_type)], {}
 
 
-def _pdf_page_image_blocks(path: Path) -> list[dict[str, Any]]:
+def _pdf_page_image_blocks(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         import fitz
     except ImportError as exc:
@@ -365,10 +444,19 @@ def _pdf_page_image_blocks(path: Path) -> list[dict[str, Any]]:
 
     document = fitz.open(path)
     blocks: list[dict[str, Any]] = []
-    for page in list(document)[:4]:
+    max_pages = getattr(settings, "MP20_OCR_MAX_PAGES", 12)
+    for page in list(document)[:max_pages]:
         pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
         blocks.append(_image_block(pixmap.tobytes("png"), "image/png"))
-    return blocks
+    overflow = {}
+    if document.page_count > max_pages:
+        overflow = {
+            "total_pages": document.page_count,
+            "processed_pages": max_pages,
+            "overflow_pages": document.page_count - max_pages,
+            "status": "needs_review",
+        }
+    return blocks, overflow
 
 
 def _image_block(content: bytes, media_type: str) -> dict[str, Any]:
@@ -485,6 +573,11 @@ def _parse_xlsx(path: Path) -> ParsedDocument:
 
 def _fail_or_retry(job: models.ProcessingJob, exc: Exception) -> None:
     job.last_error = str(exc)
+    job.metadata = {
+        **job.metadata,
+        "stage": job.metadata.get("stage", job.job_type),
+        "failure_code": exc.__class__.__name__,
+    }
     if job.attempts < job.max_attempts:
         job.status = models.ProcessingJob.Status.QUEUED
     else:
@@ -493,15 +586,30 @@ def _fail_or_retry(job: models.ProcessingJob, exc: Exception) -> None:
         if job.document:
             job.document.status = models.ReviewDocument.Status.FAILED
             job.document.failure_reason = str(exc)
-            job.document.save(update_fields=["status", "failure_reason", "updated_at"])
-    job.save(update_fields=["status", "last_error", "completed_at", "updated_at"])
+            job.document.processing_metadata = {
+                **job.document.processing_metadata,
+                "failure_code": exc.__class__.__name__,
+                "failure_stage": job.metadata.get("stage", job.job_type),
+            }
+            job.document.save(
+                update_fields=[
+                    "status",
+                    "failure_reason",
+                    "processing_metadata",
+                    "updated_at",
+                ]
+            )
+    job.save(update_fields=["status", "last_error", "completed_at", "metadata", "updated_at"])
     record_event(
         action="review_processing_failed",
         entity_type="processing_job",
         entity_id=str(job.id),
         metadata={
+            "workspace_id": job.workspace.external_id,
             "attempts": job.attempts,
             "max_attempts": job.max_attempts,
             "will_retry": job.status == models.ProcessingJob.Status.QUEUED,
+            "failure_code": exc.__class__.__name__,
         },
     )
+    record_worker_heartbeat(current_job=None, metadata={"stage": "idle_after_failure"})

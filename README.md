@@ -22,6 +22,13 @@ thin slice now supports:
   PDF OCR paths
 - reviewed client state, missing-field checklist, section approval, advisory
   matching, and link-or-create commit into the current household tables
+- advisor-grade review sections for household, people, accounts, goals,
+  goal-account mapping, and risk, with provenance snippets and edit/approval
+  notes for overrides
+- worker heartbeat/stale visibility, duplicate reconcile suppression, manual
+  reconcile, sanitized workspace timeline, strict approval-gated commit, and a
+  portfolio engine kill-switch
+- immutable audit events at the model and DB-trigger layer
 
 The canon has advanced to v2.3. Next implementation should treat this repo as
 the base for:
@@ -68,6 +75,9 @@ the backend.
 
 - `MP20_SECURE_DATA_ROOT` is required for upload/review and must be outside the
   repo. Repo-local paths hard fail.
+- Real-upload APIs require Postgres by default
+  (`MP20_REQUIRE_POSTGRES_FOR_REAL_UPLOADS=1`) so queue claiming and audit
+  immutability follow the production-like path.
 - Raw uploaded originals are retained only under the secure data root and are
   not served through the app in this tranche.
 - Full extracted raw text is transient in worker memory. The DB stores structured
@@ -76,6 +86,8 @@ the backend.
 - Real-derived extraction requires Bedrock env vars:
   `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION=ca-central-1`, and
   `BEDROCK_MODEL`.
+- `MP20_ENGINE_ENABLED=0` preserves intake/review but blocks portfolio
+  generation.
 - Do not copy real client contents into repo files, agent memory docs, CI logs,
   or commit messages.
 
@@ -99,6 +111,15 @@ For one-off queue processing in tests or debugging:
 uv run python web/manage.py process_review_queue --once
 ```
 
+To report or delete local raw artifacts whose version metadata is no longer
+current:
+
+```bash
+uv run python web/manage.py dispose_review_artifacts
+uv run python web/manage.py dispose_review_artifacts --delete
+uv run python web/manage.py dispose_review_artifacts --retain-reason "active review"
+```
+
 ## Local Checks
 
 ```bash
@@ -110,6 +131,18 @@ uv run pytest
 cd frontend
 npm install
 npm run build
+npx playwright test e2e/synthetic-review.spec.ts --list
+```
+
+CI runs the Python checks, frontend build, and a Docker Compose synthetic
+browser E2E. For a local real-bundle browser regression, keep all artifacts under
+the secure root:
+
+```bash
+export MP20_REAL_BUNDLE_ROOT="/path/outside/repo/to/client-bundles"
+export PLAYWRIGHT_OUTPUT_DIR="$MP20_SECURE_DATA_ROOT/e2e-artifacts"
+cd frontend
+npm run e2e:real
 ```
 
 ## Session Protocol

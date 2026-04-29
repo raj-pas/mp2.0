@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.management.base import BaseCommand, CommandError
 
 
@@ -34,4 +35,6 @@ class Command(BaseCommand):
         )
         user.set_password(password)
         user.save()
+        advisor_group, _ = Group.objects.get_or_create(name="advisor")
+        user.groups.add(advisor_group)
         self.stdout.write(self.style.SUCCESS(f"Bootstrapped local advisor admin: {email}"))

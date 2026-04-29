@@ -60,6 +60,11 @@ urlpatterns = [
         name="review-workspace-matches",
     ),
     path(
+        "api/review-workspaces/<str:workspace_id>/manual-reconcile/",
+        views.ReviewWorkspaceManualReconcileView.as_view(),
+        name="review-workspace-manual-reconcile",
+    ),
+    path(
         "api/review-workspaces/<str:workspace_id>/commit/",
         views.ReviewWorkspaceCommitView.as_view(),
         name="review-workspace-commit",

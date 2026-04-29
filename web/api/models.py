@@ -270,6 +270,27 @@ class ProcessingJob(models.Model):
         return f"{self.job_type}:{self.status}"
 
 
+class WorkerHeartbeat(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    last_seen_at = models.DateTimeField()
+    current_job = models.ForeignKey(
+        ProcessingJob,
+        related_name="worker_heartbeats",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-last_seen_at"]
+
+    def __str__(self) -> str:
+        return f"{self.name}:{self.last_seen_at.isoformat()}"
+
+
 class ExtractedFact(models.Model):
     class Confidence(models.TextChoices):
         HIGH = "high", "High"

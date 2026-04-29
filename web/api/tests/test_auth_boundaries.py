@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.urls import reverse
 from rest_framework.test import APIClient
 from web.api import models
@@ -40,7 +41,27 @@ def test_review_api_requires_authentication(tmp_path, settings) -> None:
 
 
 @pytest.mark.django_db
-def test_authenticated_client_list_is_scoped_to_user_or_shared_households() -> None:
+def test_financial_analyst_cannot_access_real_client_pii() -> None:
+    analyst = _user("analyst@example.com")
+    group, _ = Group.objects.get_or_create(name="financial_analyst")
+    analyst.groups.add(group)
+    household = _household("real_household", owner=_user("advisor@example.com"))
+    workspace = models.ReviewWorkspace.objects.create(label="Real review", owner=household.owner)
+    client = APIClient()
+    client.force_authenticate(user=analyst)
+
+    responses = [
+        client.get(reverse("client-list")),
+        client.get(reverse("client-detail", args=[household.external_id])),
+        client.get(reverse("review-workspace-list")),
+        client.get(reverse("review-workspace-detail", args=[workspace.external_id])),
+    ]
+
+    assert {response.status_code for response in responses} == {403}
+
+
+@pytest.mark.django_db
+def test_authenticated_client_list_uses_single_advisor_team_scope() -> None:
     advisor = _user("advisor@example.com")
     other_advisor = _user("other@example.com")
     shared = _household("shared_household")
@@ -55,9 +76,9 @@ def test_authenticated_client_list_is_scoped_to_user_or_shared_households() -> N
     assert list_response.status_code == 200
     assert shared.external_id in visible_ids
     assert owned.external_id in visible_ids
-    assert other.external_id not in visible_ids
+    assert other.external_id in visible_ids
     assert client.get(reverse("client-detail", args=[owned.external_id])).status_code == 200
-    assert client.get(reverse("client-detail", args=[other.external_id])).status_code == 404
+    assert client.get(reverse("client-detail", args=[other.external_id])).status_code == 200
 
 
 @pytest.mark.django_db
@@ -74,6 +95,7 @@ def test_review_commit_creates_user_owned_household(tmp_path, settings) -> None:
         "missing": [],
     }
     workspace.save()
+    _approve_required_sections(workspace, advisor)
 
     response = client.post(reverse("review-workspace-commit", args=[workspace.external_id]), {})
 
@@ -83,7 +105,7 @@ def test_review_commit_creates_user_owned_household(tmp_path, settings) -> None:
 
 
 @pytest.mark.django_db
-def test_review_commit_cannot_link_another_users_household(tmp_path, settings) -> None:
+def test_review_commit_can_link_same_team_household(tmp_path, settings) -> None:
     settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
     advisor = _user("advisor@example.com")
     other_advisor = _user("other@example.com")
@@ -98,6 +120,7 @@ def test_review_commit_cannot_link_another_users_household(tmp_path, settings) -
         "missing": [],
     }
     workspace.save()
+    _approve_required_sections(workspace, advisor)
 
     response = client.post(
         reverse("review-workspace-commit", args=[workspace.external_id]),
@@ -105,7 +128,8 @@ def test_review_commit_cannot_link_another_users_household(tmp_path, settings) -
         format="json",
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 200
+    assert response.json()["household_id"] == other_household.external_id
 
 
 def _user(email: str):
@@ -121,6 +145,16 @@ def _household(external_id: str, *, owner=None) -> models.Household:
         household_type="single",
         household_risk_score=3,
     )
+
+
+def _approve_required_sections(workspace: models.ReviewWorkspace, user) -> None:
+    for section in ("household", "people", "accounts", "goals", "goal_account_mapping", "risk"):
+        models.SectionApproval.objects.create(
+            workspace=workspace,
+            section=section,
+            status=models.SectionApproval.Status.APPROVED,
+            approved_by=user,
+        )
 
 
 def _engine_ready_state() -> dict:

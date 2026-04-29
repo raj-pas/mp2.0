@@ -79,10 +79,13 @@ export function fetchReviewWorkspaces(): Promise<ReviewWorkspaceSummary[]> {
   return request<ReviewWorkspaceSummary[]>("/api/review-workspaces/");
 }
 
-export function createReviewWorkspace(label: string): Promise<ReviewWorkspace> {
+export function createReviewWorkspace(
+  label: string,
+  dataOrigin = "real_derived",
+): Promise<ReviewWorkspace> {
   return request<ReviewWorkspace>("/api/review-workspaces/", {
     method: "POST",
-    body: JSON.stringify({ label }),
+    body: JSON.stringify({ label, data_origin: dataOrigin }),
   });
 }
 
@@ -124,12 +127,13 @@ export function fetchReviewFacts(id: string): Promise<ExtractedFact[]> {
 export function patchReviewState(
   id: string,
   state: Partial<ReviewedClientState>,
+  options: { reason?: string; requires_reason?: boolean; source_fact_ids?: number[] } = {},
 ): Promise<{ state: ReviewedClientState; readiness: ReviewedClientState["readiness"] }> {
   return request<{ state: ReviewedClientState; readiness: ReviewedClientState["readiness"] }>(
     `/api/review-workspaces/${id}/state/`,
     {
     method: "PATCH",
-    body: JSON.stringify({ state }),
+    body: JSON.stringify({ state, ...options }),
     },
   );
 }
@@ -137,12 +141,24 @@ export function patchReviewState(
 export function approveReviewSection(
   id: string,
   section: string,
-  status: "approved" | "approved_with_unknowns" | "needs_attention" = "approved",
+  status:
+    | "approved"
+    | "approved_with_unknowns"
+    | "needs_attention"
+    | "not_ready_for_recommendation" = "approved",
+  notes = "",
 ): Promise<ReviewWorkspace> {
   return request<ReviewWorkspace>(`/api/review-workspaces/${id}/approve-section/`, {
     method: "POST",
-    body: JSON.stringify({ section, status }),
+    body: JSON.stringify({ section, status, notes }),
   });
+}
+
+export function manualReconcileReviewWorkspace(id: string): Promise<{ job_id: number; status: string }> {
+  return request<{ job_id: number; status: string }>(
+    `/api/review-workspaces/${id}/manual-reconcile/`,
+    { method: "POST" },
+  );
 }
 
 export function fetchReviewMatches(id: string): Promise<{ candidates: MatchCandidate[] }> {

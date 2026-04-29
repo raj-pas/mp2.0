@@ -1,10 +1,11 @@
 # MP2.0 Session State
 
-**Last updated:** 2026-04-28
+**Last updated:** 2026-04-29
 **Branch:** `main`
-**Phase:** Phase 1 scaffold plus secure-local real-data review tranche
-**Status:** Local thin slice supports authenticated client/review access,
-secure-local upload/review to `engine_ready`, and link-or-create commit
+**Phase:** Secure ingest hardening plus advisor-grade review tranche
+**Status:** Local thin slice supports authenticated team-scoped advisor review,
+secure-local upload/review to `engine_ready`, approval-gated commit, and
+defensive committed client display
 
 ## Current Goal
 
@@ -22,6 +23,12 @@ moving real-data intake through a secure local review gate:
 - Postgres-backed worker queue and parser/extraction pass
 - reviewed client state, missing-field checklist, section approval, matching,
   and versioned commit to current household tables
+- advisor-grade editable review sections with provenance snippets, conflict and
+  unknown handling hooks, approval notes, sanitized timeline, and strict
+  `engine_ready + approved sections` commit gate
+- worker heartbeat/stale visibility, retry metadata, duplicate reconcile
+  suppression, manual reconcile, OCR overflow metadata, and local artifact
+  disposal/report command
 
 Canon v2.3 raises the next bar substantially:
 
@@ -32,51 +39,47 @@ Canon v2.3 raises the next bar substantially:
 
 ## Active Handoff
 
-Secure-local review tranche has landed in the working tree. Current verification
-passed:
+Secure ingest hardening and advisor-grade review tranche has landed in the
+working tree. Current verification passed:
 
 - `uv run ruff check .`
+- `uv run ruff format --check .`
 - `uv run pytest`
 - `npm run build`
-- Browser E2E using Chrome headless and `ike-agent/.env` AWS/Bedrock
-  credentials: login -> workspace -> browser upload -> worker/Bedrock extraction
-  -> facts -> engine_ready -> section approval -> match -> create household ->
-  client detail.
-- Auth boundary hardening: unauthenticated client/review APIs are denied, the
-  frontend no longer fetches or renders client data before login, households can
-  be advisor-owned, and reviewed-state commits create owner-scoped households.
+- `npx playwright test e2e/synthetic-review.spec.ts --list`
+- Full local synthetic Playwright execution was attempted against Docker Compose
+  but stopped before browser launch because Chromium was not installed locally;
+  `npx playwright install chromium` hung and was terminated. CI installs Chromium
+  before running the synthetic browser E2E.
+- Existing browser E2E history remains useful, but this tranche only committed
+  Playwright specs/config and verified test discovery locally; full browser
+  execution is wired for Docker Compose CI.
 
 Implemented pieces:
 
-- secure-root validation rejects missing or repo-local upload roots
-- `.env.example`, README, Docker Compose backend/worker env and mounts updated
-- local advisor bootstrap command added
-- review models/migration added for workspaces, documents, queue jobs, facts,
-  state versions, section approvals, readiness, and match candidates
-- upload API stores originals under secure root, sha256-dedupes per workspace,
-  and enqueues processing jobs
-- worker command claims queued jobs transactionally, retries twice after the
-  first attempt, parses local formats, routes real-derived extraction through
-  Bedrock, stores structured facts only, and reconciles reviewed state
-- sensitive identifiers are converted to hash plus redacted display; evidence
-  quotes redact account/SIN/SSN/card-like identifiers
-- review UI includes login, workspace creation, upload/status, active job list,
-  facts, quick-fill edits, section approvals, readiness, match candidates, retry,
-  and link-or-create commit
-- shared synthetic households remain visible to authenticated users; real
-  committed households are scoped to the advisor who created them
-- Browser E2E uncovered and fixed session auth reporting, tolerant Bedrock JSON
-  parsing, indexed fact reconciliation, and scalar sensitive-ID redaction.
-- Committed review workspaces no longer offer their own linked household as a
-  link candidate; commit is idempotent for the existing linked household and
-  rejects relinking to a different household.
-- Docker Compose `.env` is now configured locally from the ike-agent AWS keys
-  with `MP20_SECURE_DATA_ROOT=/private/tmp/mp20-secure-data`; the stack runs
-  backend, frontend, Postgres, and worker. A real uploaded bundle was transferred
-  from the prior local SQLite run into Compose Postgres without printing raw
-  contents. The worker processed the queue: some documents reconciled and facts
-  were stored, while several documents failed Bedrock JSON extraction. A
-  qualitative risk-value reconciliation crash was fixed.
+- real-upload APIs now fail closed without Postgres; synthetic tests can still
+  use SQLite
+- advisor access is a single shared team scope; financial analysts receive 403
+  for real-client PII surfaces
+- audit rows are immutable through model guards plus DB triggers, and workspace
+  timeline serialization redacts sensitive before/after fields
+- engine kill-switch blocks portfolio generation without blocking intake/review
+- worker heartbeat, stale job flags, retry eligibility, failure code/stage, OCR
+  overflow metadata, duplicate reconcile suppression, and manual reconcile
+  endpoint are implemented
+- Bedrock fact payloads are validated against typed schemas with controlled JSON
+  repair before failure
+- reviewed state now includes field-source metadata; section approval blocks
+  plain `approved` when required fields, unresolved conflicts, or required
+  unknowns remain; commit requires all required sections approved
+- Quick Fill was replaced by editable household, people, accounts, goals,
+  mapping, and risk review sections with collapsed provenance and override notes
+- committed client display uses defensive currency/percent formatting and avoids
+  `$NaN`/blank financial states
+- Playwright synthetic E2E and local real-bundle regression scaffolds were added;
+  real-bundle artifacts must be directed under the secure data root
+- local artifact disposal/report command added:
+  `uv run python web/manage.py dispose_review_artifacts`
 
 This tranche has local commits only; do not push unless explicitly asked.
 
@@ -89,9 +92,9 @@ This tranche has local commits only; do not push unless explicitly asked.
   combined score.
 - The three-tab household/account/goal view is the central advisor UX. Every tab
   reconciles to the same total AUM and toggles fund vs asset-class look-through.
-- Extraction/review is now a first secure-local scaffold. It is not yet the full
-  five-layer canon system and still needs richer reconciliation, IS validation,
-  source-review UX, pseudonymization, and retention/disposal workflow.
+- Extraction/review is now a hardened secure-local scaffold. It is not yet the
+  full five-layer canon system and still needs IS validation, richer temporal
+  reconciliation, pseudonymization, and CI PII checks.
 - Real client PII must only enter through the authenticated browser upload with
   `MP20_SECURE_DATA_ROOT` outside the repo. Do not copy real contents into agent
   memory, repo files, CI, or logs.
@@ -107,18 +110,18 @@ This tranche has local commits only; do not push unless explicitly asked.
   optional secondary inputs.
 - Extraction/LLM routing now enforces Bedrock env for real-derived facts and
   keeps raw text transient, but pseudonymization and CI PII checks are pending.
-- Audit log is real but not append-only via DB trigger and does not capture full
-  input/output snapshots.
-- Auth/RBAC is still early: endpoints now require login by default and real
-  committed households are advisor-scoped, but Phase B still needs real roles,
-  MFA, session timeout, lockout, password reset, and admin boundaries.
+- Audit log is append-only but does not yet provide an audit browser UI or full
+  input/output trace.
+- Auth/RBAC is still early: endpoints require login, advisor team access is
+  modeled, and financial analysts are denied PII, but Phase B still needs MFA,
+  session timeout, lockout, password reset, and admin boundaries.
 - Frontend lacks the three-tab pivot, click-through assignment, current-vs-ideal
   allocation, fan chart, and pilot-mode disclaimer.
 
 ## Next Recommended Work
 
-1. Exercise the review workflow on the first household bundle through browser
-   upload only; do not paste real contents into memory docs.
+1. Run the Docker Compose synthetic Playwright E2E end to end in CI/local once
+   browsers are installed and the stack is available.
 2. Convert engine schemas and output to the canon v2.3 per-link contract.
 3. Harden extraction/reconciliation into the canon five-layer flow with IS
    validation and better source-review UX.

@@ -20,6 +20,7 @@ import {
   fetchReviewMatches,
   fetchReviewWorkspace,
   fetchReviewWorkspaces,
+  manualReconcileReviewWorkspace,
   patchReviewState,
   retryReviewDocument,
   uploadReviewDocuments,
@@ -43,6 +44,12 @@ const currency = new Intl.NumberFormat("en-CA", {
 });
 
 const requiredSections = ["household", "people", "accounts", "goals", "goal_account_mapping", "risk"];
+
+type ApprovalStatus =
+  | "approved"
+  | "approved_with_unknowns"
+  | "needs_attention"
+  | "not_ready_for_recommendation";
 
 type ReviewShellProps = {
   onOpenClient: (id: string) => void;
@@ -142,8 +149,9 @@ export function ReviewShell({ onOpenClient }: ReviewShellProps) {
 
 function WorkspaceCreator({ onCreated }: { onCreated: (id: string) => void }) {
   const [label, setLabel] = useState("");
+  const [dataOrigin, setDataOrigin] = useState("real_derived");
   const mutation = useMutation({
-    mutationFn: () => createReviewWorkspace(label.trim()),
+    mutationFn: () => createReviewWorkspace(label.trim(), dataOrigin),
     onSuccess: (workspace) => {
       setLabel("");
       onCreated(workspace.external_id);
@@ -171,6 +179,14 @@ function WorkspaceCreator({ onCreated }: { onCreated: (id: string) => void }) {
           placeholder="Household or bundle label"
           value={label}
         />
+        <select
+          className="min-h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-spruce"
+          onChange={(event) => setDataOrigin(event.target.value)}
+          value={dataOrigin}
+        >
+          <option value="real_derived">Real-derived review</option>
+          <option value="synthetic">Synthetic test review</option>
+        </select>
         <Button className="w-full" disabled={!label.trim() || mutation.isPending} type="submit">
           <Plus size={16} />
           {mutation.isPending ? "Creating" : "Create Workspace"}
@@ -267,13 +283,19 @@ function WorkspaceReview({
         <div className="space-y-5">
           <UploadPanel workspace={workspace} onChanged={invalidateWorkspace} />
           <DocumentPanel documents={workspace.documents} onChanged={invalidateWorkspace} workspaceId={workspace.external_id} />
-          <JobPanel jobs={workspace.processing_jobs} />
+          <JobPanel jobs={workspace.processing_jobs} workerHealth={workspace.worker_health} />
           <FactPanel facts={facts} />
+          <TimelinePanel events={workspace.timeline} />
         </div>
         <div className="space-y-5">
           <ReadinessPanel readiness={readiness} />
-          <QuickFillPanel state={state} workspaceId={workspace.external_id} />
-          <SectionApprovalPanel workspace={workspace} onChanged={invalidateWorkspace} />
+          <AdvisorReviewPanel facts={facts} state={state} workspaceId={workspace.external_id} />
+          <SectionApprovalPanel
+            readiness={readiness}
+            state={state}
+            workspace={workspace}
+            onChanged={invalidateWorkspace}
+          />
           <StateSummary state={state} />
           <MatchCommitPanel
             clients={clients}
@@ -384,11 +406,26 @@ function DocumentPanel({
   );
 }
 
-function JobPanel({ jobs }: { jobs: ReviewWorkspace["processing_jobs"] }) {
+function JobPanel({
+  jobs,
+  workerHealth,
+}: {
+  jobs: ReviewWorkspace["processing_jobs"];
+  workerHealth: ReviewWorkspace["worker_health"];
+}) {
   const activeJobs = jobs.filter((job) => ["queued", "processing"].includes(job.status));
   return (
     <section className="rounded-md border border-slate-200 bg-white shadow-soft">
       <PanelTitle icon={<RefreshCw size={17} />} title="Worker Queue" />
+      <div className="border-b border-slate-100 px-4 py-3 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-semibold">Worker health</span>
+          <StatusBadge status={workerHealth?.status ?? "unknown"} />
+        </div>
+        <div className="mt-1 text-xs text-slate-500">
+          {workerHealth?.last_seen_at ? `Last seen ${new Date(workerHealth.last_seen_at).toLocaleString()}` : "No worker heartbeat yet."}
+        </div>
+      </div>
       <div className="divide-y divide-slate-100">
         {activeJobs.length ? (
           activeJobs.map((job) => (
@@ -397,6 +434,7 @@ function JobPanel({ jobs }: { jobs: ReviewWorkspace["processing_jobs"] }) {
                 <div className="font-semibold">{humanize(job.job_type)}</div>
                 <div className="mt-1 text-xs text-slate-500">
                   Attempt {job.attempts}/{job.max_attempts}
+                  {job.is_stale ? " · stale" : ""}
                 </div>
               </div>
               <StatusBadge status={job.status} />
@@ -440,6 +478,34 @@ function FactPanel({ facts }: { facts: ExtractedFact[] }) {
   );
 }
 
+function TimelinePanel({ events }: { events: ReviewWorkspace["timeline"] }) {
+  return (
+    <section className="rounded-md border border-slate-200 bg-white shadow-soft">
+      <PanelTitle icon={<FileText size={17} />} title="Workspace Timeline" />
+      <div className="max-h-[260px] divide-y divide-slate-100 overflow-auto">
+        {events?.length ? (
+          events.map((event) => (
+            <div className="px-4 py-3 text-sm" key={event.id}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-semibold">{humanize(event.action)}</span>
+                <span className="text-xs text-slate-500">{new Date(event.created_at).toLocaleString()}</span>
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                {Object.entries(event.metadata ?? {})
+                  .slice(0, 5)
+                  .map(([key, value]) => `${humanize(key)}: ${String(value)}`)
+                  .join(" · ")}
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="px-4 py-4 text-sm text-slate-600">No sanitized activity yet.</div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ReadinessPanel({ readiness }: { readiness: Readiness }) {
   return (
     <section className="rounded-md border border-slate-200 bg-white p-4 shadow-soft">
@@ -476,6 +542,425 @@ function ReadinessPanel({ readiness }: { readiness: Readiness }) {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function AdvisorReviewPanel({
+  workspaceId,
+  state,
+  facts,
+}: {
+  workspaceId: string;
+  state: ReviewedClientState;
+  facts: ExtractedFact[];
+}) {
+  const queryClient = useQueryClient();
+  const [activeSection, setActiveSection] = useState("household");
+  const [newMemberName, setNewMemberName] = useState("");
+  const [newAccountType, setNewAccountType] = useState("RRSP");
+  const [newGoalName, setNewGoalName] = useState("Retirement");
+  const [newValue, setNewValue] = useState("");
+  const mutation = useMutation({
+    mutationFn: (payload: { patch: Partial<ReviewedClientState>; reason?: string; requires_reason?: boolean }) =>
+      patchReviewState(workspaceId, payload.patch, {
+        reason: payload.reason,
+        requires_reason: payload.requires_reason,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["review-workspace", workspaceId] });
+      void queryClient.invalidateQueries({ queryKey: ["review-workspaces"] });
+    },
+  });
+  const reconcileMutation = useMutation({
+    mutationFn: () => manualReconcileReviewWorkspace(workspaceId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["review-workspace", workspaceId] });
+      void queryClient.invalidateQueries({ queryKey: ["review-workspaces"] });
+    },
+  });
+
+  const save = (patch: Partial<ReviewedClientState>, reason?: string, requiresReason = false) => {
+    mutation.mutate({ patch, reason, requires_reason: requiresReason });
+  };
+  const sources = sourceMap(state);
+
+  return (
+    <section className="rounded-md border border-slate-200 bg-white shadow-soft">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+        <PanelTitle icon={<ShieldCheck size={17} />} title="Advisor Review" />
+        <Button disabled={reconcileMutation.isPending} onClick={() => reconcileMutation.mutate()} variant="secondary">
+          <RefreshCw size={16} className={reconcileMutation.isPending ? "animate-spin" : ""} />
+          Reconcile
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-2 px-4 py-3">
+        {requiredSections.map((section) => (
+          <button
+            className={`rounded-md border px-3 py-2 text-sm font-semibold ${
+              activeSection === section ? "border-spruce bg-mist" : "border-slate-200 text-slate-600"
+            }`}
+            key={section}
+            onClick={() => setActiveSection(section)}
+            type="button"
+          >
+            {humanize(section)}
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-4 p-4">
+        {activeSection === "household" ? (
+          <div className="grid grid-cols-3 gap-3 max-lg:grid-cols-1">
+            <ReviewInput
+              label="Household name"
+              value={stringValue(state.household.display_name)}
+              source={sources.get("household.display_name")}
+              onSave={(value, reason) =>
+                save({ household: { ...state.household, display_name: value } }, reason, true)
+              }
+            />
+            <ReviewInput
+              label="Household type"
+              value={stringValue(state.household.household_type, "couple")}
+              source={sources.get("household.household_type")}
+              onSave={(value, reason) =>
+                save({ household: { ...state.household, household_type: value } }, reason, true)
+              }
+            />
+            <ReviewInput
+              label="Risk score"
+              type="number"
+              value={String(numberValue(state.risk.household_score ?? state.household.household_risk_score, 3))}
+              source={sources.get("risk.household_score")}
+              onSave={(value, reason) =>
+                save(
+                  {
+                    household: { ...state.household, household_risk_score: Number(value) || 3 },
+                    risk: { ...state.risk, household_score: Number(value) || 3 },
+                  },
+                  reason,
+                  true,
+                )
+              }
+            />
+          </div>
+        ) : null}
+
+        {activeSection === "people" ? (
+          <div className="space-y-3">
+            {state.people.map((person, index) => (
+              <div className="grid grid-cols-[1fr_120px_auto] gap-2 max-md:grid-cols-1" key={stringValue(person.id, `person-${index}`)}>
+                <ReviewInput
+                  label="Member name"
+                  value={stringValue(person.name)}
+                  source={sources.get(`people[${index}].display_name`) ?? sources.get(`people[${index}].name`)}
+                  onSave={(value, reason) => {
+                    const people = replaceAt(state.people, index, { ...person, name: value });
+                    save({ people }, reason, true);
+                  }}
+                />
+                <ReviewInput
+                  label="Age"
+                  type="number"
+                  value={String(numberValue(person.age, 0))}
+                  source={sources.get(`people[${index}].age`)}
+                  onSave={(value, reason) => {
+                    const people = replaceAt(state.people, index, { ...person, age: Number(value) || "" });
+                    save({ people }, reason, true);
+                  }}
+                />
+                <Button onClick={() => save({ people: removeAt(state.people, index) }, "advisor deleted member", true)} variant="secondary">
+                  Delete
+                </Button>
+              </div>
+            ))}
+            <div className="grid grid-cols-[1fr_auto] gap-2 max-md:grid-cols-1">
+              <input
+                className="min-h-10 rounded-md border border-slate-200 px-3 text-sm"
+                onChange={(event) => setNewMemberName(event.target.value)}
+                placeholder="Add member"
+                value={newMemberName}
+              />
+              <Button
+                disabled={!newMemberName.trim()}
+                onClick={() => {
+                  save({ people: [...state.people, { id: safeId("person", newMemberName), name: newMemberName.trim(), age: 62 }] });
+                  setNewMemberName("");
+                }}
+                variant="secondary"
+              >
+                <Plus size={16} />
+                Member
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {activeSection === "accounts" ? (
+          <div className="space-y-3">
+            {state.accounts.map((account, index) => (
+              <div className="rounded-md border border-slate-100 p-3" key={stringValue(account.id, `account-${index}`)}>
+                <div className="grid grid-cols-[1fr_160px_auto] gap-2 max-md:grid-cols-1">
+                  <ReviewInput
+                    label="Account type"
+                    value={stringValue(account.type)}
+                    source={sources.get(`accounts[${index}].account_type`) ?? sources.get(`accounts[${index}].type`)}
+                    onSave={(value, reason) => save({ accounts: replaceAt(state.accounts, index, { ...account, type: value }) }, reason, true)}
+                  />
+                  <ReviewInput
+                    label="Current value"
+                    type="number"
+                    value={String(numberValue(account.current_value, 0))}
+                    source={sources.get(`accounts[${index}].current_value`) ?? sources.get(`accounts[${index}].account_value`)}
+                    onSave={(value, reason) =>
+                      save({ accounts: replaceAt(state.accounts, index, { ...account, current_value: Number(value) || 0 }) }, reason, true)
+                    }
+                  />
+                  <Button onClick={() => save({ accounts: removeAt(state.accounts, index) }, "advisor deleted account", true)} variant="secondary">
+                    Delete
+                  </Button>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                  <StatusBadge status={account.missing_holdings_confirmed ? "approved_with_unknowns" : "needs_attention"} />
+                  <Button
+                    onClick={() =>
+                      save({
+                        accounts: replaceAt(state.accounts, index, {
+                          ...account,
+                          missing_holdings_confirmed: true,
+                        }),
+                      })
+                    }
+                    variant="secondary"
+                  >
+                    Confirm Missing Holdings
+                  </Button>
+                </div>
+              </div>
+            ))}
+            <div className="grid grid-cols-[120px_1fr_auto] gap-2 max-md:grid-cols-1">
+              <input className="min-h-10 rounded-md border border-slate-200 px-3 text-sm" onChange={(event) => setNewAccountType(event.target.value)} value={newAccountType} />
+              <input className="min-h-10 rounded-md border border-slate-200 px-3 text-sm" onChange={(event) => setNewValue(event.target.value)} placeholder="Account value" type="number" value={newValue} />
+              <Button
+                disabled={!newValue.trim()}
+                onClick={() => {
+                  save({
+                    accounts: [
+                      ...state.accounts,
+                      {
+                        id: safeId("account", newAccountType),
+                        type: newAccountType,
+                        current_value: Number(newValue) || 0,
+                        missing_holdings_confirmed: true,
+                      },
+                    ],
+                  });
+                  setNewValue("");
+                }}
+                variant="secondary"
+              >
+                <Plus size={16} />
+                Account
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {activeSection === "goals" ? (
+          <div className="space-y-3">
+            {state.goals.map((goal, index) => (
+              <div className="grid grid-cols-[1fr_120px_auto] gap-2 max-md:grid-cols-1" key={stringValue(goal.id, `goal-${index}`)}>
+                <ReviewInput
+                  label="Goal name"
+                  value={stringValue(goal.name)}
+                  source={sources.get(`goals[${index}].name`)}
+                  onSave={(value, reason) => save({ goals: replaceAt(state.goals, index, { ...goal, name: value }) }, reason, true)}
+                />
+                <ReviewInput
+                  label="Horizon years"
+                  type="number"
+                  value={String(numberValue(goal.time_horizon_years, 0))}
+                  source={sources.get(`goals[${index}].time_horizon_years`)}
+                  onSave={(value, reason) =>
+                    save({ goals: replaceAt(state.goals, index, { ...goal, time_horizon_years: Number(value) || 0 }) }, reason, true)
+                  }
+                />
+                <Button onClick={() => save({ goals: removeAt(state.goals, index) }, "advisor deleted goal", true)} variant="secondary">
+                  Delete
+                </Button>
+              </div>
+            ))}
+            <div className="grid grid-cols-[1fr_auto] gap-2 max-md:grid-cols-1">
+              <input className="min-h-10 rounded-md border border-slate-200 px-3 text-sm" onChange={(event) => setNewGoalName(event.target.value)} value={newGoalName} />
+              <Button
+                disabled={!newGoalName.trim()}
+                onClick={() => {
+                  save({ goals: [...state.goals, { id: safeId("goal", newGoalName), name: newGoalName.trim(), time_horizon_years: 5 }] });
+                  setNewGoalName("Retirement");
+                }}
+                variant="secondary"
+              >
+                <Plus size={16} />
+                Goal
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {activeSection === "goal_account_mapping" ? (
+          <div className="space-y-3">
+            {state.goal_account_links.map((link, index) => (
+              <div className="grid grid-cols-[1fr_auto] gap-3 rounded-md border border-slate-100 px-3 py-3 text-sm" key={`${link.goal_id}-${link.account_id}-${index}`}>
+                <div>
+                  <div className="font-semibold">{labelForId(state.goals, link.goal_id, "Goal")} → {labelForId(state.accounts, link.account_id, "Account")}</div>
+                  <div className="mt-1 text-slate-500">{currency.format(numberValue(link.allocated_amount))}</div>
+                </div>
+                <Button onClick={() => save({ goal_account_links: removeAt(state.goal_account_links, index) }, "advisor deleted mapping", true)} variant="secondary">
+                  Delete
+                </Button>
+              </div>
+            ))}
+            <Button
+              disabled={!state.goals.length || !state.accounts.length}
+              onClick={() =>
+                save({
+                  goal_account_links: [
+                    ...state.goal_account_links,
+                    {
+                      goal_id: stringValue(state.goals[0].id),
+                      account_id: stringValue(state.accounts[0].id),
+                      allocated_amount: numberValue(state.accounts[0].current_value),
+                    },
+                  ],
+                })
+              }
+              variant="secondary"
+            >
+              <Link2 size={16} />
+              Confirm First Goal/Account Mapping
+            </Button>
+          </div>
+        ) : null}
+
+        {activeSection === "risk" ? (
+          <div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
+            <ReviewInput
+              label="Household risk"
+              type="number"
+              value={String(numberValue(state.risk.household_score ?? state.household.household_risk_score, 3))}
+              source={sources.get("risk.household_score")}
+              onSave={(value, reason) =>
+                save(
+                  {
+                    risk: { ...state.risk, household_score: Number(value) || 3 },
+                    household: { ...state.household, household_risk_score: Number(value) || 3 },
+                  },
+                  reason,
+                  true,
+                )
+              }
+            />
+          </div>
+        ) : null}
+
+        {state.conflicts.length ? (
+          <div className="space-y-2 rounded-md border border-[#fff1c7] bg-[#fffbeb] p-3">
+            <div className="text-xs font-bold uppercase tracking-wider text-[#775b0b]">Conflicts</div>
+            {state.conflicts.map((conflict, index) => (
+              <div className="rounded-md bg-white px-3 py-2 text-sm" key={`${stringValue(conflict.field)}-${index}`}>
+                <div className="font-semibold">{stringValue(conflict.field)}</div>
+                <div className="mt-1 text-xs text-slate-500">{Array.isArray(conflict.values) ? conflict.values.join(" / ") : "Multiple values"}</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => {
+                      const reason = window.prompt("Reason for resolving this conflict");
+                      if (reason) {
+                        save(
+                          { conflicts: replaceAt(state.conflicts, index, { ...conflict, resolved: true, resolution: "kept_current" }) },
+                          reason,
+                          true,
+                        );
+                      }
+                    }}
+                    variant="secondary"
+                  >
+                    Keep Current
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      const reason = window.prompt("Reason for marking this unknown");
+                      if (reason) {
+                        save(
+                          {
+                            conflicts: replaceAt(state.conflicts, index, { ...conflict, resolved: true, resolution: "marked_unknown" }),
+                            unknowns: [...state.unknowns, { section: sectionForField(stringValue(conflict.field)), field: conflict.field, required: true }],
+                          },
+                          reason,
+                          true,
+                        );
+                      }
+                    }}
+                    variant="secondary"
+                  >
+                    Mark Unknown
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {mutation.error ? <ErrorLine message={mutation.error.message} /> : null}
+        {reconcileMutation.error ? <ErrorLine message={reconcileMutation.error.message} /> : null}
+      </div>
+    </section>
+  );
+}
+
+function ReviewInput({
+  label,
+  value,
+  onSave,
+  source,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onSave: (value: string, reason?: string) => void;
+  source?: Record<string, unknown>;
+  type?: "text" | "number";
+}) {
+  const [draft, setDraft] = useState(value);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  useEffect(() => setDraft(value), [value]);
+  return (
+    <label className="space-y-1 text-sm">
+      <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{label}</span>
+      <input
+        className="min-h-10 w-full rounded-md border border-slate-200 px-3"
+        onBlur={() => {
+          if (draft !== value) {
+            const reason = source ? window.prompt(`Reason for overriding ${label}`) ?? "" : "";
+            onSave(draft, reason);
+          }
+        }}
+        onChange={(event) => setDraft(event.target.value)}
+        type={type}
+        value={draft}
+      />
+      {source ? (
+        <div className="rounded-md bg-mist px-2 py-2 text-xs text-slate-600">
+          <button className="font-semibold text-spruce" onClick={() => setEvidenceOpen(!evidenceOpen)} type="button">
+            {source.document_name ? String(source.document_name) : "Source"} · {source.confidence ? String(source.confidence) : "unknown"}
+          </button>
+          {evidenceOpen ? (
+            <div className="mt-2 space-y-1">
+              <div>{source.source_page ? `Page ${String(source.source_page)}` : String(source.source_location ?? "")}</div>
+              <div className="rounded bg-white px-2 py-1">{String(source.evidence_quote ?? "No evidence quote.")}</div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </label>
   );
 }
 
@@ -677,9 +1162,27 @@ function QuickFillPanel({ workspaceId, state }: { workspaceId: string; state: Re
   );
 }
 
-function SectionApprovalPanel({ workspace, onChanged }: { workspace: ReviewWorkspace; onChanged: () => void }) {
+function SectionApprovalPanel({
+  workspace,
+  state,
+  readiness,
+  onChanged,
+}: {
+  workspace: ReviewWorkspace;
+  state: ReviewedClientState;
+  readiness: Readiness;
+  onChanged: () => void;
+}) {
+  const [statuses, setStatuses] = useState<Record<string, ApprovalStatus>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const mutation = useMutation({
-    mutationFn: (section: string) => approveReviewSection(workspace.external_id, section),
+    mutationFn: (section: string) =>
+      approveReviewSection(
+        workspace.external_id,
+        section,
+        statuses[section] ?? "approved",
+        notes[section] ?? "",
+      ),
     onSuccess: onChanged,
   });
   const approvals = new Map(workspace.section_approvals.map((approval) => [approval.section, approval.status]));
@@ -687,18 +1190,44 @@ function SectionApprovalPanel({ workspace, onChanged }: { workspace: ReviewWorks
   return (
     <section className="rounded-md border border-slate-200 bg-white p-4 shadow-soft">
       <PanelTitle icon={<CheckCircle2 size={17} />} title="Section Approval" />
-      <div className="mt-4 grid grid-cols-2 gap-2 max-md:grid-cols-1">
+      <div className="mt-4 space-y-3">
         {requiredSections.map((section) => (
-          <button
-            className="flex min-h-11 items-center justify-between gap-3 rounded-md border border-slate-200 px-3 text-left text-sm hover:border-spruce"
-            disabled={mutation.isPending}
-            key={section}
-            onClick={() => mutation.mutate(section)}
-            type="button"
-          >
-            <span className="font-semibold">{humanize(section)}</span>
-            <StatusBadge status={approvals.get(section) ?? "needs_attention"} />
-          </button>
+          <div className="rounded-md border border-slate-200 px-3 py-3" key={section}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold">{humanize(section)}</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {sectionBlockers(state, readiness, section).length
+                    ? `${sectionBlockers(state, readiness, section).length} blocker(s)`
+                    : "No blockers detected"}
+                </div>
+              </div>
+              <StatusBadge status={approvals.get(section) ?? "needs_attention"} />
+            </div>
+            <div className="mt-3 grid grid-cols-[220px_1fr_auto] gap-2 max-lg:grid-cols-1">
+              <select
+                className="min-h-10 rounded-md border border-slate-200 px-3 text-sm"
+                onChange={(event) =>
+                  setStatuses({ ...statuses, [section]: event.target.value as ApprovalStatus })
+                }
+                value={statuses[section] ?? "approved"}
+              >
+                <option value="approved">Approved</option>
+                <option value="approved_with_unknowns">Approved with unknowns</option>
+                <option value="needs_attention">Needs attention</option>
+                <option value="not_ready_for_recommendation">Not ready</option>
+              </select>
+              <input
+                className="min-h-10 rounded-md border border-slate-200 px-3 text-sm"
+                onChange={(event) => setNotes({ ...notes, [section]: event.target.value })}
+                placeholder="Approval note"
+                value={notes[section] ?? ""}
+              />
+              <Button disabled={mutation.isPending} onClick={() => mutation.mutate(section)} variant="secondary">
+                Save Approval
+              </Button>
+            </div>
+          </div>
         ))}
       </div>
       {mutation.error ? <div className="mt-3"><ErrorLine message={mutation.error.message} /></div> : null}
@@ -762,6 +1291,8 @@ function MatchCommitPanel({
     },
   });
   const isLinked = Boolean(workspace.linked_household_id) || workspace.status === "committed";
+  const approvals = new Map(workspace.section_approvals.map((approval) => [approval.section, approval.status]));
+  const requiredApproved = requiredSections.every((section) => approvals.get(section) === "approved");
   const likelyMatches = isLinked
     ? []
     : (matches.length ? matches : fallbackMatches(workspace, clients)).filter(
@@ -779,13 +1310,18 @@ function MatchCommitPanel({
               Find Matches
             </Button>
             <Button
-              disabled={!readiness.engine_ready || commitMutation.isPending}
+              disabled={!readiness.engine_ready || !requiredApproved || commitMutation.isPending}
               onClick={() => commitMutation.mutate(undefined)}
             >
               <Plus size={16} />
               Create Household
             </Button>
           </div>
+          {!requiredApproved ? (
+            <div className="mt-3 rounded-md bg-[#fff1c7] px-3 py-2 text-sm text-[#775b0b]">
+              Required sections must be approved before commit.
+            </div>
+          ) : null}
           <div className="mt-4 space-y-2">
             {likelyMatches.length ? (
               likelyMatches.map((candidate) => (
@@ -799,7 +1335,7 @@ function MatchCommitPanel({
                       </div>
                     </div>
                     <Button
-                      disabled={!readiness.engine_ready || commitMutation.isPending}
+                      disabled={!readiness.engine_ready || !requiredApproved || commitMutation.isPending}
                       onClick={() => commitMutation.mutate(candidate.household_id)}
                       variant="secondary"
                     >
@@ -939,6 +1475,61 @@ function formatBytes(bytes: number): string {
   const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const value = bytes / 1024 ** exponent;
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[exponent]}`;
+}
+
+function replaceAt<T>(items: T[], index: number, value: T): T[] {
+  return items.map((item, itemIndex) => (itemIndex === index ? value : item));
+}
+
+function removeAt<T>(items: T[], index: number): T[] {
+  return items.filter((_, itemIndex) => itemIndex !== index);
+}
+
+function sourceMap(state: ReviewedClientState): Map<string, Record<string, unknown>> {
+  const raw = state as ReviewedClientState & { field_sources?: Record<string, Record<string, unknown>> };
+  return new Map(Object.entries(raw.field_sources ?? {}));
+}
+
+function labelForId(items: Array<Record<string, unknown>>, id: unknown, fallback: string): string {
+  const item = items.find((candidate) => stringValue(candidate.id) === stringValue(id));
+  return stringValue(item?.name ?? item?.type, fallback);
+}
+
+function sectionForField(field: string): string {
+  if (field.startsWith("people")) {
+    return "people";
+  }
+  if (field.startsWith("accounts") || field.startsWith("holdings")) {
+    return "accounts";
+  }
+  if (field.startsWith("goals")) {
+    return "goals";
+  }
+  if (field.startsWith("goal_account")) {
+    return "goal_account_mapping";
+  }
+  if (field.startsWith("risk")) {
+    return "risk";
+  }
+  return "household";
+}
+
+function sectionBlockers(state: ReviewedClientState, readiness: Readiness, section: string): string[] {
+  const missing = readiness.missing
+    .filter((item) => item.section === section)
+    .map((item) => item.label);
+  const conflicts = state.conflicts
+    .filter((conflict) => !conflict.resolved && sectionForField(stringValue(conflict.field)) === section)
+    .map((conflict) => `Conflict: ${stringValue(conflict.field)}`);
+  const unknowns = state.unknowns
+    .filter((unknown) => {
+      if (typeof unknown === "string") {
+        return sectionForField(unknown) === section;
+      }
+      return Boolean(unknown.required) && (unknown.section === section || sectionForField(stringValue(unknown.field)) === section);
+    })
+    .map((unknown) => (typeof unknown === "string" ? unknown : stringValue(unknown.label ?? unknown.field, "Unknown")));
+  return [...missing, ...conflicts, ...unknowns];
 }
 
 function fallbackMatches(workspace: ReviewWorkspace, clients: HouseholdSummary[]): MatchCandidate[] {

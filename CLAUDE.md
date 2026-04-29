@@ -23,8 +23,13 @@ implemented on `main`:
 - synthetic Sandra/Mike Chen persona
 - local advisor login, authenticated client access, and review workspace UI
 - secure outside-repo browser upload path
-- reviewed state, readiness checklist, matching, and link-or-create commit
-- light audit logging
+- advisor-grade reviewed sections with provenance snippets, conflict/unknown
+  handling hooks, edit notes, readiness checklist, matching, and strict
+  link-or-create commit gating
+- worker heartbeat/stale visibility, retry metadata, duplicate reconcile
+  suppression, manual reconcile, and provider-safe OCR overflow metadata
+- immutable audit logging with sanitized workspace timeline events
+- `MP20_ENGINE_ENABLED` kill-switch for recommendation generation
 - repo-persistent agent memory
 
 The working canon is now v2.3. It reframes the next work as Phase A/B/C:
@@ -49,13 +54,15 @@ implementation backlog.
 - Keep real client raw files out of git.
 - Real uploads must enter only through the authenticated local browser workflow
   with `MP20_SECURE_DATA_ROOT` set outside this repository.
+- Real-upload APIs require Postgres by default; SQLite is only for synthetic
+  tests and non-real local work.
 - Real-derived extraction routes through Bedrock in ca-central-1. Anthropic
   direct is synthetic-only.
 - Do not copy real client contents into repo files, memory docs, CI logs, or
   commit messages. Store only structured facts, run metadata, and minimally
   redacted evidence quotes in the DB.
-- Audit logs are separate from observability logs. Writes exist now; immutability
-  triggers and richer input/output snapshots are still pending.
+- Audit logs are separate from observability logs. Audit rows are append-only via
+  model guards plus backend-specific DB triggers.
 - Client-visible risk vocabulary uses cautious / conservative-balanced /
   balanced / balanced-growth / growth-oriented, not low / medium / high.
 - CMA editing and efficient-frontier visualization are admin-only surfaces.
@@ -79,8 +86,9 @@ implementation backlog.
   assignment, current-vs-ideal allocation, and pilot disclaimer surfaces.
 - PII guardrails are partial: secure-root validation, Bedrock fail-closed routing,
   transient raw text, redacted evidence quotes, and sensitive-ID hash/display
-  exist. Scrub-pass hooks, pseudonymization storage, CI PII checks, encryption
-  posture validation, and retention/disposal workflow are still pending.
+  exist. Retention/disposal tooling exists for local raw artifacts. Scrub-pass
+  hooks, pseudonymization storage, CI PII checks, and encryption posture
+  validation are still pending.
 
 ## Build Commands
 
@@ -97,6 +105,7 @@ uv run pytest
 cd frontend
 npm install
 npm run build
+npx playwright test e2e/synthetic-review.spec.ts --list
 ```
 
 ## Git Protocol

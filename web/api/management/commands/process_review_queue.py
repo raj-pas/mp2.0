@@ -4,7 +4,7 @@ import time
 
 from django.core.management.base import BaseCommand
 
-from web.api.review_processing import claim_next_job, process_job
+from web.api.review_processing import claim_next_job, process_job, record_worker_heartbeat
 
 
 class Command(BaseCommand):
@@ -17,10 +17,12 @@ class Command(BaseCommand):
     def handle(self, *args, **options):  # noqa: ANN002, ANN003
         once = options["once"]
         sleep_seconds = options["sleep"]
+        record_worker_heartbeat(metadata={"stage": "starting"})
 
         while True:
             job = claim_next_job()
             if job is None:
+                record_worker_heartbeat(metadata={"stage": "idle"})
                 if once:
                     self.stdout.write("No queued review jobs.")
                     return

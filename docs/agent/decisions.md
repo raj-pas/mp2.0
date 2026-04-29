@@ -14,9 +14,12 @@ authoritative when more detail is needed.
 - Use a DB-backed synthetic Sandra/Mike Chen persona.
 - Keep Django persistence models separate from engine Pydantic schemas.
 - Translate web DB state into engine inputs at the web/engine boundary.
-- Add light real audit logging in Phase 1; defer immutability triggers.
+- Add audit logging in Phase 1 and keep audit rows immutable through model
+  guards plus backend-specific DB triggers.
 - Real-upload features require `MP20_SECURE_DATA_ROOT` outside the repo and hard
   fail if it is missing or repo-local.
+- Real-upload features require Postgres by default. SQLite is allowed only for
+  synthetic/non-real development and tests.
 - Use Postgres rows as the local processing queue for now. Backend enqueues;
   worker claims with row locking and processes through
   `process_review_queue`.
@@ -28,8 +31,12 @@ authoritative when more detail is needed.
 - Household uniqueness for review commits is internal generated ID; matching is
   advisory and commit must be link-or-create.
 - Default DRF access is authenticated. Session/login endpoints opt out
-  explicitly; review workspaces are owner-scoped; real committed households are
-  advisor-owned while shared synthetic demo households may remain ownerless.
+  explicitly. Advisors use one shared team scope for clients and review
+  workspaces; financial analysts cannot access real-client PII surfaces.
+- Commit requires `engine_ready` plus plain approved status on all required
+  review sections.
+- `MP20_ENGINE_ENABLED=false` blocks portfolio generation while leaving intake
+  and review available.
 - Failed documents do not block review. Manual retry queues another processing
   job.
 
@@ -89,15 +96,15 @@ authoritative when more detail is needed.
 - Current extraction/review is a secure-local scaffold, not full canon Layer 1-5:
   richer source review, temporal reconciliation, IS validation, pseudonymization,
   retention/disposal, and CI PII checks are still needed.
-- Current audit log has writes but not immutability trigger, browse UI, or full
-  input-to-output trace.
-- Current RBAC is authenticated-by-default with early household ownership
-  scoping, but Phase B still needs real role enforcement, MFA/session policy,
+- Current audit log has append-only protection and sanitized timeline events but
+  not an audit browser UI or full input-to-output trace.
+- Current RBAC has authenticated-by-default access, advisor team scope, and
+  financial-analyst PII denial, but Phase B still needs MFA/session policy,
   lockout, password reset, and admin-only CMA boundaries.
 
 ## Deferred
 
 - Staging deployment.
-- Strict extraction/PII workflow.
+- Full pseudonymization workflow and CI PII scanners.
 - Real Croesus, Conquest, custodian, or LLM integrations.
-- Full audit immutability triggers and audit browser UI.
+- Audit browser UI.

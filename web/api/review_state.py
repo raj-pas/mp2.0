@@ -7,10 +7,10 @@ from decimal import Decimal
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 
 from web.api import models
+from web.api.access import linkable_households
 from web.audit.writer import record_event
 
 REVIEW_SCHEMA_VERSION = "reviewed_client_state.v1"
@@ -107,6 +107,7 @@ def reviewed_state_from_workspace(workspace: models.ReviewWorkspace) -> dict[str
     _normalize_reviewed_relationships(state)
     state["risk"]["household_score"] = state["household"]["household_risk_score"]
     state["source_summary"] = _source_summary(workspace)
+    state["field_sources"] = _field_sources(workspace, current_facts)
     state["conflicts"] = _conflicts(workspace)
     state["readiness"] = readiness_for_state(state).__dict__
     return state
@@ -123,6 +124,50 @@ def apply_state_patch(state: dict[str, Any], patch: dict[str, Any]) -> dict[str,
     merged["schema_version"] = REVIEW_SCHEMA_VERSION
     merged["readiness"] = readiness_for_state(merged).__dict__
     return merged
+
+
+def section_blockers(state: dict[str, Any], section: str) -> list[dict[str, str]]:
+    readiness = readiness_for_state(state)
+    blockers = [
+        {"kind": "missing", "section": item["section"], "label": item["label"]}
+        for item in readiness.missing
+        if item["section"] == section
+    ]
+    for conflict in state.get("conflicts") or []:
+        if conflict.get("resolved") or conflict.get("resolution"):
+            continue
+        field = str(conflict.get("field", ""))
+        if _field_belongs_to_section(field, section):
+            blockers.append(
+                {
+                    "kind": "conflict",
+                    "section": section,
+                    "label": f"Unresolved conflict: {field}",
+                }
+            )
+    for unknown in state.get("unknowns") or []:
+        unknown_section = unknown.get("section") if isinstance(unknown, dict) else ""
+        required = bool(unknown.get("required")) if isinstance(unknown, dict) else False
+        label = (
+            str(unknown.get("label") or unknown.get("field") or unknown)
+            if isinstance(unknown, dict)
+            else str(unknown)
+        )
+        if (unknown_section == section or _field_belongs_to_section(label, section)) and required:
+            blockers.append(
+                {"kind": "unknown", "section": section, "label": f"Required unknown: {label}"}
+            )
+    return blockers
+
+
+def required_sections_approved(workspace: models.ReviewWorkspace) -> bool:
+    approvals = {
+        approval.section: approval.status for approval in workspace.section_approvals.all()
+    }
+    return all(
+        approvals.get(section) == models.SectionApproval.Status.APPROVED
+        for section in ENGINE_REQUIRED_SECTIONS
+    )
 
 
 def readiness_for_state(state: dict[str, Any]) -> Readiness:
@@ -220,6 +265,8 @@ def commit_reviewed_state(
     readiness = readiness_for_state(state)
     if not readiness.engine_ready:
         raise ValueError("Reviewed state is not engine-ready.")
+    if not required_sections_approved(workspace):
+        raise ValueError("Required review sections are not approved.")
 
     household = household or _create_household_from_state(workspace, state, user=user)
     _merge_household_state(household, state)
@@ -249,15 +296,11 @@ def match_candidates(workspace: models.ReviewWorkspace) -> list[dict[str, Any]]:
     display_name = (state.get("household") or {}).get("display_name", "")
     people = state.get("people") or []
     candidates: list[dict[str, Any]] = []
-    households = models.Household.objects.none()
-    if getattr(workspace.owner, "is_authenticated", False):
-        households = models.Household.objects.filter(owner=workspace.owner)
-    elif workspace.owner_id:
-        households = models.Household.objects.filter(owner_id=workspace.owner_id)
-    else:
-        households = models.Household.objects.filter(Q(owner__isnull=True))
+    households = linkable_households(workspace.owner)
 
     for household in households.prefetch_related("members", "accounts"):
+        if workspace.linked_household_id == household.pk:
+            continue
         reasons: list[str] = []
         score = 0
         if display_name and _normalize(display_name) == _normalize(household.display_name):
@@ -308,7 +351,7 @@ def _fact_sort_key(fact: models.ExtractedFact) -> tuple[int, int, float]:
 
 def _value(current_facts: dict[str, models.ExtractedFact], field: str, default: Any) -> Any:
     fact = current_facts.get(field)
-    return fact.value if fact is not None else default
+    return _normalize_fact_value(field, fact.value) if fact is not None else default
 
 
 def _indexed_items(
@@ -324,7 +367,7 @@ def _indexed_items(
             continue
         index = int(match.group("index"))
         name = aliases.get(match.group("field"), match.group("field"))
-        grouped.setdefault(index, {})[name] = fact.value
+        grouped.setdefault(index, {})[name] = _normalize_fact_value(name, fact.value)
     return [grouped[index] for index in sorted(grouped)]
 
 
@@ -373,6 +416,7 @@ def _empty_state() -> dict[str, Any]:
         "unknowns": [],
         "conflicts": [],
         "source_summary": [],
+        "field_sources": {},
         "readiness": {},
     }
 
@@ -396,10 +440,39 @@ def _conflicts(workspace: models.ReviewWorkspace) -> list[dict[str, Any]]:
     for fact in workspace.extracted_facts.all():
         grouped.setdefault(fact.field, []).append(fact)
     for field, facts in grouped.items():
-        values = {str(fact.value) for fact in facts}
+        values = {str(_normalize_fact_value(field, fact.value)) for fact in facts}
         if len(values) > 1:
-            conflicts.append({"field": field, "values": sorted(values), "count": len(facts)})
+            conflicts.append(
+                {
+                    "field": field,
+                    "values": sorted(values),
+                    "count": len(facts),
+                    "fact_ids": [fact.id for fact in facts],
+                    "resolved": False,
+                }
+            )
     return conflicts
+
+
+def _field_sources(
+    workspace: models.ReviewWorkspace,
+    current_facts: dict[str, models.ExtractedFact],
+) -> dict[str, dict[str, Any]]:
+    return {
+        field: {
+            "fact_id": fact.id,
+            "document_id": fact.document_id,
+            "document_name": fact.document.original_filename,
+            "document_type": fact.document.document_type,
+            "confidence": fact.confidence,
+            "source_page": fact.source_page,
+            "source_location": fact.source_location,
+            "evidence_quote": fact.evidence_quote,
+            "extraction_run_id": fact.extraction_run_id,
+        }
+        for field, fact in current_facts.items()
+        if fact.workspace_id == workspace.id
+    }
 
 
 def _missing(section: str, label: str) -> dict[str, str]:
@@ -410,9 +483,61 @@ def _number(value: Any) -> Decimal:
     try:
         if value in {None, ""}:
             return Decimal("0")
+        if isinstance(value, str):
+            cleaned = value.replace(",", "")
+            cleaned = re.sub(r"[^0-9.\-]", "", cleaned)
+            if not cleaned or cleaned in {"-", ".", "-."}:
+                return Decimal("0")
+            return Decimal(cleaned)
         return Decimal(str(value))
     except Exception:
         return Decimal("0")
+
+
+def _json_number(value: Any) -> int | float:
+    number = _number(value)
+    if number == number.to_integral_value():
+        return int(number)
+    return float(number)
+
+
+def _normalize_fact_value(field: str, value: Any) -> Any:
+    lowered = field.lower()
+    if any(
+        token in lowered
+        for token in (
+            "current_value",
+            "account_value",
+            "market_value",
+            "target_amount",
+            "funded_amount",
+            "allocated_amount",
+            "allocation_value",
+            "contribution_room",
+        )
+    ):
+        return _json_number(value)
+    if any(token in lowered for token in ("household_score", "risk_score", "goal_risk_score")):
+        return _risk_score(value, default=3)
+    if any(token in lowered for token in ("horizon", "age", "necessity_score")):
+        return _int_or_default(value, 0)
+    if any(token in lowered for token in ("missing_holdings_confirmed", "is_held_at_purpose")):
+        return _bool_value(value)
+    if isinstance(value, str) and re.fullmatch(r"\d{1,2}/\d{1,2}/\d{2,4}", value.strip()):
+        month, day, year = value.strip().split("/")
+        year_number = int(year)
+        if year_number < 100:
+            year_number += 1900 if year_number > 30 else 2000
+        return f"{year_number:04d}-{int(month):02d}-{int(day):02d}"
+    return value
+
+
+def _bool_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return _normalize(value) in {"yes", "true", "confirmed", "missing", "not_available", "na"}
+    return bool(value)
 
 
 def _int_or_default(value: Any, default: int) -> int:
@@ -568,4 +693,17 @@ def _target_date(goal_state: dict[str, Any]) -> date:
 
 
 def _normalize(value: str) -> str:
-    return " ".join(value.lower().split())
+    return re.sub(r"[^a-z0-9]+", "_", " ".join(value.lower().split())).strip("_")
+
+
+def _field_belongs_to_section(field: str, section: str) -> bool:
+    prefixes = {
+        "household": ("household",),
+        "people": ("people", "person"),
+        "accounts": ("accounts", "holdings"),
+        "goals": ("goals",),
+        "goal_account_mapping": ("goal_account_links", "goal_account_mapping"),
+        "risk": ("risk",),
+    }
+    normalized = field.replace("[", ".").lower()
+    return any(normalized.startswith(prefix) for prefix in prefixes.get(section, (section,)))

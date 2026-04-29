@@ -142,3 +142,32 @@
   marker, goal horizon, and advisor-confirmed goal-account mapping.
 - Verification passed: `uv run ruff check .`, `uv run ruff format --check .`,
   `uv run pytest`, and `npm run build`.
+
+## 2026-04-29 — Secure Ingest Hardening + Advisor Review Implemented
+
+- Hardened real-upload safety: real-derived upload now requires an outside-repo
+  `MP20_SECURE_DATA_ROOT` and Postgres by default; synthetic upload remains
+  testable on SQLite.
+- Added advisor team access semantics plus financial-analyst PII denial.
+- Added immutable audit protections with model guards and DB triggers, sanitized
+  workspace timeline serialization, edit audit hashes, and kill-switch audit
+  events.
+- Added worker heartbeat/stale-job visibility, retry/failure metadata, duplicate
+  reconcile suppression, manual reconcile endpoint, typed Bedrock fact schema
+  validation, JSON repair, OCR overflow metadata, and artifact disposal/report
+  command.
+- Replaced Quick Fill with advisor-grade editable review sections for household,
+  people, accounts, goals, goal-account mapping, and risk, including provenance
+  snippets, override reasons, conflict/unknown hooks, approval statuses/notes,
+  and strict `engine_ready + required approvals` commit gating.
+- Improved committed client display with defensive financial formatting and
+  clearer account/goal/mapping/holdings empty states.
+- Added Playwright synthetic E2E config/spec, local real-bundle regression
+  scaffold, CI Docker Compose E2E job, and ignored Playwright artifact folders.
+- Verification passed: `uv run ruff check .`, `uv run ruff format --check .`,
+  `uv run pytest`, `npm run build`, and Playwright test discovery for synthetic
+  and real-regression specs.
+- Full local synthetic Playwright execution was attempted against Docker Compose
+  but could not launch because local Chromium was missing; the browser install
+  command hung and was terminated. CI is configured to install Chromium before
+  running the synthetic browser E2E.

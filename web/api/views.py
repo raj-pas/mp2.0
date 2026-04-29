@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
+
+from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
-from django.db.models import Q
+from django.core.exceptions import ImproperlyConfigured
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -15,8 +19,18 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from web.api import models
+from web.api.access import (
+    can_access_real_pii,
+    linkable_households,
+    role_for_user,
+    team_households,
+    team_workspaces,
+    user_team_slug,
+)
 from web.api.engine_adapter import to_engine_household
+from web.api.review_processing import enqueue_reconcile
 from web.api.review_security import (
+    assert_real_upload_backend_ready,
     relative_secure_path,
     sha256_bytes,
     write_uploaded_file,
@@ -27,11 +41,13 @@ from web.api.review_serializers import (
     ReviewWorkspaceSerializer,
 )
 from web.api.review_state import (
+    ENGINE_REQUIRED_SECTIONS,
     apply_state_patch,
     commit_reviewed_state,
     create_state_version,
     match_candidates,
     reviewed_state_from_workspace,
+    section_blockers,
 )
 from web.api.serializers import HouseholdDetailSerializer, HouseholdListSerializer
 from web.audit.writer import record_event
@@ -82,6 +98,8 @@ class ClientListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
         households = _households_visible_to_user(request.user).prefetch_related("goals", "accounts")
         record_event(action="client_list_viewed", entity_type="household", actor=_actor(request))
         return Response(HouseholdListSerializer(households, many=True).data)
@@ -91,6 +109,8 @@ class ClientDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, household_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
         household = get_object_or_404(_household_queryset(request.user), external_id=household_id)
         record_event(
             action="client_detail_viewed",
@@ -105,6 +125,17 @@ class GeneratePortfolioView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, household_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        if not getattr(settings, "MP20_ENGINE_ENABLED", True):
+            record_event(
+                action="engine_kill_switch_blocked",
+                entity_type="household",
+                entity_id=household_id,
+                actor=_actor(request),
+                metadata={"workspace_id": "", "reason": "MP20_ENGINE_ENABLED=false"},
+            )
+            return Response({"detail": "Portfolio generation is disabled."}, status=403)
         household = get_object_or_404(_household_queryset(request.user), external_id=household_id)
         engine_input = to_engine_household(household)
         output = optimize(engine_input, STEADYHAND_PURE_SLEEVES)
@@ -130,16 +161,27 @@ class ReviewWorkspaceListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):  # noqa: ANN001
-        workspaces = models.ReviewWorkspace.objects.filter(owner=request.user).prefetch_related(
-            "documents"
-        )
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        workspaces = team_workspaces(request.user).prefetch_related("documents")
         return Response(ReviewWorkspaceListSerializer(workspaces, many=True).data)
 
     def post(self, request):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
         label = request.data.get("label", "").strip()
         if not label:
             return Response({"detail": "Workspace label is required."}, status=400)
-        workspace = models.ReviewWorkspace.objects.create(label=label, owner=request.user)
+        data_origin = (
+            request.data.get("data_origin") or models.ReviewWorkspace.DataOrigin.REAL_DERIVED
+        )
+        if data_origin not in models.ReviewWorkspace.DataOrigin.values:
+            return Response({"detail": "Unsupported data_origin."}, status=400)
+        workspace = models.ReviewWorkspace.objects.create(
+            label=label,
+            owner=request.user,
+            data_origin=data_origin,
+        )
         record_event(
             action="review_workspace_created",
             entity_type="review_workspace",
@@ -156,6 +198,8 @@ class ReviewWorkspaceDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, workspace_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
         workspace = _workspace_for_user(workspace_id, request.user)
         return Response(ReviewWorkspaceSerializer(workspace).data)
 
@@ -165,7 +209,21 @@ class ReviewWorkspaceUploadView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request, workspace_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
         workspace = _workspace_for_user(workspace_id, request.user)
+        if workspace.data_origin == models.ReviewWorkspace.DataOrigin.REAL_DERIVED:
+            try:
+                assert_real_upload_backend_ready()
+            except ImproperlyConfigured as exc:
+                record_event(
+                    action="real_upload_blocked",
+                    entity_type="review_workspace",
+                    entity_id=workspace.external_id,
+                    actor=_actor(request),
+                    metadata={"reason": str(exc), "workspace_id": workspace.external_id},
+                )
+                return Response({"detail": str(exc)}, status=503)
         files = request.FILES.getlist("files")
         if not files:
             return Response({"detail": "Upload at least one file."}, status=400)
@@ -193,6 +251,11 @@ class ReviewWorkspaceUploadView(APIView):
                 file_size=uploaded_file.size,
                 sha256=digest,
                 storage_path=relative_secure_path(target),
+                processing_metadata={
+                    "extraction_version": "extraction.v2",
+                    "review_schema_version": "reviewed_client_state.v1",
+                    "artifact_version": "secure_upload_artifact.v1",
+                },
             )
             models.ProcessingJob.objects.create(workspace=workspace, document=document)
             uploaded.append({"filename": uploaded_file.name, "document_id": document.id})
@@ -213,6 +276,8 @@ class ReviewDocumentRetryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, workspace_id: str, document_id: int):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
         workspace = _workspace_for_user(workspace_id, request.user)
         document = get_object_or_404(workspace.documents, pk=document_id)
         pending = document.processing_jobs.filter(
@@ -235,7 +300,7 @@ class ReviewDocumentRetryView(APIView):
             entity_type="review_document",
             entity_id=str(document.id),
             actor=_actor(request),
-            metadata={"workspace_id": workspace.external_id},
+            metadata={"workspace_id": workspace.external_id, "document_status": document.status},
         )
         return Response({"job_id": job.id, "status": job.status})
 
@@ -244,6 +309,8 @@ class ReviewWorkspaceFactsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, workspace_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
         workspace = _workspace_for_user(workspace_id, request.user)
         facts = workspace.extracted_facts.select_related("document")
         return Response(ExtractedFactSerializer(facts, many=True).data)
@@ -253,6 +320,8 @@ class ReviewWorkspaceStateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, workspace_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
         workspace = _workspace_for_user(workspace_id, request.user)
         if not workspace.reviewed_state:
             workspace.reviewed_state = reviewed_state_from_workspace(workspace)
@@ -261,16 +330,30 @@ class ReviewWorkspaceStateView(APIView):
         return Response({"state": workspace.reviewed_state, "readiness": workspace.readiness})
 
     def patch(self, request, workspace_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
         workspace = _workspace_for_user(workspace_id, request.user)
         patch = request.data.get("state", request.data)
-        state = apply_state_patch(workspace.reviewed_state or {}, patch)
+        reason = request.data.get("reason", "").strip()
+        if request.data.get("requires_reason") and not reason:
+            return Response({"detail": "Reason is required for this review edit."}, status=400)
+        previous_state = workspace.reviewed_state or {}
+        state = apply_state_patch(previous_state, patch)
         version = create_state_version(workspace, user=request.user, state=state)
         record_event(
             action="review_state_edited",
             entity_type="review_workspace",
             entity_id=workspace.external_id,
             actor=_actor(request),
-            metadata={"version": version.version},
+            metadata={
+                "version": version.version,
+                "workspace_id": workspace.external_id,
+                "changed_paths": sorted(patch.keys()),
+                "old_state_hash": _hash_json(previous_state),
+                "new_state_hash": _hash_json(state),
+                "reason_present": bool(reason),
+                "source_fact_ids": request.data.get("source_fact_ids", []),
+            },
         )
         return Response({"state": workspace.reviewed_state, "readiness": workspace.readiness})
 
@@ -279,18 +362,47 @@ class ReviewWorkspaceSectionApprovalView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, workspace_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
         workspace = _workspace_for_user(workspace_id, request.user)
         section = request.data.get("section", "")
         status_value = request.data.get("status", models.SectionApproval.Status.APPROVED)
         if not section:
             return Response({"detail": "section is required."}, status=400)
+        if section not in ENGINE_REQUIRED_SECTIONS:
+            return Response({"detail": "Unsupported review section."}, status=400)
+        if status_value not in models.SectionApproval.Status.values:
+            return Response({"detail": "Unsupported approval status."}, status=400)
+        state = workspace.reviewed_state or reviewed_state_from_workspace(workspace)
+        blockers = section_blockers(state, section)
+        if status_value == models.SectionApproval.Status.APPROVED and blockers:
+            return Response(
+                {
+                    "detail": (
+                        "Plain approval is blocked while required data, conflicts, "
+                        "or unknowns remain."
+                    ),
+                    "blockers": blockers,
+                },
+                status=400,
+            )
+        notes = request.data.get("notes", "")
+        if (
+            status_value
+            in {
+                models.SectionApproval.Status.APPROVED_WITH_UNKNOWNS,
+                models.SectionApproval.Status.NOT_READY,
+            }
+            and not notes.strip()
+        ):
+            return Response({"detail": "Approval notes are required for this status."}, status=400)
         approval, _ = models.SectionApproval.objects.update_or_create(
             workspace=workspace,
             section=section,
             defaults={
                 "status": status_value,
-                "notes": request.data.get("notes", ""),
-                "data": request.data.get("data", {}),
+                "notes": notes,
+                "data": {**request.data.get("data", {}), "blockers": blockers},
                 "approved_by": request.user,
                 "approved_at": timezone.now(),
             },
@@ -300,7 +412,13 @@ class ReviewWorkspaceSectionApprovalView(APIView):
             entity_type="review_workspace",
             entity_id=workspace.external_id,
             actor=_actor(request),
-            metadata={"section": approval.section, "status": approval.status},
+            metadata={
+                "workspace_id": workspace.external_id,
+                "section": approval.section,
+                "status": approval.status,
+                "blocker_count": len(blockers),
+                "notes_present": bool(notes.strip()),
+            },
         )
         return Response(
             ReviewWorkspaceSerializer(_review_workspace_queryset().get(pk=workspace.pk)).data
@@ -311,6 +429,8 @@ class ReviewWorkspaceMatchView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, workspace_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
         workspace = _workspace_for_user(workspace_id, request.user)
         candidates = match_candidates(workspace)
         workspace.match_candidates = candidates
@@ -322,6 +442,8 @@ class ReviewWorkspaceCommitView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, workspace_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
         workspace = _workspace_for_user(workspace_id, request.user)
         household = None
         if household_id := request.data.get("household_id"):
@@ -342,16 +464,30 @@ class ReviewWorkspaceCommitView(APIView):
         )
 
 
+class ReviewWorkspaceManualReconcileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, workspace_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        workspace = _workspace_for_user(workspace_id, request.user)
+        job = enqueue_reconcile(workspace)
+        record_event(
+            action="review_manual_reconcile_queued",
+            entity_type="review_workspace",
+            entity_id=workspace.external_id,
+            actor=_actor(request),
+            metadata={"workspace_id": workspace.external_id, "job_id": job.id},
+        )
+        return Response({"job_id": job.id, "status": job.status})
+
+
 def _households_visible_to_user(user):
-    if not getattr(user, "is_authenticated", False):
-        return models.Household.objects.none()
-    return models.Household.objects.filter(Q(owner=user) | Q(owner__isnull=True))
+    return team_households(user)
 
 
 def _households_owned_by_user(user):
-    if not getattr(user, "is_authenticated", False):
-        return models.Household.objects.none()
-    return models.Household.objects.filter(owner=user)
+    return linkable_households(user)
 
 
 def _household_queryset(user):
@@ -374,7 +510,10 @@ def _review_workspace_queryset():
 
 
 def _workspace_for_user(workspace_id: str, user):
-    return get_object_or_404(_review_workspace_queryset(), external_id=workspace_id, owner=user)
+    return get_object_or_404(
+        _review_workspace_queryset().filter(pk__in=team_workspaces(user).values("pk")),
+        external_id=workspace_id,
+    )
 
 
 def _session_payload(request) -> dict:  # noqa: ANN001
@@ -386,7 +525,9 @@ def _session_payload(request) -> dict:  # noqa: ANN001
             "user": {
                 "email": user.email or user.get_username(),
                 "name": user.get_full_name() or user.get_username(),
-                "role": "local_advisor_admin" if user.is_staff else "local_advisor",
+                "role": role_for_user(user),
+                "team": user_team_slug(user),
+                "engine_enabled": getattr(settings, "MP20_ENGINE_ENABLED", True),
             },
         }
     return {"authenticated": False, "csrf_token": get_token(request), "user": None}
@@ -396,3 +537,8 @@ def _actor(request) -> str:  # noqa: ANN001
     if getattr(request, "user", None) and request.user.is_authenticated:
         return request.user.get_username()
     return "phase_one_admin"
+
+
+def _hash_json(value: object) -> str:
+    payload = json.dumps(value, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()

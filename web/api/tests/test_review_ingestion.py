@@ -7,6 +7,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.test import override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
@@ -14,8 +15,10 @@ from web.api import models
 from web.api.review_processing import (
     _json_payload_from_model_text,
     claim_next_job,
+    enqueue_reconcile,
     ensure_bedrock_configured,
     process_job,
+    record_worker_heartbeat,
 )
 from web.api.review_redaction import (
     redact_evidence_quote,
@@ -100,6 +103,14 @@ def test_bedrock_json_payload_accepts_fenced_response() -> None:
     assert payload["facts"][0]["field"] == "household.display_name"
 
 
+def test_bedrock_json_payload_repairs_trailing_commas() -> None:
+    payload = _json_payload_from_model_text(
+        '{"facts": [{"field": "household.display_name", "value": "Demo",}],}'
+    )
+
+    assert payload["facts"][0]["value"] == "Demo"
+
+
 @pytest.mark.django_db
 def test_session_reports_authenticated_user_after_login() -> None:
     _user()
@@ -125,7 +136,11 @@ def test_authenticated_upload_deduplicates_and_enqueues(tmp_path, settings) -> N
     user = _user()
     client = APIClient()
     client.force_authenticate(user=user)
-    workspace = models.ReviewWorkspace.objects.create(label="Real review", owner=user)
+    workspace = models.ReviewWorkspace.objects.create(
+        label="Synthetic review",
+        owner=user,
+        data_origin=models.ReviewWorkspace.DataOrigin.SYNTHETIC,
+    )
 
     upload = SimpleUploadedFile("notes.txt", b"Retirement goal in five years.")
     response = client.post(
@@ -149,6 +164,47 @@ def test_authenticated_upload_deduplicates_and_enqueues(tmp_path, settings) -> N
     assert response.status_code == 200
     assert len(response.json()["duplicates"]) == 1
     assert workspace.documents.count() == 1
+
+
+@pytest.mark.django_db
+def test_real_upload_rejects_sqlite_queue_path(tmp_path, settings) -> None:
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    settings.MP20_REQUIRE_POSTGRES_FOR_REAL_UPLOADS = True
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(label="Real review", owner=user)
+
+    response = client.post(
+        reverse("review-workspace-upload", args=[workspace.external_id]),
+        {"files": [SimpleUploadedFile("notes.txt", b"Real client note.")]},
+        format="multipart",
+    )
+
+    assert response.status_code == 503
+    assert "requires PostgreSQL" in response.json()["detail"]
+    assert workspace.documents.count() == 0
+    assert AuditEvent.objects.filter(action="real_upload_blocked").exists()
+
+
+@pytest.mark.django_db
+def test_engine_kill_switch_blocks_generation(settings) -> None:
+    settings.MP20_ENGINE_ENABLED = False
+    user = _user()
+    household = models.Household.objects.create(
+        external_id="kill_switch_household",
+        owner=user,
+        display_name="Kill Switch Household",
+        household_type="single",
+        household_risk_score=3,
+    )
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    response = client.post(reverse("generate-portfolio", args=[household.external_id]), {})
+
+    assert response.status_code == 403
+    assert AuditEvent.objects.filter(action="engine_kill_switch_blocked").exists()
 
 
 @pytest.mark.django_db
@@ -215,6 +271,35 @@ def test_worker_processes_synthetic_text_document(tmp_path, settings) -> None:
     assert workspace.extracted_facts.exists()
 
 
+@pytest.mark.django_db
+def test_reconcile_queue_suppresses_duplicate_pending_jobs() -> None:
+    user = _user()
+    workspace = models.ReviewWorkspace.objects.create(label="Reconcile review", owner=user)
+
+    first = enqueue_reconcile(workspace)
+    second = enqueue_reconcile(workspace)
+
+    assert first.id == second.id
+    assert (
+        workspace.processing_jobs.filter(
+            job_type=models.ProcessingJob.JobType.RECONCILE_WORKSPACE
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_worker_heartbeat_records_current_job() -> None:
+    user = _user()
+    workspace = models.ReviewWorkspace.objects.create(label="Heartbeat review", owner=user)
+    job = models.ProcessingJob.objects.create(workspace=workspace)
+
+    heartbeat = record_worker_heartbeat(name="pytest-worker", current_job=job)
+
+    assert heartbeat.name == "pytest-worker"
+    assert heartbeat.current_job == job
+
+
 def test_readiness_requires_goal_account_mapping() -> None:
     state = {
         "household": {
@@ -240,6 +325,50 @@ def test_readiness_requires_goal_account_mapping() -> None:
 
     assert not readiness.engine_ready
     assert any(item["section"] == "goal_account_mapping" for item in readiness.missing)
+
+
+@pytest.mark.django_db
+def test_plain_section_approval_is_blocked_with_missing_data() -> None:
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(
+        label="Incomplete review",
+        owner=user,
+        reviewed_state={
+            "household": {"display_name": "", "household_type": "couple"},
+            "people": [],
+            "accounts": [],
+            "goals": [],
+            "goal_account_links": [],
+            "risk": {},
+        },
+    )
+
+    response = client.post(
+        reverse("review-workspace-approve-section", args=[workspace.external_id]),
+        {"section": "household", "status": "approved"},
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["blockers"][0]["kind"] == "missing"
+
+
+@pytest.mark.django_db
+def test_commit_requires_required_section_approvals() -> None:
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(label="Ready review", owner=user)
+    workspace.reviewed_state = _engine_ready_state()
+    workspace.readiness = readiness_for_state(workspace.reviewed_state).__dict__
+    workspace.save()
+
+    response = client.post(reverse("review-workspace-commit", args=[workspace.external_id]), {})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Required review sections are not approved."
 
 
 @pytest.mark.django_db
@@ -389,6 +518,7 @@ def test_commit_requires_engine_ready_and_creates_household(tmp_path, settings) 
     workspace.reviewed_state = _engine_ready_state()
     workspace.readiness = readiness_for_state(workspace.reviewed_state).__dict__
     workspace.save()
+    _approve_required_sections(workspace, user)
 
     response = client.post(reverse("review-workspace-commit", args=[workspace.external_id]), {})
 
@@ -416,6 +546,7 @@ def test_committed_workspace_cannot_relink_to_different_household(tmp_path, sett
     workspace.reviewed_state = _engine_ready_state()
     workspace.readiness = readiness_for_state(workspace.reviewed_state).__dict__
     workspace.save()
+    _approve_required_sections(workspace, user)
     first_response = client.post(
         reverse("review-workspace-commit", args=[workspace.external_id]), {}
     )
@@ -439,6 +570,32 @@ def test_committed_workspace_cannot_relink_to_different_household(tmp_path, sett
         second_response.json()["detail"]
         == "Review workspace is already committed to another household."
     )
+
+
+@pytest.mark.django_db
+def test_disposal_command_reports_and_deletes_outdated_artifacts(tmp_path, settings) -> None:
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    user = _user()
+    workspace = models.ReviewWorkspace.objects.create(label="Disposal review", owner=user)
+    storage_dir = Path(settings.MP20_SECURE_DATA_ROOT) / "review-workspaces" / workspace.external_id
+    storage_dir.mkdir(parents=True)
+    source = storage_dir / "old.txt"
+    source.write_text("old artifact")
+    document = models.ReviewDocument.objects.create(
+        workspace=workspace,
+        original_filename="old.txt",
+        extension="txt",
+        file_size=source.stat().st_size,
+        sha256="old",
+        storage_path=f"review-workspaces/{workspace.external_id}/old.txt",
+        processing_metadata={"artifact_version": "old"},
+    )
+
+    call_command("dispose_review_artifacts", "--delete")
+
+    assert not source.exists()
+    assert models.ReviewDocument.objects.get(pk=document.pk).storage_path
+    assert AuditEvent.objects.filter(action="review_artifact_disposal_delete").exists()
 
 
 def _user():
@@ -471,3 +628,13 @@ def _engine_ready_state() -> dict:
         ],
         "risk": {"household_score": 3},
     }
+
+
+def _approve_required_sections(workspace: models.ReviewWorkspace, user) -> None:
+    for section in ("household", "people", "accounts", "goals", "goal_account_mapping", "risk"):
+        models.SectionApproval.objects.create(
+            workspace=workspace,
+            section=section,
+            status=models.SectionApproval.Status.APPROVED,
+            approved_by=user,
+        )

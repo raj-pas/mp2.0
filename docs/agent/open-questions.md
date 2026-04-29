@@ -17,7 +17,7 @@ real-derived outputs.
 | Purpose data-classification tier for client PII | Purpose IT | REAL-PII BLOCKER; validates or tightens storage/logging defaults |
 | Per-persona pseudonym mapping storage mechanism | Raj | Must be chosen before first real file |
 | Quasi-identifier handling during pseudonymization | Lori + Raj | Affects extraction quality and privacy risk |
-| Real-PII retention/disposal trigger | Team | Working default is delete on version bump unless retained with reason |
+| Real-PII retention/disposal trigger | Team | Local version-bump disposal/report command exists; legal/IT policy trigger still open |
 | Som/IS demo audience handling for quasi-identifiers | Lori | Confirm before any real-derived persona is shown |
 | Lori backup for the Croesus/file-drop data path | Lori + team | Needed before offsite kickoff / Phase A execution |
 

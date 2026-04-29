@@ -135,6 +135,7 @@ function App() {
           ) : selectedClient.data ? (
             <AdvisorWorkspace
               client={selectedClient.data}
+              error={portfolioMutation.error?.message}
               output={currentOutput}
               isGenerating={portfolioMutation.isPending}
               onGenerate={() => portfolioMutation.mutate()}
@@ -313,7 +314,7 @@ function ClientList({
               </div>
               <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
                 <span>{client.goal_count} goals</span>
-                <span>{currency.format(client.total_assets)}</span>
+                <span>{formatCurrency(client.total_assets)}</span>
               </div>
             </button>
           ))
@@ -328,11 +329,13 @@ function ClientList({
 function AdvisorWorkspace({
   client,
   output,
+  error,
   isGenerating,
   onGenerate,
 }: {
   client: HouseholdDetail;
   output: EngineOutput | null;
+  error?: string;
   isGenerating: boolean;
   onGenerate: () => void;
 }) {
@@ -349,9 +352,10 @@ function AdvisorWorkspace({
           {isGenerating ? "Generating" : "Generate Portfolio"}
         </Button>
       </header>
+      {error ? <div className="rounded-md bg-[#ffe0d2] px-4 py-3 text-sm text-[#7d3b20]">{error}</div> : null}
 
       <div className="grid grid-cols-4 gap-3 max-xl:grid-cols-2 max-sm:grid-cols-1">
-        <Metric label="Total Assets" value={currency.format(client.total_assets)} />
+        <Metric label="Total Assets" value={formatCurrency(client.total_assets)} />
         <Metric label="Household Risk" value={`${client.household_risk_score}/10`} />
         <Metric label="Goals" value={String(client.goals.length)} />
         <Metric label="Accounts" value={String(client.accounts.length)} />
@@ -406,9 +410,21 @@ function GoalsPanel({ goals }: { goals: Goal[] }) {
             <div>
               <div className="font-semibold">{goal.name}</div>
               <div className="mt-1 text-sm text-slate-600">{goal.notes}</div>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                {goal.account_allocations.length ? (
+                  goal.account_allocations.map((link) => (
+                    <span className="rounded-full bg-mist px-2 py-1" key={`${link.goal_id}-${link.account_id}`}>
+                      Account link {link.account_id}
+                      {link.allocated_amount ? ` · ${formatCurrency(link.allocated_amount)}` : ""}
+                    </span>
+                  ))
+                ) : (
+                  <span className="rounded-full bg-slate-100 px-2 py-1">No account mapping</span>
+                )}
+              </div>
             </div>
             <div className="text-right max-sm:text-left">
-              <div className="font-semibold">{currency.format(Number(goal.target_amount))}</div>
+              <div className="font-semibold">{formatCurrency(goal.target_amount)}</div>
               <div className="mt-1 text-xs uppercase tracking-wider text-slate-500">
                 {goal.target_date} · necessity {goal.necessity_score}/5
               </div>
@@ -435,17 +451,17 @@ function AccountsPanel({ accounts }: { accounts: Account[] }) {
                 </div>
               </div>
               <div className="text-right">
-                <div className="font-semibold">{currency.format(Number(account.current_value))}</div>
+                <div className="font-semibold">{formatCurrency(account.current_value)}</div>
                 <RiskBadge rating={account.regulatory_risk_rating} />
               </div>
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2 max-md:grid-cols-1">
-              {account.holdings.map((holding) => (
+              {account.holdings.length ? account.holdings.map((holding) => (
                 <div className="rounded-md bg-[#fbfaf5] px-3 py-2 text-sm" key={holding.sleeve_id}>
                   <div className="font-medium">{holding.sleeve_name}</div>
-                  <div className="text-slate-500">{percent.format(Number(holding.weight))}</div>
+                  <div className="text-slate-500">{formatPercent(holding.weight)}</div>
                 </div>
-              ))}
+              )) : <div className="rounded-md bg-[#fbfaf5] px-3 py-2 text-sm text-slate-500">Holdings not available</div>}
             </div>
           </div>
         ))}
@@ -569,6 +585,16 @@ function EmptyState({ label }: { label: string }) {
       {label}
     </div>
   );
+}
+
+function formatCurrency(value: unknown): string {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? currency.format(numeric) : "Not available";
+}
+
+function formatPercent(value: unknown): string {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? percent.format(numeric) : "Not available";
 }
 
 export default App;
