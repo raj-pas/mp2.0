@@ -37,6 +37,10 @@ passed:
 - `uv run ruff check .`
 - `uv run pytest`
 - `npm run build`
+- Browser E2E using Chrome headless and `ike-agent/.env` AWS/Bedrock
+  credentials: login -> workspace -> browser upload -> worker/Bedrock extraction
+  -> facts -> engine_ready -> section approval -> match -> create household ->
+  client detail.
 
 Implemented pieces:
 
@@ -55,9 +59,10 @@ Implemented pieces:
 - review UI includes login, workspace creation, upload/status, active job list,
   facts, quick-fill edits, section approvals, readiness, match candidates, retry,
   and link-or-create commit
+- Browser E2E uncovered and fixed session auth reporting, tolerant Bedrock JSON
+  parsing, indexed fact reconciliation, and scalar sensitive-ID redaction.
 
-This tranche should be committed locally after checks pass; do not push unless
-explicitly asked.
+This tranche has local commits only; do not push unless explicitly asked.
 
 ## Canon v2.3 Context To Carry Forward
 

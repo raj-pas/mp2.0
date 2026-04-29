@@ -14,7 +14,8 @@ _CREDIT_CARD_PATTERN = re.compile(
 _SIN_PATTERN = re.compile(r"(?<!\$)(?<!#)(?<!\d)\b\d{3}[-\s]\d{3}[-\s]\d{3}\b(?!\s*%)(?!\d)")
 _SSN_PATTERN = re.compile(r"(?<!\$)(?<!#)(?<!\d)\b\d{3}[-\s]\d{2}[-\s]\d{4}\b(?!\s*%)(?!\d)")
 _ACCOUNT_PATTERN = re.compile(
-    r"(?i)(?:account|acct)[\s.]*(?:no|number|num|#)?[\s.:]*(?!T\d{4}\b)(?!TP-\d)[A-Z]*[-]?\d{5,}"
+    r"(?i)(?:account|acct)(?:\s*(?:no|number|num))?[\s.:#]+"
+    r"(?!T\d{4}\b)(?!TP-\d)(?=[A-Z0-9_-]*\d)[A-Z0-9_-]{5,}"
 )
 
 _REDACTION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -79,6 +80,17 @@ def sanitize_sensitive_identifier_values(value: Any) -> Any:
     return value
 
 
+def sanitize_fact_value(field: str, value: Any) -> Any:
+    if _is_sensitive_identifier_key(_leaf_field_name(field)) and value is not None and value != "":
+        if isinstance(value, (str, int, float)):
+            raw = str(value)
+            return {
+                "hash": sensitive_identifier_hash(raw),
+                "display": redacted_identifier_display(raw),
+            }
+    return sanitize_sensitive_identifier_values(value)
+
+
 def _is_sensitive_identifier_key(key: str) -> bool:
     normalized = key.lower().replace("-", "_").replace(" ", "_")
     return normalized in {
@@ -93,3 +105,7 @@ def _is_sensitive_identifier_key(key: str) -> bool:
         "client_identifier",
         "government_id",
     }
+
+
+def _leaf_field_name(field: str) -> str:
+    return field.rsplit(".", 1)[-1]

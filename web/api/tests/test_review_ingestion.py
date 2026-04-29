@@ -10,15 +10,21 @@ from django.test import override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 from web.api import models
-from web.api.review_processing import claim_next_job, ensure_bedrock_configured, process_job
+from web.api.review_processing import (
+    _json_payload_from_model_text,
+    claim_next_job,
+    ensure_bedrock_configured,
+    process_job,
+)
 from web.api.review_redaction import (
     redact_evidence_quote,
     redacted_identifier_display,
+    sanitize_fact_value,
     sanitize_sensitive_identifier_values,
     sensitive_identifier_hash,
 )
 from web.api.review_security import secure_data_root
-from web.api.review_state import readiness_for_state
+from web.api.review_state import readiness_for_state, reviewed_state_from_workspace
 from web.audit.models import AuditEvent
 
 
@@ -64,6 +70,13 @@ def test_sensitive_identifier_values_are_hash_and_display_only() -> None:
     assert sanitized["nested"][0]["sin"]["display"] == "****6789"
 
 
+def test_sensitive_scalar_fact_value_is_hash_and_display_only() -> None:
+    sanitized = sanitize_fact_value("accounts[0].account_number", "12345ABC")
+
+    assert sanitized["display"] == "****5ABC"
+    assert sanitized["hash"] != "12345ABC"
+
+
 def test_bedrock_config_fails_closed(monkeypatch) -> None:
     monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
     monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
@@ -71,6 +84,33 @@ def test_bedrock_config_fails_closed(monkeypatch) -> None:
 
     with pytest.raises(ImproperlyConfigured):
         ensure_bedrock_configured()
+
+
+def test_bedrock_json_payload_accepts_fenced_response() -> None:
+    payload = _json_payload_from_model_text(
+        "Here is the JSON:\n"
+        '```json\n{"facts": [{"field": "household.display_name", "value": "Demo"}]}\n```'
+    )
+
+    assert payload["facts"][0]["field"] == "household.display_name"
+
+
+@pytest.mark.django_db
+def test_session_reports_authenticated_user_after_login() -> None:
+    _user()
+    client = APIClient()
+
+    login_response = client.post(
+        reverse("local-login"),
+        {"email": "advisor@example.com", "password": "pw"},
+        format="json",
+    )
+    session_response = client.get(reverse("session"))
+
+    assert login_response.status_code == 200
+    assert login_response.json()["authenticated"] is True
+    assert session_response.status_code == 200
+    assert session_response.json()["authenticated"] is True
 
 
 @pytest.mark.django_db
@@ -195,6 +235,47 @@ def test_readiness_requires_goal_account_mapping() -> None:
 
     assert not readiness.engine_ready
     assert any(item["section"] == "goal_account_mapping" for item in readiness.missing)
+
+
+@pytest.mark.django_db
+def test_indexed_extracted_facts_reconcile_to_reviewed_state() -> None:
+    user = _user()
+    workspace = models.ReviewWorkspace.objects.create(label="Indexed facts", owner=user)
+    document = models.ReviewDocument.objects.create(
+        workspace=workspace,
+        original_filename="statement.txt",
+        extension="txt",
+        file_size=1,
+        sha256="indexed",
+        document_type="statement",
+    )
+    facts = {
+        "people[0].display_name": "Indexed Client",
+        "people[0].age": 62,
+        "accounts[0].account_type": "RRSP",
+        "accounts[0].current_value": 250000,
+        "accounts[0].missing_holdings_confirmed": True,
+        "goals[0].name": "Retirement",
+        "goals[0].time_horizon_years": 5,
+        "goal_account_links[0].goal_name": "Retirement",
+        "goal_account_links[0].allocated_value": 250000,
+    }
+    for field, value in facts.items():
+        models.ExtractedFact.objects.create(
+            workspace=workspace,
+            document=document,
+            field=field,
+            value=value,
+            extraction_run_id="test",
+        )
+
+    state = reviewed_state_from_workspace(workspace)
+
+    assert state["people"][0]["name"] == "Indexed Client"
+    assert state["accounts"][0]["type"] == "RRSP"
+    assert state["goals"][0]["name"] == "Retirement"
+    assert state["goal_account_links"][0]["account_id"] == state["accounts"][0]["id"]
+    assert state["readiness"]["engine_ready"] is True
 
 
 @pytest.mark.django_db

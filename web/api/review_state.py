@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
@@ -54,15 +55,55 @@ def reviewed_state_from_workspace(workspace: models.ReviewWorkspace) -> dict[str
         _value(current_facts, "risk.household_score", 3) or 3
     )
 
-    people = _value(current_facts, "people", [])
-    accounts = _value(current_facts, "accounts", [])
-    goals = _value(current_facts, "goals", [])
-    links = _value(current_facts, "goal_account_links", [])
+    people = _value(
+        current_facts,
+        "people",
+        _indexed_items(current_facts, "people", {"display_name": "name", "full_name": "name"}),
+    )
+    accounts = _value(
+        current_facts,
+        "accounts",
+        _indexed_items(
+            current_facts,
+            "accounts",
+            {
+                "account_type": "type",
+                "account_value": "current_value",
+                "market_value": "current_value",
+            },
+        ),
+    )
+    goals = _value(
+        current_facts,
+        "goals",
+        _indexed_items(
+            current_facts,
+            "goals",
+            {
+                "goal_name": "name",
+                "horizon_years": "time_horizon_years",
+                "time_horizon": "time_horizon_years",
+            },
+        ),
+    )
+    links = _value(
+        current_facts,
+        "goal_account_links",
+        _indexed_items(
+            current_facts,
+            "goal_account_links",
+            {
+                "allocated_value": "allocated_amount",
+                "allocation_value": "allocated_amount",
+            },
+        ),
+    )
 
     state["people"] = people if isinstance(people, list) else []
     state["accounts"] = accounts if isinstance(accounts, list) else []
     state["goals"] = goals if isinstance(goals, list) else []
     state["goal_account_links"] = links if isinstance(links, list) else []
+    _normalize_reviewed_relationships(state)
     state["risk"]["household_score"] = state["household"]["household_risk_score"]
     state["source_summary"] = _source_summary(workspace)
     state["conflicts"] = _conflicts(workspace)
@@ -248,6 +289,54 @@ def _fact_sort_key(fact: models.ExtractedFact) -> tuple[int, int, float]:
 def _value(current_facts: dict[str, models.ExtractedFact], field: str, default: Any) -> Any:
     fact = current_facts.get(field)
     return fact.value if fact is not None else default
+
+
+def _indexed_items(
+    current_facts: dict[str, models.ExtractedFact],
+    prefix: str,
+    aliases: dict[str, str],
+) -> list[dict[str, Any]]:
+    pattern = re.compile(rf"^{re.escape(prefix)}\[(?P<index>\d+)\]\.(?P<field>.+)$")
+    grouped: dict[int, dict[str, Any]] = {}
+    for field, fact in current_facts.items():
+        match = pattern.match(field)
+        if not match:
+            continue
+        index = int(match.group("index"))
+        name = aliases.get(match.group("field"), match.group("field"))
+        grouped.setdefault(index, {})[name] = fact.value
+    return [grouped[index] for index in sorted(grouped)]
+
+
+def _normalize_reviewed_relationships(state: dict[str, Any]) -> None:
+    for index, person in enumerate(state["people"], start=1):
+        person.setdefault("id", _safe_external_id("review_person", person.get("name"), index))
+
+    for index, account in enumerate(state["accounts"], start=1):
+        account.setdefault("id", _safe_external_id("review_account", account.get("type"), index))
+        if "account_number" in account:
+            account.setdefault("source_account_identifier", account["account_number"])
+
+    for index, goal in enumerate(state["goals"], start=1):
+        goal.setdefault("id", _safe_external_id("review_goal", goal.get("name"), index))
+
+    first_account_id = state["accounts"][0]["id"] if state["accounts"] else None
+    first_goal_id = state["goals"][0]["id"] if state["goals"] else None
+    goals_by_name = {
+        _normalize(str(goal.get("name", ""))): goal["id"]
+        for goal in state["goals"]
+        if goal.get("name")
+    }
+    for link in state["goal_account_links"]:
+        if "goal_id" not in link and link.get("goal_name"):
+            link["goal_id"] = goals_by_name.get(_normalize(str(link["goal_name"])), first_goal_id)
+        link.setdefault("goal_id", first_goal_id)
+        link.setdefault("account_id", first_account_id)
+
+
+def _safe_external_id(prefix: str, value: Any, index: int) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", str(value or "").lower()).strip("_")
+    return f"{prefix}_{slug or index}"
 
 
 def _empty_state() -> dict[str, Any]:

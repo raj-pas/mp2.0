@@ -69,3 +69,20 @@
 - Updated README, `.env.example`, `CLAUDE.md`, and agent memory for the new
   secure-local workflow and safety rules.
 - Verification passed: `uv run ruff check .`, `uv run pytest`, `npm run build`.
+
+## 2026-04-28 — Browser E2E Review Flow Verified
+
+- Ran a complete Chrome-headless browser E2E using synthetic upload content and
+  AWS/Bedrock credentials loaded from `ike-agent/.env` without printing secrets.
+- Flow covered: local login, review workspace creation, browser upload, worker
+  processing, Bedrock extraction, visible extracted facts, `engine_ready`,
+  section approval, match step, create-household commit, and client detail.
+- Final E2E evidence showed committed workspace
+  `review_58042dfd-b4a7-456f-a384-85f35c147c6e` with one account and one goal;
+  screenshot saved at `/tmp/mp20-e2e-final.png`.
+- E2E uncovered and fixed: session endpoint not reporting authenticated sessions,
+  strict Bedrock JSON parsing, inability to reconcile indexed fact paths like
+  `accounts[0].current_value`, and scalar sensitive identifier values not being
+  hashed/redacted.
+- Verification after fixes passed: `uv run ruff check .`, `uv run ruff format
+  --check .`, `uv run pytest`, and `npm run build`.

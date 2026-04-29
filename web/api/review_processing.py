@@ -18,7 +18,7 @@ from web.api import models
 from web.api.review_redaction import (
     pii_detection_summary,
     redact_evidence_quote,
-    sanitize_sensitive_identifier_values,
+    sanitize_fact_value,
 )
 from web.api.review_security import secure_data_root
 from web.api.review_state import create_state_version, reviewed_state_from_workspace
@@ -145,7 +145,7 @@ def process_document(document: models.ReviewDocument) -> None:
             workspace=document.workspace,
             document=document,
             field=fact["field"],
-            value=sanitize_sensitive_identifier_values(fact["value"]),
+            value=sanitize_fact_value(fact["field"], fact["value"]),
             asserted_at=fact.get("asserted_at") or None,
             confidence=fact.get("confidence", "medium"),
             derivation_method=fact.get("derivation_method", "extracted"),
@@ -318,10 +318,7 @@ def _fact_extraction_prompt(*, document: models.ReviewDocument, text: str) -> st
 
 def _facts_from_bedrock_response(response, extraction_run_id: str) -> list[dict[str, Any]]:  # noqa: ANN001
     content = "".join(block.text for block in response.content if hasattr(block, "text"))
-    try:
-        payload = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise ValueError("Bedrock extraction did not return valid JSON.") from exc
+    payload = _json_payload_from_model_text(content)
     facts = payload.get("facts", [])
     if not isinstance(facts, list):
         raise ValueError("Bedrock extraction JSON must include facts list.")
@@ -330,6 +327,20 @@ def _facts_from_bedrock_response(response, extraction_run_id: str) -> list[dict[
         fact.setdefault("confidence", "medium")
         fact.setdefault("derivation_method", "extracted")
     return facts
+
+
+def _json_payload_from_model_text(content: str) -> dict[str, Any]:
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as exc:
+        start = content.find("{")
+        end = content.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("Bedrock extraction did not return valid JSON.") from exc
+        try:
+            return json.loads(content[start : end + 1])
+        except json.JSONDecodeError as nested_exc:
+            raise ValueError("Bedrock extraction did not return valid JSON.") from nested_exc
 
 
 def _visual_content_blocks(document: models.ReviewDocument) -> list[dict[str, Any]]:

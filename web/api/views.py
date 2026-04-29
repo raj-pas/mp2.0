@@ -65,7 +65,7 @@ class LocalLogoutView(APIView):
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")
 class SessionView(APIView):
-    authentication_classes = []
+    permission_classes = [AllowAny]
 
     def get(self, request):  # noqa: ANN001
         record_event(
