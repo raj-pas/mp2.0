@@ -22,7 +22,7 @@ services:
         required: false
     command: >
       sh -c "uv run python web/manage.py migrate &&
-             uv run python web/manage.py seed_fraser_cma &&
+             uv run python web/manage.py seed_default_cma &&
              uv run python web/manage.py load_synthetic_personas &&
              uv run python web/manage.py bootstrap_local_advisor --skip-if-missing &&
              uv run python web/manage.py runserver 0.0.0.0:8000"

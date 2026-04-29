@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
@@ -64,7 +64,16 @@ from web.api.serializers import (
     PortfolioRunSerializer,
     PortfolioRunSummarySerializer,
 )
+from web.audit.models import AuditEvent
 from web.audit.writer import record_event
+
+DEFAULT_CMA_NAME = "Default CMA"
+CMA_AUDIT_ACTIONS = {
+    "cma_snapshot_seeded",
+    "cma_snapshot_draft_created",
+    "cma_snapshot_updated",
+    "cma_snapshot_published",
+}
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -295,6 +304,15 @@ class CMASnapshotListView(APIView):
             return Response(
                 {"detail": "Only financial analysts can create CMA drafts."}, status=403
             )
+        existing_draft = (
+            models.CMASnapshot.objects.filter(status=models.CMASnapshot.Status.DRAFT)
+            .prefetch_related("fund_assumptions", "correlations")
+            .order_by("-version", "-created_at")
+            .first()
+        )
+        if existing_draft is not None:
+            return Response(CMASnapshotSerializer(existing_draft).data)
+
         source_id = request.data.get("copy_from_snapshot_id")
         if source_id:
             source = get_object_or_404(models.CMASnapshot, external_id=source_id)
@@ -305,8 +323,13 @@ class CMASnapshotListView(APIView):
         if source is None:
             return Response({"detail": "No CMA snapshot exists to copy."}, status=400)
 
-        snapshot = _clone_cma_snapshot(source, request.user)
-        _apply_cma_patch(snapshot, request.data)
+        try:
+            with transaction.atomic():
+                snapshot = _clone_cma_snapshot(source, request.user)
+                _apply_cma_patch(snapshot, request.data)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+        snapshot.refresh_from_db()
         record_event(
             action="cma_snapshot_draft_created",
             entity_type="cma_snapshot",
@@ -349,8 +372,13 @@ class CMASnapshotDetailView(APIView):
             return Response({"detail": "Only draft CMA snapshots can be edited."}, status=400)
 
         before_hash = _hash_json(_cma_audit_payload(snapshot))
-        _apply_cma_patch(snapshot, request.data)
+        before_payload = _cma_audit_payload(snapshot)
+        try:
+            _apply_cma_patch(snapshot, request.data)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
         snapshot.refresh_from_db()
+        after_payload = _cma_audit_payload(snapshot)
         after_hash = _hash_json(_cma_audit_payload(snapshot))
         record_event(
             action="cma_snapshot_updated",
@@ -362,6 +390,7 @@ class CMASnapshotDetailView(APIView):
                 "before_hash": before_hash,
                 "after_hash": after_hash,
                 "updated_fields": sorted(request.data.keys()),
+                **_cma_diff(before_payload, after_payload),
             },
         )
         return Response(CMASnapshotSerializer(snapshot).data)
@@ -371,8 +400,11 @@ class CMAActiveView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):  # noqa: ANN001
-        if role_for_user(request.user) not in {"advisor", "financial_analyst"}:
-            return Response({"detail": "Authentication required."}, status=403)
+        if role_for_user(request.user) != "financial_analyst":
+            return Response(
+                {"detail": "Only financial analysts can access active CMA assumptions."},
+                status=403,
+            )
         snapshot = (
             models.CMASnapshot.objects.filter(status=models.CMASnapshot.Status.ACTIVE)
             .prefetch_related("fund_assumptions", "correlations")
@@ -391,26 +423,45 @@ class CMASnapshotPublishView(APIView):
             return Response(
                 {"detail": "Only financial analysts can publish CMA snapshots."}, status=403
             )
+        publish_note = str(request.data.get("publish_note") or "").strip()
+        if not publish_note:
+            return Response({"detail": "Publish note is required."}, status=400)
         snapshot = get_object_or_404(
             models.CMASnapshot.objects.prefetch_related("fund_assumptions", "correlations"),
             external_id=snapshot_id,
         )
-        models.CMASnapshot.objects.filter(status=models.CMASnapshot.Status.ACTIVE).exclude(
-            pk=snapshot.pk
-        ).update(status=models.CMASnapshot.Status.ARCHIVED)
-        snapshot.status = models.CMASnapshot.Status.ACTIVE
-        snapshot.published_by = request.user
-        snapshot.published_at = timezone.now()
-        snapshot.save(update_fields=["status", "published_by", "published_at", "updated_at"])
-        stale_count = models.PortfolioRun.objects.filter(
-            status=models.PortfolioRun.Status.CURRENT
-        ).update(status=models.PortfolioRun.Status.STALE, stale_reason="cma_snapshot_published")
+        if snapshot.status != models.CMASnapshot.Status.DRAFT:
+            return Response({"detail": "Only draft CMA snapshots can be published."}, status=400)
+        try:
+            _validate_cma_snapshot(snapshot)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+
+        with transaction.atomic():
+            models.CMASnapshot.objects.exclude(pk=snapshot.pk).filter(
+                status__in=[
+                    models.CMASnapshot.Status.ACTIVE,
+                    models.CMASnapshot.Status.DRAFT,
+                ]
+            ).update(status=models.CMASnapshot.Status.ARCHIVED)
+            snapshot.status = models.CMASnapshot.Status.ACTIVE
+            snapshot.published_by = request.user
+            snapshot.published_at = timezone.now()
+            snapshot.save(update_fields=["status", "published_by", "published_at", "updated_at"])
+            stale_count = models.PortfolioRun.objects.filter(
+                status=models.PortfolioRun.Status.CURRENT
+            ).update(status=models.PortfolioRun.Status.STALE, stale_reason="cma_snapshot_published")
         record_event(
             action="cma_snapshot_published",
             entity_type="cma_snapshot",
             entity_id=snapshot.external_id,
             actor=_actor(request),
-            metadata={"version": snapshot.version, "stale_portfolio_run_count": stale_count},
+            metadata={
+                "version": snapshot.version,
+                "publish_note": publish_note,
+                "stale_portfolio_run_count": stale_count,
+                "snapshot_hash": _hash_json(_cma_audit_payload(snapshot)),
+            },
         )
         return Response(CMASnapshotSerializer(snapshot).data)
 
@@ -427,37 +478,25 @@ class CMAFrontierView(APIView):
             models.CMASnapshot.objects.prefetch_related("fund_assumptions", "correlations"),
             external_id=snapshot_id,
         )
-        funds = list(snapshot.fund_assumptions.filter(optimizer_eligible=True))
-        fund_ids = [fund.fund_id for fund in funds]
-        correlations = {
-            (cell.row_fund_id, cell.col_fund_id): float(cell.correlation)
-            for cell in snapshot.correlations.all()
-        }
-        frontier = compute_frontier(
-            [float(fund.expected_return) for fund in funds],
-            [float(fund.volatility) for fund in funds],
-            [
-                [
-                    correlations.get((row_id, col_id), 1.0 if row_id == col_id else 0.0)
-                    for col_id in fund_ids
-                ]
-                for row_id in fund_ids
-            ],
-        )
-        return Response(
-            {
-                "snapshot_id": snapshot.external_id,
-                "funds": [{"id": fund.fund_id, "name": fund.name} for fund in funds],
-                "efficient": [
-                    {
-                        "expected_return": point.expected_return,
-                        "volatility": point.volatility,
-                        "weights": point.weights,
-                    }
-                    for point in frontier.efficient
-                ],
-            }
-        )
+        try:
+            payload = _cma_frontier_payload(snapshot)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(payload)
+
+
+class CMAAuditView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):  # noqa: ANN001
+        if role_for_user(request.user) != "financial_analyst":
+            return Response(
+                {"detail": "Only financial analysts can access CMA audit events."}, status=403
+            )
+        events = AuditEvent.objects.filter(action__in=CMA_AUDIT_ACTIONS).order_by("-created_at")[
+            :50
+        ]
+        return Response([_audit_event_payload(event) for event in events])
 
 
 class ReviewWorkspaceListCreateView(APIView):
@@ -895,11 +934,11 @@ def _clone_cma_snapshot(source: models.CMASnapshot, user) -> models.CMASnapshot:
     last_snapshot = models.CMASnapshot.objects.order_by("-version").first()
     version = (last_snapshot.version + 1) if last_snapshot else 1
     snapshot = models.CMASnapshot.objects.create(
-        name=f"{source.name} draft",
+        name=DEFAULT_CMA_NAME,
         version=version,
         status=models.CMASnapshot.Status.DRAFT,
         source=source.source,
-        notes=source.notes,
+        notes="",
         created_by=user,
     )
     for fund in source.fund_assumptions.all():
@@ -928,7 +967,7 @@ def _clone_cma_snapshot(source: models.CMASnapshot, user) -> models.CMASnapshot:
 @transaction.atomic
 def _apply_cma_patch(snapshot: models.CMASnapshot, data) -> None:  # noqa: ANN001
     changed_fields: list[str] = []
-    for field in ("name", "source", "notes"):
+    for field in ("notes",):
         if field in data:
             setattr(snapshot, field, str(data.get(field) or ""))
             changed_fields.append(field)
@@ -936,24 +975,38 @@ def _apply_cma_patch(snapshot: models.CMASnapshot, data) -> None:  # noqa: ANN00
         snapshot.save(update_fields=[*changed_fields, "updated_at"])
 
     fund_payloads = data.get("fund_assumptions")
-    if isinstance(fund_payloads, list):
+    if fund_payloads is not None:
+        if not isinstance(fund_payloads, list):
+            raise ValueError("fund_assumptions must be a list.")
         existing = {fund.fund_id: fund for fund in snapshot.fund_assumptions.all()}
+        payload_ids = [
+            str(fund_payload.get("fund_id") or fund_payload.get("id") or "")
+            for fund_payload in fund_payloads
+        ]
+        if "" in payload_ids or len(payload_ids) != len(set(payload_ids)):
+            raise ValueError("fund_assumptions must include unique fund_id values.")
+        if set(payload_ids) != set(existing):
+            raise ValueError("fund_assumptions must include every existing CMA fund exactly once.")
         for index, fund_payload in enumerate(fund_payloads):
             fund_id = str(fund_payload.get("fund_id") or fund_payload.get("id") or "")
-            if not fund_id:
-                continue
             fund = existing.get(fund_id)
             if fund is None:
-                fund = models.CMAFundAssumption(snapshot=snapshot, fund_id=fund_id)
+                raise ValueError(f"Unknown CMA fund {fund_id}.")
             fund.name = str(fund_payload.get("name") or fund.name or fund_id)
             fund.expected_return = _decimal_payload(
-                fund_payload.get("expected_return"), fund.expected_return
+                fund_payload.get("expected_return"),
+                fund.expected_return,
+                field=f"{fund_id}.expected_return",
             )
-            fund.volatility = _decimal_payload(fund_payload.get("volatility"), fund.volatility)
-            fund.optimizer_eligible = bool(
+            fund.volatility = _decimal_payload(
+                fund_payload.get("volatility"),
+                fund.volatility,
+                field=f"{fund_id}.volatility",
+            )
+            fund.optimizer_eligible = _bool_payload(
                 fund_payload.get("optimizer_eligible", fund.optimizer_eligible)
             )
-            fund.is_whole_portfolio = bool(
+            fund.is_whole_portfolio = _bool_payload(
                 fund_payload.get("is_whole_portfolio", fund.is_whole_portfolio)
             )
             fund.display_order = int(fund_payload.get("display_order", index))
@@ -964,33 +1017,187 @@ def _apply_cma_patch(snapshot: models.CMASnapshot, data) -> None:  # noqa: ANN00
             fund.save()
 
     correlation_payloads = data.get("correlations")
-    if isinstance(correlation_payloads, list):
+    if correlation_payloads is not None:
+        if not isinstance(correlation_payloads, list):
+            raise ValueError("correlations must be a list.")
+        _validate_correlation_payloads(snapshot, correlation_payloads)
         snapshot.correlations.all().delete()
         for item in correlation_payloads:
             row_id = str(item.get("row_fund_id") or "")
             col_id = str(item.get("col_fund_id") or "")
-            if not row_id or not col_id:
-                continue
             models.CMACorrelation.objects.create(
                 snapshot=snapshot,
                 row_fund_id=row_id,
                 col_fund_id=col_id,
-                correlation=_decimal_payload(item.get("correlation"), Decimal("0")),
+                correlation=_decimal_payload(
+                    item.get("correlation"), Decimal("0"), field=f"{row_id}:{col_id}"
+                ),
             )
+    if hasattr(snapshot, "_prefetched_objects_cache"):
+        snapshot._prefetched_objects_cache = {}
+    _validate_cma_snapshot(snapshot)
 
 
-def _decimal_payload(value, fallback: Decimal) -> Decimal:  # noqa: ANN001
+def _decimal_payload(value, fallback: Decimal, *, field: str) -> Decimal:  # noqa: ANN001
     if value is None:
         return fallback
-    return Decimal(str(value))
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"{field} must be numeric.") from exc
+    if not result.is_finite():
+        raise ValueError(f"{field} must be finite.")
+    return result
+
+
+def _bool_payload(value) -> bool:  # noqa: ANN001
+    if isinstance(value, bool):
+        return value
+    raise ValueError("Boolean CMA fields must be true or false.")
+
+
+def _validate_correlation_payloads(
+    snapshot: models.CMASnapshot, correlation_payloads: list[dict]
+) -> None:
+    fund_ids = [fund.fund_id for fund in snapshot.fund_assumptions.all()]
+    expected_pairs = {(row_id, col_id) for row_id in fund_ids for col_id in fund_ids}
+    seen_pairs: set[tuple[str, str]] = set()
+    values: dict[tuple[str, str], Decimal] = {}
+    for item in correlation_payloads:
+        row_id = str(item.get("row_fund_id") or "")
+        col_id = str(item.get("col_fund_id") or "")
+        pair = (row_id, col_id)
+        if pair in seen_pairs:
+            raise ValueError(f"Duplicate correlation cell {row_id}:{col_id}.")
+        seen_pairs.add(pair)
+        if pair not in expected_pairs:
+            raise ValueError(f"Unknown correlation cell {row_id}:{col_id}.")
+        value = _decimal_payload(item.get("correlation"), Decimal("0"), field=f"{row_id}:{col_id}")
+        if value < Decimal("-1") or value > Decimal("1"):
+            raise ValueError("Correlations must be between -1 and 1.")
+        values[pair] = value
+    if seen_pairs != expected_pairs:
+        raise ValueError("correlations must include the full square fund matrix.")
+    for fund_id in fund_ids:
+        if abs(values[(fund_id, fund_id)] - Decimal("1")) > Decimal("0.00001"):
+            raise ValueError("Correlation diagonal values must be 1.")
+    for row_id in fund_ids:
+        for col_id in fund_ids:
+            if abs(values[(row_id, col_id)] - values[(col_id, row_id)]) > Decimal("0.00001"):
+                raise ValueError("Correlation matrix must be symmetric.")
+
+
+def _validate_cma_snapshot(snapshot: models.CMASnapshot) -> None:
+    funds = list(snapshot.fund_assumptions.all())
+    if len(funds) < 2:
+        raise ValueError("CMA snapshot must include at least two funds.")
+    eligible_funds = [fund for fund in funds if fund.optimizer_eligible]
+    if len(eligible_funds) < 2:
+        raise ValueError("At least two optimizer-eligible funds are required.")
+    for fund in funds:
+        if fund.expected_return <= Decimal("-1") or fund.expected_return >= Decimal("1"):
+            raise ValueError(f"{fund.name} expected return must be between -100% and 100%.")
+        if fund.volatility <= Decimal("0") or fund.volatility >= Decimal("2"):
+            raise ValueError(f"{fund.name} volatility must be between 0% and 200%.")
+    correlations = _snapshot_correlation_lookup(snapshot)
+    fund_ids = [fund.fund_id for fund in funds]
+    expected_pairs = {(row_id, col_id) for row_id in fund_ids for col_id in fund_ids}
+    if set(correlations) != expected_pairs:
+        raise ValueError("CMA correlations must include the full square fund matrix.")
+    for fund_id in fund_ids:
+        if abs(correlations[(fund_id, fund_id)] - Decimal("1")) > Decimal("0.00001"):
+            raise ValueError("Correlation diagonal values must be 1.")
+    for row_id in fund_ids:
+        for col_id in fund_ids:
+            value = correlations[(row_id, col_id)]
+            if value < Decimal("-1") or value > Decimal("1"):
+                raise ValueError("Correlations must be between -1 and 1.")
+            if abs(value - correlations[(col_id, row_id)]) > Decimal("0.00001"):
+                raise ValueError("Correlation matrix must be symmetric.")
+    matrix = _snapshot_matrix(eligible_funds, correlations)
+    compute_frontier(
+        [float(fund.expected_return) for fund in eligible_funds],
+        [float(fund.volatility) for fund in eligible_funds],
+        matrix,
+    )
+
+
+def _snapshot_correlation_lookup(snapshot: models.CMASnapshot) -> dict[tuple[str, str], Decimal]:
+    return {
+        (item.row_fund_id, item.col_fund_id): item.correlation
+        for item in snapshot.correlations.all()
+    }
+
+
+def _snapshot_matrix(
+    funds: list[models.CMAFundAssumption],
+    correlations: dict[tuple[str, str], Decimal],
+) -> list[list[float]]:
+    return [
+        [float(correlations[(row.fund_id, column.fund_id)]) for column in funds] for row in funds
+    ]
+
+
+def _cma_frontier_payload(snapshot: models.CMASnapshot) -> dict:
+    _validate_cma_snapshot(snapshot)
+    funds = list(snapshot.fund_assumptions.all())
+    eligible_funds = [fund for fund in funds if fund.optimizer_eligible]
+    correlations = _snapshot_correlation_lookup(snapshot)
+    matrix = _snapshot_matrix(eligible_funds, correlations)
+    frontier = compute_frontier(
+        [float(fund.expected_return) for fund in eligible_funds],
+        [float(fund.volatility) for fund in eligible_funds],
+        matrix,
+    )
+    fund_points = [
+        {
+            "id": fund.fund_id,
+            "name": fund.name,
+            "expected_return": float(fund.expected_return),
+            "volatility": float(fund.volatility),
+            "optimizer_eligible": fund.optimizer_eligible,
+            "is_whole_portfolio": fund.is_whole_portfolio,
+        }
+        for fund in funds
+    ]
+    efficient_points = [
+        {
+            "expected_return": point.expected_return,
+            "volatility": point.volatility,
+            "weights": point.weights,
+        }
+        for point in frontier.efficient
+    ]
+    returns = [item["expected_return"] for item in fund_points] + [
+        item["expected_return"] for item in efficient_points
+    ]
+    volatilities = [item["volatility"] for item in fund_points] + [
+        item["volatility"] for item in efficient_points
+    ]
+    return {
+        "snapshot_id": snapshot.external_id,
+        "funds": fund_points,
+        "fund_points": fund_points,
+        "efficient": efficient_points,
+        "bounds": {
+            "expected_return_min": min(returns),
+            "expected_return_max": max(returns),
+            "volatility_min": min(volatilities),
+            "volatility_max": max(volatilities),
+        },
+        "eligible_fund_count": len(eligible_funds),
+        "whole_portfolio_fund_count": sum(fund.is_whole_portfolio for fund in funds),
+    }
 
 
 def _cma_audit_payload(snapshot: models.CMASnapshot) -> dict:
     return {
         "snapshot_id": snapshot.external_id,
+        "name": snapshot.name,
         "version": snapshot.version,
         "status": snapshot.status,
         "source": snapshot.source,
+        "notes": snapshot.notes,
         "funds": [
             {
                 "fund_id": fund.fund_id,
@@ -1010,6 +1217,95 @@ def _cma_audit_payload(snapshot: models.CMASnapshot) -> dict:
             }
             for cell in snapshot.correlations.all()
         ],
+    }
+
+
+def _cma_diff(before: dict, after: dict) -> dict:
+    field_diffs = {
+        field: {"before": before.get(field), "after": after.get(field)}
+        for field in ("name", "source", "notes", "status")
+        if before.get(field) != after.get(field)
+    }
+    before_funds = {item["fund_id"]: item for item in before["funds"]}
+    after_funds = {item["fund_id"]: item for item in after["funds"]}
+    fund_diffs = []
+    for fund_id, after_fund in after_funds.items():
+        before_fund = before_funds.get(fund_id, {})
+        changed = {
+            field: {"before": before_fund.get(field), "after": after_fund.get(field)}
+            for field in (
+                "expected_return",
+                "volatility",
+                "optimizer_eligible",
+                "is_whole_portfolio",
+                "display_order",
+            )
+            if before_fund.get(field) != after_fund.get(field)
+        }
+        if changed:
+            fund_diffs.append({"fund_id": fund_id, "fields": changed})
+
+    before_correlations = {
+        (item["row_fund_id"], item["col_fund_id"]): item["correlation"]
+        for item in before["correlations"]
+    }
+    after_correlations = {
+        (item["row_fund_id"], item["col_fund_id"]): item["correlation"]
+        for item in after["correlations"]
+    }
+    changed_pairs = []
+    for (row_id, col_id), after_value in sorted(after_correlations.items()):
+        if row_id >= col_id:
+            continue
+        before_value = before_correlations.get((row_id, col_id))
+        if before_value != after_value:
+            changed_pairs.append(
+                {
+                    "row_fund_id": row_id,
+                    "col_fund_id": col_id,
+                    "before": before_value,
+                    "after": after_value,
+                }
+            )
+
+    return {
+        "field_diffs": field_diffs,
+        "fund_diffs": fund_diffs,
+        "correlation_pair_diffs": changed_pairs[:25],
+        "correlation_pair_diff_count": len(changed_pairs),
+    }
+
+
+def _audit_event_payload(event: AuditEvent) -> dict:
+    metadata = event.metadata or {}
+    return {
+        "id": event.id,
+        "actor": event.actor,
+        "action": event.action,
+        "entity_type": event.entity_type,
+        "entity_id": event.entity_id,
+        "created_at": event.created_at,
+        "metadata": {
+            key: metadata.get(key)
+            for key in (
+                "version",
+                "source_version",
+                "source_snapshot_id",
+                "snapshot_name",
+                "snapshot_hash",
+                "before_hash",
+                "after_hash",
+                "updated_fields",
+                "field_diffs",
+                "fund_diffs",
+                "correlation_pair_diffs",
+                "correlation_pair_diff_count",
+                "publish_note",
+                "stale_portfolio_run_count",
+                "fund_count",
+            )
+            if key in metadata
+        },
     }
 
 

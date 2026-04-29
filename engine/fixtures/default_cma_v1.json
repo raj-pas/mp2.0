@@ -1,7 +1,6 @@
 {
-  "schema_version": "fraser_reference.v1",
-  "source_artifact": "/Users/saranyaraj/Downloads/mp20_scenario_evaluator_v23-2.html",
-  "source_note": "SH_CMAs3.xlsx (5y returns and standard deviations)",
+  "schema_version": "default_cma.v1",
+  "source_note": "Default CMA assumptions (5y returns and standard deviations)",
   "starting_price": 100.0,
   "default_periods": 15,
   "default_percentile": 30,

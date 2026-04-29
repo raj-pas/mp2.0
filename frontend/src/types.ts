@@ -183,6 +183,7 @@ export type CMASnapshot = {
   status: "draft" | "active" | "archived";
   source: string;
   notes: string;
+  latest_publish_note: string;
   published_at: string | null;
   created_at: string;
   updated_at: string;
@@ -202,6 +203,40 @@ export type CMASnapshot = {
     col_fund_id: string;
     correlation: string;
   }>;
+};
+
+export type CmaFrontier = {
+  snapshot_id: string;
+  funds: CmaFundPoint[];
+  fund_points: CmaFundPoint[];
+  efficient: Array<{ expected_return: number; volatility: number; weights: number[] }>;
+  bounds: {
+    expected_return_min: number;
+    expected_return_max: number;
+    volatility_min: number;
+    volatility_max: number;
+  };
+  eligible_fund_count: number;
+  whole_portfolio_fund_count: number;
+};
+
+export type CmaFundPoint = {
+  id: string;
+  name: string;
+  expected_return: number;
+  volatility: number;
+  optimizer_eligible: boolean;
+  is_whole_portfolio: boolean;
+};
+
+export type CmaAuditEvent = {
+  id: number;
+  actor: string;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  created_at: string;
+  metadata: Record<string, unknown>;
 };
 
 export type SessionPayload = {

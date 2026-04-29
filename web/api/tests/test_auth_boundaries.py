@@ -63,7 +63,7 @@ def test_financial_analyst_cannot_access_real_client_pii() -> None:
 
 @pytest.mark.django_db
 def test_advisor_cannot_edit_or_view_analyst_cma_surfaces() -> None:
-    call_command("seed_fraser_cma")
+    call_command("seed_default_cma")
     advisor = _user("advisor@example.com")
     active = models.CMASnapshot.objects.get(status=models.CMASnapshot.Status.ACTIVE)
     client = APIClient()
@@ -72,12 +72,13 @@ def test_advisor_cannot_edit_or_view_analyst_cma_surfaces() -> None:
     responses = [
         client.get(reverse("cma-snapshot-list")),
         client.post(reverse("cma-snapshot-list"), {"copy_from_snapshot_id": active.external_id}),
+        client.get(reverse("cma-active")),
+        client.get(reverse("cma-audit")),
         client.post(reverse("cma-snapshot-publish", args=[active.external_id])),
         client.get(reverse("cma-frontier", args=[active.external_id])),
     ]
 
     assert {response.status_code for response in responses} == {403}
-    assert client.get(reverse("cma-active")).status_code == 200
 
 
 @pytest.mark.django_db

@@ -1,4 +1,6 @@
 import type {
+  CmaAuditEvent,
+  CmaFrontier,
   CMASnapshot,
   ExtractedFact,
   HouseholdDetail,
@@ -80,22 +82,19 @@ export function updateCmaSnapshot(
   });
 }
 
-export function publishCmaSnapshot(id: string): Promise<CMASnapshot> {
+export function publishCmaSnapshot(id: string, publishNote: string): Promise<CMASnapshot> {
   return request<CMASnapshot>(`/api/cma/snapshots/${id}/publish/`, {
     method: "POST",
+    body: JSON.stringify({ publish_note: publishNote }),
   });
 }
 
-export function fetchCmaFrontier(id: string): Promise<{
-  snapshot_id: string;
-  funds: Array<{ id: string; name: string }>;
-  efficient: Array<{ expected_return: number; volatility: number; weights: number[] }>;
-}> {
-  return request<{
-    snapshot_id: string;
-    funds: Array<{ id: string; name: string }>;
-    efficient: Array<{ expected_return: number; volatility: number; weights: number[] }>;
-  }>(`/api/cma/snapshots/${id}/frontier/`);
+export function fetchCmaFrontier(id: string): Promise<CmaFrontier> {
+  return request<CmaFrontier>(`/api/cma/snapshots/${id}/frontier/`);
+}
+
+export function fetchCmaAudit(): Promise<CmaAuditEvent[]> {
+  return request<CmaAuditEvent[]>("/api/cma/audit/");
 }
 
 export function fetchSession(): Promise<SessionPayload> {

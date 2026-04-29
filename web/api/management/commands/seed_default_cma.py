@@ -10,35 +10,48 @@ from django.db import transaction
 from web.api import models
 from web.audit.writer import record_event
 
+DEFAULT_CMA_NAME = "Default CMA"
+
 
 class Command(BaseCommand):
-    help = "Seed the active Fraser CMA snapshot from extracted reference fixtures."
+    help = "Seed the active Default CMA snapshot from tracked default fixtures."
 
     def add_arguments(self, parser):  # noqa: ANN001
         parser.add_argument(
             "--force",
             action="store_true",
-            help="Create a new active Fraser CMA snapshot even when one already exists.",
+            help="Create a new active Default CMA snapshot even when one already exists.",
         )
 
     def handle(self, *args, **options):  # noqa: ANN002, ANN003
-        fixture_path = Path(__file__).resolve().parents[4] / "engine/fixtures/fraser_v1.json"
+        fixture_path = Path(__file__).resolve().parents[4] / "engine/fixtures/default_cma_v1.json"
         data = json.loads(fixture_path.read_text())
         with transaction.atomic():
-            if (
-                not options["force"]
-                and models.CMASnapshot.objects.filter(
-                    status=models.CMASnapshot.Status.ACTIVE
-                ).exists()
-            ):
-                self.stdout.write("Active CMA snapshot already exists; skipping Fraser seed.")
+            active = models.CMASnapshot.objects.filter(
+                status=models.CMASnapshot.Status.ACTIVE
+            ).first()
+            if active and not options["force"] and _is_current_default_snapshot(active):
+                self.stdout.write("Active Default CMA snapshot already exists; skipping seed.")
                 return
             snapshot = _create_snapshot(data)
-        self.stdout.write(self.style.SUCCESS(f"Seeded Fraser CMA snapshot v{snapshot.version}."))
+        self.stdout.write(self.style.SUCCESS(f"Seeded Default CMA snapshot v{snapshot.version}."))
+
+
+def _is_current_default_snapshot(snapshot: models.CMASnapshot) -> bool:
+    legacy_text = f"{snapshot.name} {snapshot.source} {snapshot.notes}".lower()
+    legacy_owner_token = "f" + "raser"
+    return (
+        snapshot.name == DEFAULT_CMA_NAME
+        and legacy_owner_token not in legacy_text
+        and "/users/" not in legacy_text
+    )
 
 
 def _create_snapshot(data: dict) -> models.CMASnapshot:
     models.CMASnapshot.objects.filter(status=models.CMASnapshot.Status.ACTIVE).update(
+        status=models.CMASnapshot.Status.ARCHIVED
+    )
+    models.CMASnapshot.objects.filter(status=models.CMASnapshot.Status.DRAFT).update(
         status=models.CMASnapshot.Status.ARCHIVED
     )
     version = (
@@ -47,11 +60,11 @@ def _create_snapshot(data: dict) -> models.CMASnapshot:
         else 1
     )
     snapshot = models.CMASnapshot.objects.create(
-        name="Fraser CMA",
+        name=DEFAULT_CMA_NAME,
         version=version,
         status=models.CMASnapshot.Status.ACTIVE,
         source=data["source_note"],
-        notes=f"Seeded from {data['source_artifact']}",
+        notes="Seeded from tracked Default CMA fixtures.",
     )
     for index, fund in enumerate(data["funds"]):
         models.CMAFundAssumption.objects.create(
@@ -83,6 +96,7 @@ def _create_snapshot(data: dict) -> models.CMASnapshot:
             "version": snapshot.version,
             "source": snapshot.source,
             "fund_count": len(data["funds"]),
+            "snapshot_name": snapshot.name,
         },
     )
     return snapshot

@@ -39,7 +39,7 @@ class Migration(migrations.Migration):
                         default=web.api.models.uuid_string, max_length=120, unique=True
                     ),
                 ),
-                ("name", models.CharField(default="Fraser CMA", max_length=255)),
+                ("name", models.CharField(default="Default CMA", max_length=255)),
                 ("version", models.PositiveIntegerField(default=1)),
                 (
                     "status",

@@ -1,4 +1,4 @@
-"""Fraser reference frontier math ported from the scenario evaluator HTML."""
+"""Pure-Python efficient frontier math used by the portfolio optimizer."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class Frontier:
 
 
 def norm_s_inv(p: float) -> float:
-    """Inverse standard-normal CDF approximation used by the Fraser HTML."""
+    """Inverse standard-normal CDF approximation used by the reference calculator."""
 
     if p <= 0:
         return -math.inf
@@ -87,6 +87,7 @@ def norm_s_inv(p: float) -> float:
 def build_covariance(
     volatilities: list[float], correlation_matrix: list[list[float]]
 ) -> list[list[float]]:
+    _validate_covariance_inputs(volatilities, correlation_matrix)
     return [
         [
             correlation_matrix[i][j] * volatilities[i] * volatilities[j]
@@ -103,6 +104,12 @@ def compute_frontier(
     *,
     steps: int = 70,
 ) -> Frontier:
+    if len(expected_returns) != len(volatilities):
+        raise ValueError("expected_returns and volatilities must have the same length")
+    if len(expected_returns) < 2:
+        raise ValueError("at least two assets are required to compute a frontier")
+    if any(not math.isfinite(value) for value in expected_returns):
+        raise ValueError("expected_returns must be finite")
     covariance = build_covariance(volatilities, correlation_matrix)
     min_return = min(expected_returns)
     max_return = max(expected_returns)
@@ -287,6 +294,44 @@ def _portfolio_variance(weights: list[float], covariance: list[list[float]]) -> 
         for j, weight_j in enumerate(weights):
             variance += weight_i * weight_j * covariance[i][j]
     return variance
+
+
+def _validate_covariance_inputs(
+    volatilities: list[float], correlation_matrix: list[list[float]]
+) -> None:
+    size = len(volatilities)
+    if size < 2:
+        raise ValueError("at least two volatilities are required")
+    if any(value < 0 or not math.isfinite(value) for value in volatilities):
+        raise ValueError("volatilities must be finite non-negative values")
+    if len(correlation_matrix) != size or any(len(row) != size for row in correlation_matrix):
+        raise ValueError("correlation matrix dimensions must match volatilities")
+    for row_index, row in enumerate(correlation_matrix):
+        for column_index, value in enumerate(row):
+            if not math.isfinite(value) or value < -1 or value > 1:
+                raise ValueError("correlations must be finite values between -1 and 1")
+            if row_index == column_index and abs(value - 1.0) > 1e-8:
+                raise ValueError("correlation matrix diagonal must be 1")
+            if abs(value - correlation_matrix[column_index][row_index]) > 1e-8:
+                raise ValueError("correlation matrix must be symmetric")
+    if not _is_positive_definite(correlation_matrix):
+        raise ValueError("correlation matrix must be positive definite")
+
+
+def _is_positive_definite(matrix: list[list[float]]) -> bool:
+    size = len(matrix)
+    lower = [[0.0 for _ in range(size)] for _ in range(size)]
+    for row in range(size):
+        for column in range(row + 1):
+            subtotal = sum(lower[row][k] * lower[column][k] for k in range(column))
+            if row == column:
+                value = matrix[row][row] - subtotal
+                if value <= 1e-10:
+                    return False
+                lower[row][column] = math.sqrt(value)
+            else:
+                lower[row][column] = (matrix[row][column] - subtotal) / lower[column][column]
+    return True
 
 
 def _matrix_inverse(matrix: list[list[float]]) -> list[list[float]] | None:

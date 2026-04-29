@@ -29,8 +29,8 @@ from engine.schemas import (
 from engine.sleeves import STEADYHAND_PURE_SLEEVES
 
 
-def test_fraser_frontier_fixture_matches_reference_math() -> None:
-    data = _fraser_fixture()
+def test_default_frontier_fixture_matches_reference_math() -> None:
+    data = _default_fixture()
     returns = [fund["expected_return"] for fund in data["funds"]]
     volatilities = [fund["volatility"] for fund in data["funds"]]
     correlation_matrix = data["correlation_matrix"]
@@ -58,7 +58,7 @@ def test_fraser_frontier_fixture_matches_reference_math() -> None:
 
 
 def test_percentile_optimizer_selects_reference_frontier_points() -> None:
-    data = _fraser_fixture()
+    data = _default_fixture()
     returns = [fund["expected_return"] for fund in data["funds"]]
     volatilities = [fund["volatility"] for fund in data["funds"]]
     frontier = compute_frontier(returns, volatilities, data["correlation_matrix"])
@@ -121,7 +121,7 @@ def test_optimize_returns_link_first_portfolio_run_payload() -> None:
     assert len(output.goal_rollups) == 2
     assert len(output.account_rollups) == 2
     assert output.household_rollup.allocated_amount == pytest.approx(728_000)
-    assert output.audit_trace.model_version == "fraser_link_frontier_v1"
+    assert output.audit_trace.model_version == "default_cma_link_frontier_v1"
     assert output.audit_trace.cma_version == 1
 
     first = output.link_recommendations[0]
@@ -151,15 +151,15 @@ def test_compliance_risk_rating_is_deterministic() -> None:
     assert rating == "low"
 
 
-def _fraser_fixture() -> dict:
-    fixture_path = Path(__file__).resolve().parents[1] / "fixtures/fraser_v1.json"
+def _default_fixture() -> dict:
+    fixture_path = Path(__file__).resolve().parents[1] / "fixtures/default_cma_v1.json"
     return json.loads(fixture_path.read_text())
 
 
 def _cma_snapshot() -> CMASnapshot:
-    data = _fraser_fixture()
+    data = _default_fixture()
     return CMASnapshot(
-        id="fraser-cma-v1",
+        id="default-cma-v1",
         version=1,
         source=data["source_note"],
         funds=[

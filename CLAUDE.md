@@ -19,7 +19,7 @@ implemented on `main`:
 - Django/DRF + Postgres backend
 - Postgres-backed ingestion worker queue
 - React/Vite advisor shell
-- Fraser-derived link-first portfolio engine
+- link-first portfolio engine
 - synthetic Sandra/Mike Chen persona
 - local advisor and financial analyst login, authenticated client access, and
   review workspace UI
@@ -32,8 +32,8 @@ implemented on `main`:
 - immutable audit logging with sanitized workspace timeline events
 - Postgres-only settings contract; missing/non-Postgres `DATABASE_URL` fails
   loudly
-- Fraser CMA seed fixture, analyst-only CMA draft/edit/publish workflow,
-  efficient-frontier view, immutable `PortfolioRun` storage, run hashes,
+- Default CMA seed fixture, analyst-only CMA Workbench draft/edit/publish/audit
+  workflow, Chart.js efficient-frontier view, immutable `PortfolioRun` storage, run hashes,
   technical trace, advisor "why this recommendation" summary, and run history
 - `MP20_ENGINE_ENABLED` kill-switch for recommendation generation
 - repo-persistent agent memory
@@ -78,7 +78,7 @@ implementation backlog.
 
 ## Current Scaffold Gaps vs Canon v2.3
 
-- Engine now returns link-first Fraser recommendations with goal/account/
+- Engine now returns link-first recommendations with goal/account/
   household rollups and risk-to-percentile mapping 1-5 -> 5/15/25/35/45.
   Remaining canon gaps include fund-of-funds collapse suggestions, real tax-drag
   math, and compliance ratings.
@@ -90,7 +90,7 @@ implementation backlog.
   login, and real committed households are advisor-owned. Phase B still requires
   production-grade roles, password reset, MFA, session timeout, and lockout.
 - UI now includes advisor recommendation output/history and financial analyst
-  CMA/frontier workflow. Canon still requires the full household/account/goal
+  CMA Workbench/frontier workflow. Canon still requires the full household/account/goal
   three-tab pivot, fund vs asset-class toggle, pilot disclaimer surfaces, and
   richer current-vs-ideal visuals.
 - PII guardrails are partial: secure-root validation, Bedrock fail-closed routing,

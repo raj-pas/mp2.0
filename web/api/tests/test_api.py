@@ -4,6 +4,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.urls import reverse
 from rest_framework.test import APIClient
 from web.api import models
@@ -37,7 +38,7 @@ def test_client_detail_includes_summary_financial_fields() -> None:
 @pytest.mark.django_db
 def test_generate_portfolio_runs_engine_and_writes_audit() -> None:
     call_command("load_synthetic_personas")
-    call_command("seed_fraser_cma")
+    call_command("seed_default_cma")
     client = _authenticated_client()
 
     response = client.post(reverse("generate-portfolio", args=["hh_sandra_mike_chen"]))
@@ -61,7 +62,7 @@ def test_generate_portfolio_runs_engine_and_writes_audit() -> None:
 @pytest.mark.django_db
 def test_generate_portfolio_marks_prior_run_stale() -> None:
     call_command("load_synthetic_personas")
-    call_command("seed_fraser_cma")
+    call_command("seed_default_cma")
     client = _authenticated_client()
 
     first = client.post(reverse("generate-portfolio", args=["hh_sandra_mike_chen"]))
@@ -89,7 +90,7 @@ def test_generate_portfolio_requires_active_cma_snapshot() -> None:
 @pytest.mark.django_db
 def test_portfolio_run_input_snapshot_excludes_review_evidence_payloads() -> None:
     call_command("load_synthetic_personas")
-    call_command("seed_fraser_cma")
+    call_command("seed_default_cma")
     client = _authenticated_client()
 
     response = client.post(reverse("generate-portfolio", args=["hh_sandra_mike_chen"]))
@@ -106,7 +107,7 @@ def test_portfolio_run_input_snapshot_excludes_review_evidence_payloads() -> Non
 
 @pytest.mark.django_db
 def test_financial_analyst_cma_draft_update_publish_and_audit() -> None:
-    call_command("seed_fraser_cma")
+    call_command("seed_default_cma")
     client = _authenticated_client(role="financial_analyst")
     active = models.CMASnapshot.objects.get(status=models.CMASnapshot.Status.ACTIVE)
 
@@ -114,34 +115,103 @@ def test_financial_analyst_cma_draft_update_publish_and_audit() -> None:
         reverse("cma-snapshot-list"), {"copy_from_snapshot_id": active.external_id}
     )
     draft_payload = draft_response.json()
-    first_fund = draft_payload["fund_assumptions"][0]
-    first_fund["expected_return"] = "0.07123456"
+    fund_payloads = draft_payload["fund_assumptions"]
+    fund_payloads[0]["expected_return"] = "0.07123456"
+    fund_payloads[-1]["optimizer_eligible"] = False
+    correlations = draft_payload["correlations"]
+    for item in correlations:
+        if {item["row_fund_id"], item["col_fund_id"]} == {"sh_equity", "sh_income"}:
+            item["correlation"] = "0.60000"
     patch_response = client.patch(
         reverse("cma-snapshot-detail", args=[draft_payload["external_id"]]),
         {
             "notes": "Analyst-adjusted CMA draft",
-            "fund_assumptions": [first_fund],
+            "fund_assumptions": fund_payloads,
+            "correlations": correlations,
         },
         format="json",
     )
     publish_response = client.post(
-        reverse("cma-snapshot-publish", args=[draft_payload["external_id"]])
+        reverse("cma-snapshot-publish", args=[draft_payload["external_id"]]),
+        {"publish_note": "Reviewed and approved for advisor recommendations."},
+        format="json",
     )
 
     assert draft_response.status_code == 201
     assert patch_response.status_code == 200
     assert patch_response.json()["fund_assumptions"][0]["expected_return"] == "0.07123456"
+    assert patch_response.json()["fund_assumptions"][-1]["optimizer_eligible"] is False
     assert publish_response.status_code == 200
     assert publish_response.json()["status"] == models.CMASnapshot.Status.ACTIVE
+    assert publish_response.json()["latest_publish_note"] == (
+        "Reviewed and approved for advisor recommendations."
+    )
     assert AuditEvent.objects.filter(action="cma_snapshot_draft_created").exists()
-    assert AuditEvent.objects.filter(action="cma_snapshot_updated").exists()
-    assert AuditEvent.objects.filter(action="cma_snapshot_published").exists()
+    update_event = AuditEvent.objects.get(action="cma_snapshot_updated")
+    assert update_event.metadata["fund_diffs"]
+    assert update_event.metadata["correlation_pair_diff_count"] == 1
+    publish_event = AuditEvent.objects.get(action="cma_snapshot_published")
+    assert publish_event.metadata["publish_note"] == (
+        "Reviewed and approved for advisor recommendations."
+    )
+
+
+@pytest.mark.django_db
+def test_cma_one_global_draft_invalid_save_publish_note_frontier_and_audit_api() -> None:
+    call_command("seed_default_cma")
+    client = _authenticated_client(role="financial_analyst")
+    active = models.CMASnapshot.objects.get(status=models.CMASnapshot.Status.ACTIVE)
+
+    first = client.post(reverse("cma-snapshot-list"), {"copy_from_snapshot_id": active.external_id})
+    second = client.post(
+        reverse("cma-snapshot-list"), {"copy_from_snapshot_id": active.external_id}
+    )
+    draft_payload = first.json()
+    fund_payloads = draft_payload["fund_assumptions"]
+    fund_payloads[0]["optimizer_eligible"] = "false"
+
+    invalid_save = client.patch(
+        reverse("cma-snapshot-detail", args=[draft_payload["external_id"]]),
+        {"fund_assumptions": fund_payloads},
+        format="json",
+    )
+    publish_without_note = client.post(
+        reverse("cma-snapshot-publish", args=[draft_payload["external_id"]]), {}, format="json"
+    )
+    frontier = client.get(reverse("cma-frontier", args=[draft_payload["external_id"]]))
+    audit = client.get(reverse("cma-audit"))
+
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert second.json()["external_id"] == draft_payload["external_id"]
+    assert models.CMASnapshot.objects.filter(status=models.CMASnapshot.Status.DRAFT).count() == 1
+    assert invalid_save.status_code == 400
+    assert publish_without_note.status_code == 400
+    assert frontier.status_code == 200
+    assert frontier.json()["efficient"]
+    assert frontier.json()["fund_points"]
+    assert frontier.json()["bounds"]["volatility_max"] > frontier.json()["bounds"]["volatility_min"]
+    assert "is_whole_portfolio" in frontier.json()["fund_points"][0]
+    assert audit.status_code == 200
+    assert audit.json()[0]["action"] in {"cma_snapshot_draft_created", "cma_snapshot_seeded"}
+
+
+@pytest.mark.django_db
+def test_seed_default_cma_is_canonical_and_old_command_absent() -> None:
+    call_command("seed_default_cma")
+
+    active = models.CMASnapshot.objects.get(status=models.CMASnapshot.Status.ACTIVE)
+
+    assert active.name == "Default CMA"
+    assert "Default CMA" in active.source
+    with pytest.raises(CommandError):
+        call_command("seed_" + "fra" + "ser" + "_cma")
 
 
 @pytest.mark.django_db
 def test_publishing_new_cma_marks_current_portfolio_runs_stale() -> None:
     call_command("load_synthetic_personas")
-    call_command("seed_fraser_cma")
+    call_command("seed_default_cma")
     advisor = _authenticated_client()
     analyst = _authenticated_client(email="analyst@example.com", role="financial_analyst")
 
@@ -151,7 +221,9 @@ def test_publishing_new_cma_marks_current_portfolio_runs_stale() -> None:
         reverse("cma-snapshot-list"), {"copy_from_snapshot_id": active.external_id}
     )
     publish_response = analyst.post(
-        reverse("cma-snapshot-publish", args=[draft_response.json()["external_id"]])
+        reverse("cma-snapshot-publish", args=[draft_response.json()["external_id"]]),
+        {"publish_note": "Reviewed stale-run implications."},
+        format="json",
     )
 
     assert generate_response.status_code == 200
@@ -163,7 +235,7 @@ def test_publishing_new_cma_marks_current_portfolio_runs_stale() -> None:
 @pytest.mark.django_db
 def test_planning_version_creation_marks_current_run_stale() -> None:
     call_command("load_synthetic_personas")
-    call_command("seed_fraser_cma")
+    call_command("seed_default_cma")
     client = _authenticated_client()
 
     generate_response = client.post(reverse("generate-portfolio", args=["hh_sandra_mike_chen"]))

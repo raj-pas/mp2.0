@@ -36,6 +36,7 @@ urlpatterns = [
         name="cma-snapshot-detail",
     ),
     path("api/cma/active/", views.CMAActiveView.as_view(), name="cma-active"),
+    path("api/cma/audit/", views.CMAAuditView.as_view(), name="cma-audit"),
     path(
         "api/cma/snapshots/<str:snapshot_id>/publish/",
         views.CMASnapshotPublishView.as_view(),

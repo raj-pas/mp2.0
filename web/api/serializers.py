@@ -3,6 +3,7 @@ from __future__ import annotations
 from rest_framework import serializers
 
 from web.api import models
+from web.audit.models import AuditEvent
 
 
 class PersonSerializer(serializers.ModelSerializer):
@@ -239,6 +240,7 @@ class CMACorrelationSerializer(serializers.ModelSerializer):
 class CMASnapshotSerializer(serializers.ModelSerializer):
     fund_assumptions = CMAFundAssumptionSerializer(many=True)
     correlations = CMACorrelationSerializer(many=True)
+    latest_publish_note = serializers.SerializerMethodField()
 
     class Meta:
         model = models.CMASnapshot
@@ -250,9 +252,22 @@ class CMASnapshotSerializer(serializers.ModelSerializer):
             "status",
             "source",
             "notes",
+            "latest_publish_note",
             "published_at",
             "created_at",
             "updated_at",
             "fund_assumptions",
             "correlations",
         ]
+
+    def get_latest_publish_note(self, obj: models.CMASnapshot) -> str:
+        event = (
+            AuditEvent.objects.filter(
+                action="cma_snapshot_published",
+                entity_type="cma_snapshot",
+                entity_id=obj.external_id,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        return str((event.metadata if event else {}).get("publish_note", ""))

@@ -1,0 +1,294 @@
+{
+  "assumptions": {
+    "assumptions_hash": "95a932abeaa6ad9eaf6948b1be18c15e1b1d1aa80a2829e2881e7843087cab53",
+    "eligible_fund_count": 8,
+    "fund_count": 8,
+    "funds": [
+      {
+        "expected_return": 0.0731,
+        "id": "sh_builders",
+        "is_whole_portfolio": true,
+        "name": "SH Builders",
+        "optimizer_eligible": true,
+        "volatility": 0.13312
+      },
+      {
+        "expected_return": 0.0708,
+        "id": "sh_equity",
+        "is_whole_portfolio": false,
+        "name": "SH Equity",
+        "optimizer_eligible": true,
+        "volatility": 0.11058
+      },
+      {
+        "expected_return": 0.0597,
+        "id": "sh_founders",
+        "is_whole_portfolio": true,
+        "name": "SH Founders",
+        "optimizer_eligible": true,
+        "volatility": 0.07434
+      },
+      {
+        "expected_return": 0.0725,
+        "id": "sh_global_equity",
+        "is_whole_portfolio": false,
+        "name": "SH Global Equity",
+        "optimizer_eligible": true,
+        "volatility": 0.13708
+      },
+      {
+        "expected_return": 0.0758,
+        "id": "sh_global_small_cap_eq",
+        "is_whole_portfolio": false,
+        "name": "SH Global Small-Cap Eq",
+        "optimizer_eligible": true,
+        "volatility": 0.15033
+      },
+      {
+        "expected_return": 0.0508,
+        "id": "sh_income",
+        "is_whole_portfolio": false,
+        "name": "SH Income",
+        "optimizer_eligible": true,
+        "volatility": 0.05464
+      },
+      {
+        "expected_return": 0.03,
+        "id": "sh_savings",
+        "is_whole_portfolio": false,
+        "name": "SH Savings",
+        "optimizer_eligible": true,
+        "volatility": 0.00396
+      },
+      {
+        "expected_return": 0.0692,
+        "id": "sh_small_cap_equity",
+        "is_whole_portfolio": false,
+        "name": "SH Small Cap Equity",
+        "optimizer_eligible": true,
+        "volatility": 0.16202
+      }
+    ],
+    "whole_portfolio_fund_count": 2
+  },
+  "audit_references": [
+    {
+      "action": "cma_snapshot_seeded",
+      "metadata": [
+        "version",
+        "source",
+        "fund_count",
+        "snapshot_name"
+      ]
+    },
+    {
+      "action": "cma_snapshot_updated",
+      "metadata": [
+        "before_hash",
+        "after_hash",
+        "fund_diffs",
+        "correlation_pair_diffs"
+      ]
+    },
+    {
+      "action": "cma_snapshot_published",
+      "metadata": [
+        "publish_note",
+        "snapshot_hash",
+        "stale_portfolio_run_count"
+      ]
+    }
+  ],
+  "edge_case_outcomes": [
+    {
+      "case": "too_few_eligible_funds",
+      "expected": "clear failure before optimization"
+    },
+    {
+      "case": "singular_correlation_matrix",
+      "expected": "correlation matrix validation failure"
+    },
+    {
+      "case": "low_volatility_cash",
+      "expected": "accepted when the matrix remains positive definite"
+    },
+    {
+      "case": "all_risk_scores",
+      "expected": "risk scores 1-5 map to percentiles 5/15/25/35/45"
+    }
+  ],
+  "frontier_summary": {
+    "all_point_count": 71,
+    "efficient_point_count": 71,
+    "highest_return": {
+      "expected_return": 0.0758,
+      "volatility": 0.15033,
+      "weights": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "minimum_variance": {
+      "expected_return": 0.03,
+      "volatility": 0.00396,
+      "weights": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ]
+    }
+  },
+  "hashes": {
+    "assumptions_hash": "95a932abeaa6ad9eaf6948b1be18c15e1b1d1aa80a2829e2881e7843087cab53",
+    "frontier_summary_hash": "550c95201d5c475941b27ff45ad3a284a49f89c6b693702d75b70aaea8b25875",
+    "risk_score_points_hash": "35cebf11e0a46ea5a59d03172bb91ef396683232d9535b71a233547ce32fdd0b"
+  },
+  "representative_goal_account_outputs": [
+    {
+      "account_id": "synthetic_rrsp",
+      "allocated_amount": 250000,
+      "goal_id": "synthetic_retirement",
+      "goal_risk_score": 3,
+      "horizon_years": 5,
+      "selected_point": {
+        "expected_return": 0.0600971429,
+        "frontier_percentile": 25,
+        "projected_value": 119597.09,
+        "volatility": 0.0719874793,
+        "weights": [
+          0.0,
+          0.3371224545,
+          0.0,
+          0.0695649793,
+          0.0418053486,
+          0.5515072175,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "account_id": "synthetic_resp",
+      "allocated_amount": 60000,
+      "goal_id": "synthetic_education",
+      "goal_risk_score": 1,
+      "horizon_years": 3,
+      "selected_point": {
+        "expected_return": 0.0313085714,
+        "frontier_percentile": 5,
+        "projected_value": 114774.38,
+        "volatility": 0.0050789147,
+        "weights": [
+          0.0,
+          0.0100975378,
+          0.0,
+          0.0008970432,
+          0.0050956725,
+          0.0300521994,
+          0.9538575471,
+          0.0
+        ]
+      }
+    }
+  ],
+  "risk_score_selected_points": {
+    "1": {
+      "expected_return": 0.0313085714,
+      "frontier_percentile": 5,
+      "projected_value": 114774.38,
+      "volatility": 0.0050789147,
+      "weights": [
+        0.0,
+        0.0100975378,
+        0.0,
+        0.0008970432,
+        0.0050956725,
+        0.0300521994,
+        0.9538575471,
+        0.0
+      ]
+    },
+    "2": {
+      "expected_return": 0.0332714286,
+      "frontier_percentile": 15,
+      "projected_value": 115694.69,
+      "volatility": 0.0087934985,
+      "weights": [
+        0.0,
+        0.0292343847,
+        0.0,
+        0.0039855661,
+        0.0068415108,
+        0.0767277846,
+        0.8832107538,
+        0.0
+      ]
+    },
+    "3": {
+      "expected_return": 0.0600971429,
+      "frontier_percentile": 25,
+      "projected_value": 119597.09,
+      "volatility": 0.0719874793,
+      "weights": [
+        0.0,
+        0.3371224545,
+        0.0,
+        0.0695649793,
+        0.0418053486,
+        0.5515072175,
+        0.0,
+        0.0
+      ]
+    },
+    "4": {
+      "expected_return": 0.0718742857,
+      "frontier_percentile": 35,
+      "projected_value": 126576.6,
+      "volatility": 0.1090545598,
+      "weights": [
+        0.0,
+        0.6660110216,
+        0.0,
+        0.1805027811,
+        0.1534861973,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "5": {
+      "expected_return": 0.0725285714,
+      "frontier_percentile": 45,
+      "projected_value": 134908.7,
+      "volatility": 0.1124562357,
+      "weights": [
+        0.0,
+        0.5966406502,
+        0.0,
+        0.0873410062,
+        0.3160183436,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "schema_version": "optimizer_validation_pack.v1",
+  "source": "Default CMA assumptions (5y returns and standard deviations)",
+  "status": "internal_validation_evidence_only",
+  "warnings": [
+    "Synthetic validation only.",
+    "Requires human review before real-client pilot use."
+  ]
+}

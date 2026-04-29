@@ -199,3 +199,18 @@
 - Verification passed: `uv run ruff check .`, `uv run ruff format --check .`,
   `scripts/test-python-postgres.sh`, `npm run build`, and Docker Compose
   `PLAYWRIGHT_BASE_URL=http://localhost:5173 npm run e2e:synthetic`.
+
+## 2026-04-29 — CMA Workbench + Optimizer Validation Implemented
+
+- Renamed runtime CMA surfaces to Default CMA and replaced the seed command with
+  `seed_default_cma`.
+- Rebuilt the analyst CMA surface as CMA Workbench with tabs for snapshots,
+  assumptions, correlations, frontier, and audit.
+- Added one-open-draft behavior, full valid assumption/correlation saves,
+  editable eligibility, publish notes, analyst-visible audit summaries, and
+  Chart.js frontier rendering with fund points.
+- Tightened CMA API access so raw CMA assumption/frontier/audit surfaces are
+  financial-analyst-only.
+- Added SciPy oracle checks, Hypothesis property tests, invalid matrix tests,
+  and a committed synthetic validation pack under `docs/validation/`.
+- Added CI upload of Playwright report/test-results on browser E2E failure.

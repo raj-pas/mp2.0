@@ -4,7 +4,7 @@ MP2.0 is the planning-first model portfolio platform described in
 [`MP2.0_Working_Canon.md`](MP2.0_Working_Canon.md). This repository currently
 contains the Phase 1 runnable scaffold plus the first secure-local real-data
 review workflow: a Django/DRF backend, Postgres worker queue, React/Vite advisor
-shell, Fraser link-first portfolio engine, synthetic persona, and Claude-first project
+shell, link-first portfolio engine, synthetic persona, and Claude-first project
 memory.
 
 ## Current Status
@@ -28,9 +28,9 @@ thin slice now supports:
 - worker heartbeat/stale visibility, duplicate reconcile suppression, manual
   reconcile, sanitized workspace timeline, strict approval-gated commit, and a
   portfolio engine kill-switch
-- Fraser-derived CMA seed data, efficient frontier math, goal-account-link
+- Default CMA seed data, efficient frontier math, goal-account-link
   optimization, immutable PortfolioRun history, advisor explainability, and
-  analyst-only CMA draft/edit/publish workflow
+  analyst-only CMA Workbench draft/edit/publish/audit workflow
 - immutable audit events at the model and DB-trigger layer
 
 The canon has advanced to v2.3. Next implementation should treat this repo as
@@ -70,7 +70,7 @@ Then open:
 - Backend API: <http://localhost:8000/api/clients/>
 
 The backend automatically runs migrations and loads the synthetic Sandra/Mike
-Chen persona, seeds the Fraser CMA defaults when missing, and bootstraps both
+Chen persona, seeds the Default CMA when missing, and bootstraps both
 advisor and financial analyst users when the env vars are present. The `worker`
 service runs `uv run python web/manage.py process_review_queue` and shares
 Postgres plus the secure data-root mount with the backend.
@@ -107,7 +107,7 @@ export MP20_LOCAL_ANALYST_EMAIL="analyst@example.com"
 export MP20_LOCAL_ANALYST_PASSWORD="change-this-local-password"
 
 uv run python web/manage.py migrate
-uv run python web/manage.py seed_fraser_cma
+uv run python web/manage.py seed_default_cma
 uv run python web/manage.py load_synthetic_personas
 uv run python web/manage.py bootstrap_local_advisor
 uv run python web/manage.py process_review_queue
@@ -144,7 +144,7 @@ PLAYWRIGHT_BASE_URL=http://localhost:5173 npm run e2e:synthetic
 
 CI runs the Python checks, frontend build, and a Docker Compose browser E2E that
 covers synthetic review commit, advisor portfolio generation/history, and
-financial analyst CMA/frontier workflow. For a local real-bundle browser
+financial analyst CMA Workbench/frontier workflow. For a local real-bundle browser
 regression, keep all artifacts under the secure root:
 
 ```bash

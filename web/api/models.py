@@ -150,7 +150,7 @@ class CMASnapshot(models.Model):
         ARCHIVED = "archived", "Archived"
 
     external_id = models.CharField(max_length=120, unique=True, default=uuid_string)
-    name = models.CharField(max_length=255, default="Fraser CMA")
+    name = models.CharField(max_length=255, default="Default CMA")
     version = models.PositiveIntegerField(default=1)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     source = models.CharField(max_length=500, blank=True)

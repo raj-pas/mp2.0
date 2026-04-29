@@ -12,25 +12,13 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import {
-  createCmaDraft,
-  fetchClient,
-  fetchClients,
-  fetchCmaFrontier,
-  fetchCmaSnapshots,
-  fetchSession,
-  generatePortfolio,
-  login,
-  logout,
-  publishCmaSnapshot,
-  updateCmaSnapshot,
-} from "./api";
+import { fetchClient, fetchClients, fetchSession, generatePortfolio, login, logout } from "./api";
+import { CmaWorkbench } from "./CmaWorkbench";
 import { Button } from "./components/ui/button";
 import { ReviewShell } from "./ReviewShell";
 import type {
   Account,
   Allocation,
-  CMASnapshot,
   Goal,
   HouseholdDetail,
   HouseholdSummary,
@@ -105,16 +93,18 @@ function App() {
               <p className="text-xs text-slate-500">Secure local scaffold</p>
             </div>
           </div>
-          <div className="mb-5 grid grid-cols-3 gap-2">
+          <div className={`mb-5 grid gap-2 ${userRole === "financial_analyst" ? "grid-cols-3" : "grid-cols-2"}`}>
             <ModeButton active={mode === "clients"} icon={<Database size={15} />} onClick={() => setMode("clients")}>
               Clients
             </ModeButton>
             <ModeButton active={mode === "review"} icon={<FileText size={15} />} onClick={() => setMode("review")}>
               Review
             </ModeButton>
-            <ModeButton active={mode === "cma"} icon={<BarChart3 size={15} />} onClick={() => setMode("cma")}>
-              CMA
-            </ModeButton>
+            {userRole === "financial_analyst" ? (
+              <ModeButton active={mode === "cma"} icon={<BarChart3 size={15} />} onClick={() => setMode("cma")}>
+                CMA
+              </ModeButton>
+            ) : null}
           </div>
           <SessionStatus
             authenticated={Boolean(session.data?.authenticated)}
@@ -136,10 +126,10 @@ function App() {
           {mode === "cma" ? (
             session.isLoading ? (
               <EmptyState label="Checking session" />
-            ) : isAuthenticated ? (
-              <CmaConsole />
+            ) : isAuthenticated && userRole === "financial_analyst" ? (
+              <CmaWorkbench />
             ) : (
-              <LoginPanel />
+              <EmptyState label="CMA Workbench is restricted" />
             )
           ) : mode === "review" ? (
             session.isLoading ? (
@@ -405,299 +395,6 @@ function AdvisorWorkspace({
   );
 }
 
-function CmaConsole() {
-  const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<CMASnapshot | null>(null);
-  const snapshots = useQuery({
-    queryKey: ["cma-snapshots"],
-    queryFn: fetchCmaSnapshots,
-  });
-  const active = snapshots.data?.find((snapshot) => snapshot.status === "active");
-  const frontier = useQuery({
-    queryKey: ["cma-frontier", active?.external_id],
-    queryFn: () => fetchCmaFrontier(active!.external_id),
-    enabled: Boolean(active),
-  });
-  const createDraftMutation = useMutation({
-    mutationFn: () => createCmaDraft(active!.external_id),
-    onSuccess: (snapshot) => {
-      setDraft(snapshot);
-      void queryClient.invalidateQueries({ queryKey: ["cma-snapshots"] });
-    },
-  });
-  const saveDraftMutation = useMutation({
-    mutationFn: (snapshot: CMASnapshot) =>
-      updateCmaSnapshot(snapshot.external_id, {
-        notes: snapshot.notes,
-        fund_assumptions: snapshot.fund_assumptions,
-      }),
-    onSuccess: (snapshot) => {
-      setDraft(snapshot);
-      void queryClient.invalidateQueries({ queryKey: ["cma-snapshots"] });
-    },
-  });
-  const publishMutation = useMutation({
-    mutationFn: (snapshot: CMASnapshot) => publishCmaSnapshot(snapshot.external_id),
-    onSuccess: () => {
-      setDraft(null);
-      void queryClient.invalidateQueries({ queryKey: ["cma-snapshots"] });
-    },
-  });
-  const cmaError =
-    snapshots.error ??
-    createDraftMutation.error ??
-    saveDraftMutation.error ??
-    publishMutation.error;
-
-  return (
-    <div className="mx-auto max-w-6xl space-y-5">
-      <header className="border-b border-slate-200 pb-4">
-        <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-          Financial Analyst
-        </p>
-        <h2 className="mt-1 text-3xl font-semibold">CMA & Frontier</h2>
-      </header>
-      {cmaError ? (
-        <div className="rounded-md bg-[#ffe0d2] px-4 py-3 text-sm text-[#7d3b20]">
-          {(cmaError as Error).message}
-        </div>
-      ) : null}
-      <section className="rounded-md border border-slate-200 bg-white shadow-soft">
-        <PanelTitle icon={<Database size={17} />} title="Active Snapshot" />
-        <div className="p-4">
-          {active ? (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="font-semibold">
-                    {active.name} v{active.version}
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">{active.source}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="rounded-full bg-mist px-2 py-1 text-xs font-bold uppercase">
-                    {active.status}
-                  </span>
-                  <Button
-                    disabled={createDraftMutation.isPending}
-                    onClick={() => createDraftMutation.mutate()}
-                  >
-                    <RefreshCw
-                      size={16}
-                      className={createDraftMutation.isPending ? "animate-spin" : ""}
-                    />
-                    New Draft
-                  </Button>
-                </div>
-              </div>
-              <div className="grid grid-cols-4 gap-2 max-lg:grid-cols-2 max-sm:grid-cols-1">
-                {active.fund_assumptions.map((fund) => (
-                  <div className="rounded-md bg-[#fbfaf5] px-3 py-2 text-sm" key={fund.fund_id}>
-                    <div className="font-medium">{fund.name}</div>
-                    <div className="text-xs text-slate-500">
-                      Return {percent.format(Number(fund.expected_return))} · Vol{" "}
-                      {percent.format(Number(fund.volatility))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : snapshots.isLoading ? (
-            <div className="text-sm text-slate-500">Loading CMA snapshots</div>
-          ) : (
-            <div className="text-sm text-slate-500">No active CMA snapshot</div>
-          )}
-        </div>
-      </section>
-
-      <section className="rounded-md border border-slate-200 bg-white shadow-soft">
-        <PanelTitle icon={<FileText size={17} />} title="Draft Snapshots" />
-        <div className="divide-y divide-slate-100">
-          {(snapshots.data ?? [])
-            .filter((snapshot) => snapshot.status === "draft")
-            .map((snapshot) => (
-              <div
-                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-                key={snapshot.external_id}
-              >
-                <div>
-                  <div className="font-semibold">
-                    {snapshot.name} v{snapshot.version}
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">{snapshot.notes || "Draft"}</div>
-                </div>
-                <Button onClick={() => setDraft(snapshot)}>Edit</Button>
-              </div>
-            ))}
-          {snapshots.data?.some((snapshot) => snapshot.status === "draft") ? null : (
-            <div className="px-4 py-3 text-sm text-slate-500">No draft CMA snapshots</div>
-          )}
-        </div>
-      </section>
-
-      <section className="rounded-md border border-slate-200 bg-white shadow-soft">
-        <PanelTitle icon={<BarChart3 size={17} />} title="Efficient Frontier" />
-        <div className="p-4">
-          {frontier.data ? (
-            <div>
-              <div className="mb-3 text-sm text-slate-600">
-                {frontier.data.efficient.length} efficient points · {frontier.data.funds.length} funds
-              </div>
-              <div className="h-56 border-l border-b border-slate-200 p-3">
-                <div className="relative h-full">
-                  {frontier.data.efficient.map((point, index) => (
-                    <span
-                      className="absolute h-2 w-2 rounded-full bg-spruce"
-                      key={`${point.expected_return}-${point.volatility}-${index}`}
-                      style={{
-                        bottom: `${Math.min(point.expected_return * 1200, 96)}%`,
-                        left: `${Math.min(point.volatility * 500, 96)}%`,
-                      }}
-                      title={`Return ${percent.format(point.expected_return)}, Vol ${percent.format(point.volatility)}`}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : frontier.isLoading ? (
-            <div className="text-sm text-slate-500">Loading frontier</div>
-          ) : (
-            <div className="text-sm text-slate-500">Frontier unavailable</div>
-          )}
-        </div>
-      </section>
-      {draft ? (
-        <CmaDraftModal
-          draft={draft}
-          isPublishing={publishMutation.isPending}
-          isSaving={saveDraftMutation.isPending}
-          onChange={setDraft}
-          onClose={() => setDraft(null)}
-          onPublish={() => publishMutation.mutate(draft)}
-          onSave={() => saveDraftMutation.mutate(draft)}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function CmaDraftModal({
-  draft,
-  isPublishing,
-  isSaving,
-  onChange,
-  onClose,
-  onPublish,
-  onSave,
-}: {
-  draft: CMASnapshot;
-  isPublishing: boolean;
-  isSaving: boolean;
-  onChange: (draft: CMASnapshot) => void;
-  onClose: () => void;
-  onPublish: () => void;
-  onSave: () => void;
-}) {
-  const updateFund = (
-    fundId: string,
-    field: "expected_return" | "volatility",
-    value: string,
-  ) => {
-    onChange({
-      ...draft,
-      fund_assumptions: draft.fund_assumptions.map((fund) =>
-        fund.fund_id === fundId ? { ...fund, [field]: value } : fund,
-      ),
-    });
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4">
-      <section className="max-h-[88vh] w-full max-w-4xl overflow-auto rounded-md bg-white shadow-xl">
-        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              CMA Draft
-            </p>
-            <h3 className="mt-1 text-xl font-semibold">
-              {draft.name} v{draft.version}
-            </h3>
-          </div>
-          <button
-            className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600"
-            onClick={onClose}
-            type="button"
-          >
-            Close
-          </button>
-        </header>
-        <div className="space-y-4 p-4">
-          <label className="block text-sm font-semibold">
-            Notes
-            <textarea
-              className="mt-2 min-h-20 w-full rounded-md border border-slate-200 px-3 py-2 font-normal outline-none focus:border-spruce"
-              onChange={(event) => onChange({ ...draft, notes: event.target.value })}
-              value={draft.notes}
-            />
-          </label>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] text-left text-sm">
-              <thead className="border-b border-slate-100 text-xs uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="py-2 pr-3">Fund</th>
-                  <th className="px-3 py-2">Expected Return</th>
-                  <th className="px-3 py-2">Volatility</th>
-                  <th className="px-3 py-2">Eligible</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {draft.fund_assumptions.map((fund) => (
-                  <tr key={fund.fund_id}>
-                    <td className="py-2 pr-3 font-medium">{fund.name}</td>
-                    <td className="px-3 py-2">
-                      <input
-                        className="h-10 w-full rounded-md border border-slate-200 px-2 outline-none focus:border-spruce"
-                        onChange={(event) =>
-                          updateFund(fund.fund_id, "expected_return", event.target.value)
-                        }
-                        type="number"
-                        step="0.0001"
-                        value={fund.expected_return}
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        className="h-10 w-full rounded-md border border-slate-200 px-2 outline-none focus:border-spruce"
-                        onChange={(event) =>
-                          updateFund(fund.fund_id, "volatility", event.target.value)
-                        }
-                        type="number"
-                        step="0.0001"
-                        value={fund.volatility}
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      {fund.optimizer_eligible ? "Yes" : "No"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button disabled={isSaving} onClick={onSave}>
-              {isSaving ? "Saving" : "Save Draft"}
-            </Button>
-            <Button disabled={isPublishing || isSaving} onClick={onPublish}>
-              {isPublishing ? "Publishing" : "Publish"}
-            </Button>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
-
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-slate-200 bg-white px-4 py-3 shadow-soft">
@@ -807,7 +504,7 @@ function PortfolioPanel({
       <section className="rounded-md border border-slate-200 bg-white p-5 shadow-soft">
         <PanelTitle icon={<BarChart3 size={17} />} title="Portfolio Output" />
         <div className="mt-8 rounded-md bg-skyglass px-4 py-5 text-sm text-slate-700">
-          Generate the portfolio to create a link-level Fraser recommendation run.
+          Generate the portfolio to create a link-level recommendation run.
         </div>
       </section>
     );
@@ -868,7 +565,7 @@ function PortfolioPanel({
                 </div>
                 {recommendation.current_comparison.missing_holdings ? (
                   <div className="mt-3 rounded-md bg-[#fff1c7] px-3 py-2 text-xs text-[#775b0b]">
-                    Current holdings are unavailable or not mapped to the Fraser fund universe.
+                    Current holdings are unavailable or not mapped to the active fund universe.
                   </div>
                 ) : null}
               </div>

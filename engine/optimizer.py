@@ -1,4 +1,4 @@
-"""Fraser link-first portfolio optimizer."""
+"""Link-first portfolio optimizer."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from engine.schemas import (
     Rollup,
 )
 
-MODEL_VERSION = "fraser_link_frontier_v1"
+MODEL_VERSION = "default_cma_link_frontier_v1"
 RISK_TO_PERCENTILE = {1: 5, 2: 15, 3: 25, 4: 35, 5: 45}
 DRIFT_THRESHOLD = 0.05
 
@@ -195,7 +195,7 @@ def optimize(
             params={
                 "risk_mapping": RISK_TO_PERCENTILE,
                 "drift_threshold": DRIFT_THRESHOLD,
-                "reference": "Fraser scenario evaluator v23-2",
+                "reference": "Default CMA efficient frontier v1",
             },
             cma_snapshot_id=cma_snapshot.id,
             cma_version=cma_snapshot.version,
