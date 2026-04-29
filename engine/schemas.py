@@ -57,6 +57,7 @@ class Account(EngineModel):
     regulatory_objective: RegulatoryObjective
     regulatory_time_horizon: RegulatoryTimeHorizon
     regulatory_risk_rating: RiskRating
+    current_value: float = Field(default=0, ge=0)
     current_holdings: list[Holding] = Field(default_factory=list)
     contribution_room: float | None = Field(default=None, ge=0)
     contribution_history: list[dict] = Field(default_factory=list)
@@ -67,7 +68,7 @@ class Goal(EngineModel):
     id: str
     household_id: str
     name: str
-    target_amount: float = Field(gt=0)
+    target_amount: float | None = Field(default=None, gt=0)
     target_date: date
     necessity_score: int = Field(ge=1, le=5)
     current_funded_amount: float = Field(default=0, ge=0)
@@ -135,17 +136,80 @@ class Allocation(EngineModel):
     weight: float = Field(ge=0, le=1)
 
 
-class GoalBlend(EngineModel):
+class AllocationDelta(EngineModel):
+    sleeve_id: str
+    sleeve_name: str
+    weight_delta: float
+
+
+class FundAssumption(EngineModel):
+    id: str
+    name: str
+    expected_return: float
+    volatility: float = Field(ge=0)
+    optimizer_eligible: bool = True
+    is_whole_portfolio: bool = False
+    asset_class_weights: dict[str, float] = Field(default_factory=dict)
+    tax_drag: dict[str, float] = Field(default_factory=dict)
+
+
+class CMASnapshot(EngineModel):
+    id: str
+    version: int
+    source: str
+    funds: list[FundAssumption] = Field(min_length=2)
+    correlation_matrix: list[list[float]]
+    tax_drag_version: str = "neutral_tax_drag.v1"
+
+
+class ProjectionPoint(EngineModel):
+    year: int
+    p10: float
+    p50: float
+    p90: float
+    optimized_percentile_value: float
+
+
+class CurrentPortfolioComparison(EngineModel):
+    missing_holdings: bool
+    expected_return: float | None = None
+    volatility: float | None = None
+    allocations: list[Allocation] = Field(default_factory=list)
+    deltas: list[AllocationDelta] = Field(default_factory=list)
+
+
+class LinkRecommendation(EngineModel):
+    link_id: str
     goal_id: str
     goal_name: str
+    account_id: str
+    account_type: AccountType
+    allocated_amount: float = Field(gt=0)
+    horizon_years: float = Field(gt=0)
+    goal_risk_score: int = Field(ge=1, le=5)
+    frontier_percentile: int
     allocations: list[Allocation]
     expected_return: float
     volatility: float
-    risk_rating: RiskRating
-    frontier_percentile: int
+    projected_value: float
+    projection: list[ProjectionPoint]
+    current_comparison: CurrentPortfolioComparison
+    drift_flags: list[str] = Field(default_factory=list)
+    advisor_summary: str
+    technical_trace: dict
+
+
+class Rollup(EngineModel):
+    id: str
+    name: str
+    allocated_amount: float = Field(ge=0)
+    allocations: list[Allocation]
+    expected_return: float
+    volatility: float
 
 
 class FanChartPoint(EngineModel):
+    link_id: str
     goal_id: str
     year: int
     p10: float
@@ -161,16 +225,21 @@ class EngineRun(EngineModel):
     model_version: str
     method: OptimizationMethod
     params: dict
-    sleeve_assumptions: list[dict]
+    cma_snapshot_id: str
+    cma_version: int
+    fund_assumptions: list[dict]
     constraints: dict = Field(default_factory=dict)
 
 
 class EngineOutput(EngineModel):
+    schema_version: str = "engine_output.link_first.v1"
     household_id: str
-    goal_blends: list[GoalBlend]
-    household_blend: list[Allocation]
+    link_recommendations: list[LinkRecommendation]
+    goal_rollups: list[Rollup]
+    account_rollups: list[Rollup]
+    household_rollup: Rollup
     fan_chart: list[FanChartPoint]
-    account_risk_ratings: dict[str, RiskRating]
-    household_risk_rating: RiskRating
     audit_trace: EngineRun
-    narrative_summary: str
+    advisor_summary: str
+    technical_trace: dict
+    warnings: list[str] = Field(default_factory=list)

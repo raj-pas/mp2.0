@@ -18,8 +18,8 @@ authoritative when more detail is needed.
   guards plus backend-specific DB triggers.
 - Real-upload features require `MP20_SECURE_DATA_ROOT` outside the repo and hard
   fail if it is missing or repo-local.
-- Real-upload features require Postgres by default. SQLite is allowed only for
-  synthetic/non-real development and tests.
+- Runtime and Python tests are Postgres-only. `DATABASE_URL` is required and
+  non-Postgres URLs fail loudly; SQLite fallback is out of scope.
 - Use Postgres rows as the local processing queue for now. Backend enqueues;
   worker claims with row locking and processes through
   `process_review_queue`.
@@ -39,6 +39,15 @@ authoritative when more detail is needed.
   and review available.
 - Failed documents do not block review. Manual retry queues another processing
   job.
+- Fraser/CMA portfolio generation starts from committed household state only.
+- `PortfolioRun` is the source of truth for generated recommendations; legacy
+  `Household.last_engine_output` is deprecated.
+- CMA data is versioned globally through snapshot/fund/correlation rows.
+  Financial analysts can draft/edit/publish and view the frontier; advisors
+  cannot edit CMA.
+- PortfolioRun input snapshots include committed construction data only. Do not
+  store review evidence quotes, extracted facts, raw notes/documents, or source
+  provenance payloads in PortfolioRun.
 
 ## Canon v2.3 Decisions to Implement Next
 
@@ -48,7 +57,8 @@ authoritative when more detail is needed.
 - Steadyhand remains v1 launch context; Sandra/Mike Chen remains the synthetic
   backup persona.
 - Engine optimization unit is goal x account (`GoalAccountLink`), then
-  account-level and household-level rollups.
+  account-level and household-level rollups. This is now implemented for the
+  Fraser v1 engine path.
 - Recommended portfolio always comes from the efficient frontier. Whole-portfolio
   funds such as Founders/Builders are execution collapse suggestions, not
   separate optimizer shortcuts.
@@ -62,7 +72,7 @@ authoritative when more detail is needed.
   an acceptable v1 default until real values are available.
 - External holdings are an optional household-risk dampener, not a full external
   portfolio simulation in v1.
-- CMA assumptions and efficient-frontier visualization are admin-only.
+- CMA assumptions and efficient-frontier visualization are financial-analyst-only.
 - The advisor UX centers on a three-tab household/account/goal view with fund vs
   asset-class look-through and a click-through goal-account assignment workflow.
 - Current vs ideal allocation must be visible together on recommendation screens.
@@ -85,12 +95,10 @@ authoritative when more detail is needed.
 
 ## Known Scaffold Mismatches
 
-- Engine output currently has `goal_blends`; canon v2.3 requires `LinkBlend`,
-  account rollups, fund-of-funds collapse suggestions, resolved risk per link,
-  fan chart data per link, compliance ratings, and richer audit trace.
-- Current risk code uses a 1-10 placeholder and can emit non-grid percentiles.
-- Current `Goal.target_amount` is required; canon treats target dollars as
-  optional unless volunteered.
+- Fund-of-funds collapse suggestions, real tax-drag math, compliance ratings,
+  and richer report-grade fan charts are still missing from the Fraser path.
+- Household risk still uses a 1-10 placeholder in intake/display; goal risk uses
+  the 1-5 optimizer mapping.
 - Current UI surfaces low/medium/high in visible risk badges; canon reserves that
   vocabulary for internal/compliance mapping.
 - Current extraction/review is a secure-local scaffold, not full canon Layer 1-5:

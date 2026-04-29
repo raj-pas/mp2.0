@@ -6,7 +6,6 @@ from pathlib import Path
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
-from django.db import connection
 
 
 def secure_data_root() -> Path:
@@ -30,14 +29,6 @@ def secure_data_root() -> Path:
 
 def assert_real_upload_backend_ready() -> None:
     secure_data_root()
-    if (
-        getattr(settings, "MP20_REQUIRE_POSTGRES_FOR_REAL_UPLOADS", True)
-        and connection.vendor != "postgresql"
-    ):
-        raise ImproperlyConfigured(
-            "Real document upload requires PostgreSQL so queue claiming, retries, and audit "
-            "immutability use the production-like path."
-        )
 
 
 def workspace_storage_dir(workspace_external_id: str) -> Path:

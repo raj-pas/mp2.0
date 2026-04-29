@@ -27,7 +27,7 @@ real-derived outputs.
 | --- | --- | --- |
 | Specific weighting for household x goal risk composite | Team | Blocks final risk methodology; code should parameterize |
 | Compliance risk-rating thresholds | Lori + Saranyaraj | Phase B exit criterion |
-| Capital market assumptions source | Saranyaraj + Fraser | Blocks real-client pilot recommendations |
+| Capital market assumptions source | Saranyaraj + Fraser | Fraser v1 fixture is seeded for scaffold; defensible pilot source still blocks real-client recommendations |
 | Real sleeve numerical inputs | Saranyaraj + Nafal | Placeholder acceptable for scaffold; not pilot |
 | Bond-only sleeve launch path | Salman + Tom | Product-side gap; improves frontier materially |
 | Fund-of-funds collapse match-score threshold | Saranyaraj + Fraser | Needed for Founders/Builders execution suggestion |
@@ -51,7 +51,7 @@ real-derived outputs.
 | Whether clients see the three-tab view or only advisor/report slices | Lori vs Fraser | Resolve before Phase C |
 | Exact pilot-mode disclaimer wording | Lori + Amitha | Phase B exit criterion |
 | Inline override-note UX | Saranyaraj + Lori | Needed to avoid workflow fatigue |
-| CMA admin permissions model | Saranyaraj + Lori | Admin-only flag is v1 minimum |
+| CMA admin permissions model | Saranyaraj + Lori | V1 uses `financial_analyst`; confirm production named users/governance before pilot |
 | Reporting/portal scope and Andrew team handoff | Andrew + team | Blocks full pilot experience beyond MAT app |
 | Behavioral-bucket schema within Tier 1/2/3 reporting | Lori + Saranyaraj | Partially resolved; needs concrete assignment rules |
 | Client value proposition for disclosing external holdings | Lori | Needed to drive useful disclosure rates |

@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from urllib.parse import urlparse
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parents[2]
 REPO_ROOT = BASE_DIR
 
@@ -62,7 +64,9 @@ WSGI_APPLICATION = "web.mp20_web.wsgi.application"
 def _database_from_url(database_url: str) -> dict:
     parsed = urlparse(database_url)
     if parsed.scheme not in {"postgres", "postgresql"}:
-        raise ValueError("DATABASE_URL must use postgres:// or postgresql://")
+        raise ImproperlyConfigured("DATABASE_URL must use postgres:// or postgresql://")
+    if not parsed.path.lstrip("/"):
+        raise ImproperlyConfigured("DATABASE_URL must include a database name.")
 
     return {
         "ENGINE": "django.db.backends.postgresql",
@@ -74,9 +78,9 @@ def _database_from_url(database_url: str) -> dict:
     }
 
 
-DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
-if database_url := os.getenv("DATABASE_URL"):
-    DATABASES = {"default": _database_from_url(database_url)}
+if not (database_url := os.getenv("DATABASE_URL")):
+    raise ImproperlyConfigured("DATABASE_URL is required and must point to PostgreSQL.")
+DATABASES = {"default": _database_from_url(database_url)}
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -94,9 +98,6 @@ STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 MP20_SECURE_DATA_ROOT = os.getenv("MP20_SECURE_DATA_ROOT", "")
-MP20_REQUIRE_POSTGRES_FOR_REAL_UPLOADS = (
-    os.getenv("MP20_REQUIRE_POSTGRES_FOR_REAL_UPLOADS", "1") == "1"
-)
 MP20_ENGINE_ENABLED = os.getenv("MP20_ENGINE_ENABLED", "1") == "1"
 MP20_REVIEW_TEAM_SLUG = os.getenv("MP20_REVIEW_TEAM_SLUG", "steadyhand")
 MP20_WORKER_NAME = os.getenv("MP20_WORKER_NAME", "local-worker")

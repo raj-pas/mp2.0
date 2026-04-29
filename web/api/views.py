@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+from decimal import Decimal
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.core.exceptions import ImproperlyConfigured
+from django.db import transaction
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
-from engine import STEADYHAND_PURE_SLEEVES, optimize
+from engine import optimize
+from engine.frontier import compute_frontier
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -27,7 +30,11 @@ from web.api.access import (
     team_workspaces,
     user_team_slug,
 )
-from web.api.engine_adapter import to_engine_household
+from web.api.engine_adapter import (
+    committed_construction_snapshot,
+    to_engine_cma,
+    to_engine_household,
+)
 from web.api.review_processing import enqueue_reconcile
 from web.api.review_security import (
     assert_real_upload_backend_ready,
@@ -49,7 +56,14 @@ from web.api.review_state import (
     reviewed_state_from_workspace,
     section_blockers,
 )
-from web.api.serializers import HouseholdDetailSerializer, HouseholdListSerializer
+from web.api.serializers import (
+    CMASnapshotSerializer,
+    HouseholdDetailSerializer,
+    HouseholdListSerializer,
+    PlanningVersionSerializer,
+    PortfolioRunSerializer,
+    PortfolioRunSummarySerializer,
+)
 from web.audit.writer import record_event
 
 
@@ -137,24 +151,313 @@ class GeneratePortfolioView(APIView):
             )
             return Response({"detail": "Portfolio generation is disabled."}, status=403)
         household = get_object_or_404(_household_queryset(request.user), external_id=household_id)
-        engine_input = to_engine_household(household)
-        output = optimize(engine_input, STEADYHAND_PURE_SLEEVES)
-        payload = output.model_dump(mode="json")
+        cma_snapshot = models.CMASnapshot.objects.filter(
+            status=models.CMASnapshot.Status.ACTIVE
+        ).first()
+        if cma_snapshot is None:
+            return Response(
+                {
+                    "detail": (
+                        "No active CMA snapshot exists. Ask a financial analyst to publish one."
+                    )
+                },
+                status=409,
+            )
+        readiness_error = _portfolio_generation_blocker(household)
+        if readiness_error:
+            return Response({"detail": readiness_error}, status=400)
 
-        household.last_engine_output = payload
-        household.save(update_fields=["last_engine_output", "updated_at"])
+        input_snapshot = committed_construction_snapshot(household)
+        input_hash = _hash_json(input_snapshot)
+        engine_input = to_engine_household(household)
+        output = optimize(engine_input, to_engine_cma(cma_snapshot))
+        payload = output.model_dump(mode="json")
+        output_hash = _hash_json(payload)
+
+        models.PortfolioRun.objects.filter(
+            household=household, status=models.PortfolioRun.Status.CURRENT
+        ).update(status=models.PortfolioRun.Status.STALE, stale_reason="superseded_by_new_run")
+        run = models.PortfolioRun.objects.create(
+            household=household,
+            cma_snapshot=cma_snapshot,
+            generated_by=request.user,
+            input_snapshot=input_snapshot,
+            output=payload,
+            input_hash=input_hash,
+            output_hash=output_hash,
+            engine_version=output.audit_trace.model_version,
+            advisor_summary=output.advisor_summary,
+            technical_trace=output.technical_trace,
+        )
+        goals = {goal.external_id: goal for goal in household.goals.all()}
+        accounts = {account.external_id: account for account in household.accounts.all()}
+        for recommendation in output.link_recommendations:
+            models.PortfolioRunLinkRecommendation.objects.create(
+                portfolio_run=run,
+                goal=goals.get(recommendation.goal_id),
+                account=accounts.get(recommendation.account_id),
+                goal_external_id=recommendation.goal_id,
+                account_external_id=recommendation.account_id,
+                allocated_amount=Decimal(str(recommendation.allocated_amount)),
+                frontier_percentile=recommendation.frontier_percentile,
+                expected_return=Decimal(str(recommendation.expected_return)),
+                volatility=Decimal(str(recommendation.volatility)),
+                allocations=[
+                    allocation.model_dump(mode="json") for allocation in recommendation.allocations
+                ],
+            )
         record_event(
-            action="engine_run",
-            entity_type="household",
-            entity_id=household.external_id,
+            action="portfolio_run_generated",
+            entity_type="portfolio_run",
+            entity_id=run.external_id,
             actor=_actor(request),
             metadata={
                 "model_version": output.audit_trace.model_version,
                 "method": output.audit_trace.method,
-                "goal_count": len(output.goal_blends),
+                "household_id": household.external_id,
+                "cma_snapshot_id": cma_snapshot.external_id,
+                "input_hash": input_hash,
+                "output_hash": output_hash,
+                "link_count": len(output.link_recommendations),
             },
         )
-        return Response(payload)
+        return Response(PortfolioRunSerializer(run).data)
+
+
+class PortfolioRunListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, household_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        household = get_object_or_404(_household_queryset(request.user), external_id=household_id)
+        runs = household.portfolio_runs.order_by("-created_at")
+        return Response(PortfolioRunSummarySerializer(runs, many=True).data)
+
+
+class PlanningVersionListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, household_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        household = get_object_or_404(_household_queryset(request.user), external_id=household_id)
+        versions = household.planning_versions.order_by("-version")
+        return Response(PlanningVersionSerializer(versions, many=True).data)
+
+    def post(self, request, household_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        household = get_object_or_404(_household_queryset(request.user), external_id=household_id)
+        latest = household.planning_versions.order_by("-version").first()
+        version = (latest.version + 1) if latest else 1
+        state = request.data.get("state") or committed_construction_snapshot(household)
+        planning_version = models.PlanningVersion.objects.create(
+            household=household,
+            version=version,
+            state=state,
+            rationale=str(request.data.get("rationale") or ""),
+            created_by=request.user,
+        )
+        stale_count = household.portfolio_runs.filter(
+            status=models.PortfolioRun.Status.CURRENT
+        ).update(status=models.PortfolioRun.Status.STALE, stale_reason="planning_version_created")
+        record_event(
+            action="planning_version_created",
+            entity_type="planning_version",
+            entity_id=f"{household.external_id}:{version}",
+            actor=_actor(request),
+            metadata={
+                "household_id": household.external_id,
+                "version": version,
+                "state_hash": _hash_json(state),
+                "stale_portfolio_run_count": stale_count,
+            },
+        )
+        return Response(PlanningVersionSerializer(planning_version).data, status=201)
+
+
+class CMASnapshotListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):  # noqa: ANN001
+        if role_for_user(request.user) != "financial_analyst":
+            return Response(
+                {"detail": "Only financial analysts can access CMA snapshots."}, status=403
+            )
+        snapshots = models.CMASnapshot.objects.prefetch_related(
+            "fund_assumptions", "correlations"
+        ).all()
+        return Response(CMASnapshotSerializer(snapshots, many=True).data)
+
+    def post(self, request):  # noqa: ANN001
+        if role_for_user(request.user) != "financial_analyst":
+            return Response(
+                {"detail": "Only financial analysts can create CMA drafts."}, status=403
+            )
+        source_id = request.data.get("copy_from_snapshot_id")
+        if source_id:
+            source = get_object_or_404(models.CMASnapshot, external_id=source_id)
+        else:
+            source = models.CMASnapshot.objects.filter(
+                status=models.CMASnapshot.Status.ACTIVE
+            ).first()
+        if source is None:
+            return Response({"detail": "No CMA snapshot exists to copy."}, status=400)
+
+        snapshot = _clone_cma_snapshot(source, request.user)
+        _apply_cma_patch(snapshot, request.data)
+        record_event(
+            action="cma_snapshot_draft_created",
+            entity_type="cma_snapshot",
+            entity_id=snapshot.external_id,
+            actor=_actor(request),
+            metadata={
+                "source_snapshot_id": source.external_id,
+                "source_version": source.version,
+                "version": snapshot.version,
+                "snapshot_hash": _hash_json(_cma_audit_payload(snapshot)),
+            },
+        )
+        return Response(CMASnapshotSerializer(snapshot).data, status=201)
+
+
+class CMASnapshotDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, snapshot_id: str):  # noqa: ANN001
+        if role_for_user(request.user) != "financial_analyst":
+            return Response(
+                {"detail": "Only financial analysts can access CMA snapshots."}, status=403
+            )
+        snapshot = get_object_or_404(
+            models.CMASnapshot.objects.prefetch_related("fund_assumptions", "correlations"),
+            external_id=snapshot_id,
+        )
+        return Response(CMASnapshotSerializer(snapshot).data)
+
+    def patch(self, request, snapshot_id: str):  # noqa: ANN001
+        if role_for_user(request.user) != "financial_analyst":
+            return Response(
+                {"detail": "Only financial analysts can edit CMA snapshots."}, status=403
+            )
+        snapshot = get_object_or_404(
+            models.CMASnapshot.objects.prefetch_related("fund_assumptions", "correlations"),
+            external_id=snapshot_id,
+        )
+        if snapshot.status != models.CMASnapshot.Status.DRAFT:
+            return Response({"detail": "Only draft CMA snapshots can be edited."}, status=400)
+
+        before_hash = _hash_json(_cma_audit_payload(snapshot))
+        _apply_cma_patch(snapshot, request.data)
+        snapshot.refresh_from_db()
+        after_hash = _hash_json(_cma_audit_payload(snapshot))
+        record_event(
+            action="cma_snapshot_updated",
+            entity_type="cma_snapshot",
+            entity_id=snapshot.external_id,
+            actor=_actor(request),
+            metadata={
+                "version": snapshot.version,
+                "before_hash": before_hash,
+                "after_hash": after_hash,
+                "updated_fields": sorted(request.data.keys()),
+            },
+        )
+        return Response(CMASnapshotSerializer(snapshot).data)
+
+
+class CMAActiveView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):  # noqa: ANN001
+        if role_for_user(request.user) not in {"advisor", "financial_analyst"}:
+            return Response({"detail": "Authentication required."}, status=403)
+        snapshot = (
+            models.CMASnapshot.objects.filter(status=models.CMASnapshot.Status.ACTIVE)
+            .prefetch_related("fund_assumptions", "correlations")
+            .first()
+        )
+        if snapshot is None:
+            return Response({"detail": "No active CMA snapshot exists."}, status=404)
+        return Response(CMASnapshotSerializer(snapshot).data)
+
+
+class CMASnapshotPublishView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, snapshot_id: str):  # noqa: ANN001
+        if role_for_user(request.user) != "financial_analyst":
+            return Response(
+                {"detail": "Only financial analysts can publish CMA snapshots."}, status=403
+            )
+        snapshot = get_object_or_404(
+            models.CMASnapshot.objects.prefetch_related("fund_assumptions", "correlations"),
+            external_id=snapshot_id,
+        )
+        models.CMASnapshot.objects.filter(status=models.CMASnapshot.Status.ACTIVE).exclude(
+            pk=snapshot.pk
+        ).update(status=models.CMASnapshot.Status.ARCHIVED)
+        snapshot.status = models.CMASnapshot.Status.ACTIVE
+        snapshot.published_by = request.user
+        snapshot.published_at = timezone.now()
+        snapshot.save(update_fields=["status", "published_by", "published_at", "updated_at"])
+        stale_count = models.PortfolioRun.objects.filter(
+            status=models.PortfolioRun.Status.CURRENT
+        ).update(status=models.PortfolioRun.Status.STALE, stale_reason="cma_snapshot_published")
+        record_event(
+            action="cma_snapshot_published",
+            entity_type="cma_snapshot",
+            entity_id=snapshot.external_id,
+            actor=_actor(request),
+            metadata={"version": snapshot.version, "stale_portfolio_run_count": stale_count},
+        )
+        return Response(CMASnapshotSerializer(snapshot).data)
+
+
+class CMAFrontierView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, snapshot_id: str):  # noqa: ANN001
+        if role_for_user(request.user) != "financial_analyst":
+            return Response(
+                {"detail": "Only financial analysts can view the full frontier."}, status=403
+            )
+        snapshot = get_object_or_404(
+            models.CMASnapshot.objects.prefetch_related("fund_assumptions", "correlations"),
+            external_id=snapshot_id,
+        )
+        funds = list(snapshot.fund_assumptions.filter(optimizer_eligible=True))
+        fund_ids = [fund.fund_id for fund in funds]
+        correlations = {
+            (cell.row_fund_id, cell.col_fund_id): float(cell.correlation)
+            for cell in snapshot.correlations.all()
+        }
+        frontier = compute_frontier(
+            [float(fund.expected_return) for fund in funds],
+            [float(fund.volatility) for fund in funds],
+            [
+                [
+                    correlations.get((row_id, col_id), 1.0 if row_id == col_id else 0.0)
+                    for col_id in fund_ids
+                ]
+                for row_id in fund_ids
+            ],
+        )
+        return Response(
+            {
+                "snapshot_id": snapshot.external_id,
+                "funds": [{"id": fund.fund_id, "name": fund.name} for fund in funds],
+                "efficient": [
+                    {
+                        "expected_return": point.expected_return,
+                        "volatility": point.volatility,
+                        "weights": point.weights,
+                    }
+                    for point in frontier.efficient
+                ],
+            }
+        )
 
 
 class ReviewWorkspaceListCreateView(APIView):
@@ -337,9 +640,13 @@ class ReviewWorkspaceStateView(APIView):
         reason = request.data.get("reason", "").strip()
         if request.data.get("requires_reason") and not reason:
             return Response({"detail": "Reason is required for this review edit."}, status=400)
-        previous_state = workspace.reviewed_state or {}
-        state = apply_state_patch(previous_state, patch)
-        version = create_state_version(workspace, user=request.user, state=state)
+        with transaction.atomic():
+            locked_workspace = models.ReviewWorkspace.objects.select_for_update().get(
+                pk=workspace.pk
+            )
+            previous_state = locked_workspace.reviewed_state or {}
+            state = apply_state_patch(previous_state, patch)
+            version = create_state_version(locked_workspace, user=request.user, state=state)
         record_event(
             action="review_state_edited",
             entity_type="review_workspace",
@@ -355,7 +662,7 @@ class ReviewWorkspaceStateView(APIView):
                 "source_fact_ids": request.data.get("source_fact_ids", []),
             },
         )
-        return Response({"state": workspace.reviewed_state, "readiness": workspace.readiness})
+        return Response({"state": version.state, "readiness": version.readiness})
 
 
 class ReviewWorkspaceSectionApprovalView(APIView):
@@ -496,6 +803,8 @@ def _household_queryset(user):
         "goals__account_allocations__account",
         "accounts__holdings",
         "accounts__owner_person",
+        "portfolio_runs__cma_snapshot",
+        "portfolio_runs__link_recommendation_rows",
     )
 
 
@@ -537,6 +846,171 @@ def _actor(request) -> str:  # noqa: ANN001
     if getattr(request, "user", None) and request.user.is_authenticated:
         return request.user.get_username()
     return "phase_one_admin"
+
+
+def _portfolio_generation_blocker(household: models.Household) -> str:
+    accounts = list(household.accounts.all())
+    if not accounts:
+        return "At least one account is required before portfolio generation."
+    goals = list(household.goals.prefetch_related("account_allocations").all())
+    if not goals:
+        return "At least one goal is required before portfolio generation."
+
+    links_by_account: dict[str, list[models.GoalAccountLink]] = {
+        account.external_id: [] for account in accounts if account.is_held_at_purpose
+    }
+    for goal in goals:
+        if not goal.target_date:
+            return f"Goal {goal.name} needs a target date or horizon."
+        if goal.goal_risk_score < 1 or goal.goal_risk_score > 5:
+            return f"Goal {goal.name} needs a 1-5 risk score."
+        for link in goal.account_allocations.all():
+            if link.allocated_amount is None and link.allocated_pct is None:
+                return "Every goal-account link needs allocated dollars or percentage."
+            if link.account.external_id in links_by_account:
+                links_by_account[link.account.external_id].append(link)
+
+    for account in accounts:
+        if not account.is_held_at_purpose:
+            continue
+        links = links_by_account.get(account.external_id, [])
+        if not links:
+            return f"Purpose account {account.external_id} must be assigned to a goal."
+        if all(link.allocated_amount is not None for link in links):
+            allocated = sum(link.allocated_amount for link in links)
+            if abs(allocated - account.current_value) > Decimal("1.00"):
+                return f"Purpose account {account.external_id} must be fully assigned to goals."
+        elif all(link.allocated_pct is not None for link in links):
+            allocated_pct = sum(link.allocated_pct for link in links)
+            if abs(allocated_pct - Decimal("1")) > Decimal("0.0001"):
+                return f"Purpose account {account.external_id} goal percentages must sum to 100%."
+        else:
+            return "Do not mix dollar and percentage goal-account assignments within one account."
+
+    return ""
+
+
+@transaction.atomic
+def _clone_cma_snapshot(source: models.CMASnapshot, user) -> models.CMASnapshot:  # noqa: ANN001
+    last_snapshot = models.CMASnapshot.objects.order_by("-version").first()
+    version = (last_snapshot.version + 1) if last_snapshot else 1
+    snapshot = models.CMASnapshot.objects.create(
+        name=f"{source.name} draft",
+        version=version,
+        status=models.CMASnapshot.Status.DRAFT,
+        source=source.source,
+        notes=source.notes,
+        created_by=user,
+    )
+    for fund in source.fund_assumptions.all():
+        models.CMAFundAssumption.objects.create(
+            snapshot=snapshot,
+            fund_id=fund.fund_id,
+            name=fund.name,
+            expected_return=fund.expected_return,
+            volatility=fund.volatility,
+            optimizer_eligible=fund.optimizer_eligible,
+            is_whole_portfolio=fund.is_whole_portfolio,
+            display_order=fund.display_order,
+            asset_class_weights=fund.asset_class_weights,
+            tax_drag=fund.tax_drag,
+        )
+    for correlation in source.correlations.all():
+        models.CMACorrelation.objects.create(
+            snapshot=snapshot,
+            row_fund_id=correlation.row_fund_id,
+            col_fund_id=correlation.col_fund_id,
+            correlation=correlation.correlation,
+        )
+    return snapshot
+
+
+@transaction.atomic
+def _apply_cma_patch(snapshot: models.CMASnapshot, data) -> None:  # noqa: ANN001
+    changed_fields: list[str] = []
+    for field in ("name", "source", "notes"):
+        if field in data:
+            setattr(snapshot, field, str(data.get(field) or ""))
+            changed_fields.append(field)
+    if changed_fields:
+        snapshot.save(update_fields=[*changed_fields, "updated_at"])
+
+    fund_payloads = data.get("fund_assumptions")
+    if isinstance(fund_payloads, list):
+        existing = {fund.fund_id: fund for fund in snapshot.fund_assumptions.all()}
+        for index, fund_payload in enumerate(fund_payloads):
+            fund_id = str(fund_payload.get("fund_id") or fund_payload.get("id") or "")
+            if not fund_id:
+                continue
+            fund = existing.get(fund_id)
+            if fund is None:
+                fund = models.CMAFundAssumption(snapshot=snapshot, fund_id=fund_id)
+            fund.name = str(fund_payload.get("name") or fund.name or fund_id)
+            fund.expected_return = _decimal_payload(
+                fund_payload.get("expected_return"), fund.expected_return
+            )
+            fund.volatility = _decimal_payload(fund_payload.get("volatility"), fund.volatility)
+            fund.optimizer_eligible = bool(
+                fund_payload.get("optimizer_eligible", fund.optimizer_eligible)
+            )
+            fund.is_whole_portfolio = bool(
+                fund_payload.get("is_whole_portfolio", fund.is_whole_portfolio)
+            )
+            fund.display_order = int(fund_payload.get("display_order", index))
+            if isinstance(fund_payload.get("asset_class_weights"), dict):
+                fund.asset_class_weights = fund_payload["asset_class_weights"]
+            if isinstance(fund_payload.get("tax_drag"), dict):
+                fund.tax_drag = fund_payload["tax_drag"]
+            fund.save()
+
+    correlation_payloads = data.get("correlations")
+    if isinstance(correlation_payloads, list):
+        snapshot.correlations.all().delete()
+        for item in correlation_payloads:
+            row_id = str(item.get("row_fund_id") or "")
+            col_id = str(item.get("col_fund_id") or "")
+            if not row_id or not col_id:
+                continue
+            models.CMACorrelation.objects.create(
+                snapshot=snapshot,
+                row_fund_id=row_id,
+                col_fund_id=col_id,
+                correlation=_decimal_payload(item.get("correlation"), Decimal("0")),
+            )
+
+
+def _decimal_payload(value, fallback: Decimal) -> Decimal:  # noqa: ANN001
+    if value is None:
+        return fallback
+    return Decimal(str(value))
+
+
+def _cma_audit_payload(snapshot: models.CMASnapshot) -> dict:
+    return {
+        "snapshot_id": snapshot.external_id,
+        "version": snapshot.version,
+        "status": snapshot.status,
+        "source": snapshot.source,
+        "funds": [
+            {
+                "fund_id": fund.fund_id,
+                "expected_return": str(fund.expected_return),
+                "volatility": str(fund.volatility),
+                "optimizer_eligible": fund.optimizer_eligible,
+                "is_whole_portfolio": fund.is_whole_portfolio,
+                "display_order": fund.display_order,
+            }
+            for fund in snapshot.fund_assumptions.all()
+        ],
+        "correlations": [
+            {
+                "row_fund_id": cell.row_fund_id,
+                "col_fund_id": cell.col_fund_id,
+                "correlation": str(cell.correlation),
+            }
+            for cell in snapshot.correlations.all()
+        ],
+    }
 
 
 def _hash_json(value: object) -> str:

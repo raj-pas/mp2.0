@@ -70,6 +70,7 @@ def _load_household(data: dict) -> None:
             contribution_room=account_data.get("contribution_room"),
             contribution_history=account_data.get("contribution_history", []),
             is_held_at_purpose=account_data.get("is_held_at_purpose", True),
+            missing_holdings_confirmed=account_data.get("missing_holdings_confirmed", False),
         )
         accounts[account.external_id] = account
         for holding_data in account_data.get("holdings", []):

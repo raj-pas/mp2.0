@@ -566,7 +566,12 @@ function AdvisorReviewPanel({
         reason: payload.reason,
         requires_reason: payload.requires_reason,
       }),
-    onSuccess: () => {
+    onSuccess: (payload) => {
+      queryClient.setQueryData<ReviewWorkspace>(["review-workspace", workspaceId], (current) =>
+        current
+          ? { ...current, reviewed_state: payload.state, readiness: payload.readiness }
+          : current,
+      );
       void queryClient.invalidateQueries({ queryKey: ["review-workspace", workspaceId] });
       void queryClient.invalidateQueries({ queryKey: ["review-workspaces"] });
     },
@@ -744,16 +749,20 @@ function AdvisorReviewPanel({
               <Button
                 disabled={!newValue.trim()}
                 onClick={() => {
+                  const account = {
+                    id: safeId("account", newAccountType),
+                    type: newAccountType,
+                    current_value: Number(newValue) || 0,
+                    missing_holdings_confirmed: true,
+                  };
+                  const placeholderIndex = state.accounts.findIndex(
+                    (item) => numberValue(item.current_value) <= 0,
+                  );
                   save({
-                    accounts: [
-                      ...state.accounts,
-                      {
-                        id: safeId("account", newAccountType),
-                        type: newAccountType,
-                        current_value: Number(newValue) || 0,
-                        missing_holdings_confirmed: true,
-                      },
-                    ],
+                    accounts:
+                      placeholderIndex >= 0
+                        ? replaceAt(state.accounts, placeholderIndex, account)
+                        : [...state.accounts, account],
                   });
                   setNewValue("");
                 }}
@@ -795,7 +804,20 @@ function AdvisorReviewPanel({
               <Button
                 disabled={!newGoalName.trim()}
                 onClick={() => {
-                  save({ goals: [...state.goals, { id: safeId("goal", newGoalName), name: newGoalName.trim(), time_horizon_years: 5 }] });
+                  const goal = {
+                    id: safeId("goal", newGoalName),
+                    name: newGoalName.trim(),
+                    time_horizon_years: 5,
+                  };
+                  const placeholderIndex = state.goals.findIndex(
+                    (item) => !stringValue(item.name) || numberValue(item.time_horizon_years) <= 0,
+                  );
+                  save({
+                    goals:
+                      placeholderIndex >= 0
+                        ? replaceAt(state.goals, placeholderIndex, goal)
+                        : [...state.goals, goal],
+                  });
                   setNewGoalName("Retirement");
                 }}
                 variant="secondary"
@@ -828,8 +850,14 @@ function AdvisorReviewPanel({
                     ...state.goal_account_links,
                     {
                       goal_id: stringValue(state.goals[0].id),
-                      account_id: stringValue(state.accounts[0].id),
-                      allocated_amount: numberValue(state.accounts[0].current_value),
+                      account_id: stringValue(
+                        (state.accounts.find((account) => numberValue(account.current_value) > 0) ??
+                          state.accounts[0]).id,
+                      ),
+                      allocated_amount: numberValue(
+                        (state.accounts.find((account) => numberValue(account.current_value) > 0) ??
+                          state.accounts[0]).current_value,
+                      ),
                     },
                   ],
                 })
@@ -976,7 +1004,12 @@ function QuickFillPanel({ workspaceId, state }: { workspaceId: string; state: Re
   const [goalHorizon, setGoalHorizon] = useState("5");
   const mutation = useMutation({
     mutationFn: (patch: Partial<ReviewedClientState>) => patchReviewState(workspaceId, patch),
-    onSuccess: () => {
+    onSuccess: (payload) => {
+      queryClient.setQueryData<ReviewWorkspace>(["review-workspace", workspaceId], (current) =>
+        current
+          ? { ...current, reviewed_state: payload.state, readiness: payload.readiness }
+          : current,
+      );
       void queryClient.invalidateQueries({ queryKey: ["review-workspace", workspaceId] });
       void queryClient.invalidateQueries({ queryKey: ["review-workspaces"] });
     },
@@ -1003,16 +1036,20 @@ function QuickFillPanel({ workspaceId, state }: { workspaceId: string; state: Re
     if (!accountValue.trim()) {
       return;
     }
+    const account = {
+      id: safeId("account", accountType),
+      type: accountType,
+      current_value: Number(accountValue) || 0,
+      missing_holdings_confirmed: true,
+    };
+    const placeholderIndex = state.accounts.findIndex(
+      (item) => numberValue(item.current_value) <= 0,
+    );
     mutation.mutate({
-      accounts: [
-        ...state.accounts,
-        {
-          id: safeId("account", accountType),
-          type: accountType,
-          current_value: Number(accountValue) || 0,
-          missing_holdings_confirmed: true,
-        },
-      ],
+      accounts:
+        placeholderIndex >= 0
+          ? replaceAt(state.accounts, placeholderIndex, account)
+          : [...state.accounts, account],
     });
     setAccountValue("");
   };
@@ -1020,17 +1057,24 @@ function QuickFillPanel({ workspaceId, state }: { workspaceId: string; state: Re
     if (!goalName.trim()) {
       return;
     }
+    const goal = {
+      id: safeId("goal", goalName),
+      name: goalName.trim(),
+      time_horizon_years: Number(goalHorizon) || 5,
+    };
+    const placeholderIndex = state.goals.findIndex(
+      (item) => !stringValue(item.name) || numberValue(item.time_horizon_years) <= 0,
+    );
     mutation.mutate({
-      goals: [
-        ...state.goals,
-        { id: safeId("goal", goalName), name: goalName.trim(), time_horizon_years: Number(goalHorizon) || 5 },
-      ],
+      goals:
+        placeholderIndex >= 0 ? replaceAt(state.goals, placeholderIndex, goal) : [...state.goals, goal],
     });
     setGoalName("Retirement");
   };
   const confirmMapping = () => {
     const goal = state.goals[0];
-    const account = state.accounts[0];
+    const account =
+      state.accounts.find((item) => numberValue(item.current_value) > 0) ?? state.accounts[0];
     if (!goal || !account) {
       return;
     }
@@ -1223,7 +1267,12 @@ function SectionApprovalPanel({
                 placeholder="Approval note"
                 value={notes[section] ?? ""}
               />
-              <Button disabled={mutation.isPending} onClick={() => mutation.mutate(section)} variant="secondary">
+              <Button
+                aria-label={`Save ${humanize(section)} approval`}
+                disabled={mutation.isPending}
+                onClick={() => mutation.mutate(section)}
+                variant="secondary"
+              >
                 Save Approval
               </Button>
             </div>

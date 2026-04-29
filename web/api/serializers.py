@@ -45,6 +45,7 @@ class AccountSerializer(serializers.ModelSerializer):
             "current_value",
             "contribution_room",
             "is_held_at_purpose",
+            "missing_holdings_confirmed",
             "holdings",
         ]
 
@@ -109,6 +110,8 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
     members = PersonSerializer(many=True)
     goals = GoalSerializer(many=True)
     accounts = AccountSerializer(many=True)
+    latest_portfolio_run = serializers.SerializerMethodField()
+    portfolio_runs = serializers.SerializerMethodField()
 
     class Meta:
         model = models.Household
@@ -124,7 +127,8 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
             "members",
             "goals",
             "accounts",
-            "last_engine_output",
+            "latest_portfolio_run",
+            "portfolio_runs",
         ]
 
     def get_goal_count(self, obj: models.Household) -> int:
@@ -132,3 +136,123 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
 
     def get_total_assets(self, obj: models.Household) -> float:
         return float(sum(account.current_value for account in obj.accounts.all()))
+
+    def get_latest_portfolio_run(self, obj: models.Household) -> dict | None:
+        run = obj.portfolio_runs.order_by("-created_at").first()
+        return PortfolioRunSerializer(run).data if run else None
+
+    def get_portfolio_runs(self, obj: models.Household) -> list[dict]:
+        runs = obj.portfolio_runs.order_by("-created_at")[:10]
+        return PortfolioRunSummarySerializer(runs, many=True).data
+
+
+class PortfolioRunLinkSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.PortfolioRunLinkRecommendation
+        fields = [
+            "goal_external_id",
+            "account_external_id",
+            "allocated_amount",
+            "frontier_percentile",
+            "expected_return",
+            "volatility",
+            "allocations",
+        ]
+
+
+class PortfolioRunSummarySerializer(serializers.ModelSerializer):
+    cma_snapshot_id = serializers.CharField(source="cma_snapshot.external_id")
+    generated_by_email = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.PortfolioRun
+        fields = [
+            "id",
+            "external_id",
+            "status",
+            "stale_reason",
+            "cma_snapshot_id",
+            "engine_version",
+            "advisor_summary",
+            "input_hash",
+            "output_hash",
+            "generated_by_email",
+            "created_at",
+        ]
+
+    def get_generated_by_email(self, obj: models.PortfolioRun) -> str:
+        return obj.generated_by.email if obj.generated_by else "system"
+
+
+class PortfolioRunSerializer(PortfolioRunSummarySerializer):
+    link_recommendation_rows = PortfolioRunLinkSerializer(many=True)
+
+    class Meta(PortfolioRunSummarySerializer.Meta):
+        fields = [
+            *PortfolioRunSummarySerializer.Meta.fields,
+            "output",
+            "technical_trace",
+            "link_recommendation_rows",
+        ]
+
+
+class PlanningVersionSerializer(serializers.ModelSerializer):
+    created_by_email = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.PlanningVersion
+        fields = [
+            "id",
+            "version",
+            "state",
+            "rationale",
+            "created_by_email",
+            "created_at",
+        ]
+
+    def get_created_by_email(self, obj: models.PlanningVersion) -> str:
+        return obj.created_by.email if obj.created_by else "system"
+
+
+class CMAFundAssumptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.CMAFundAssumption
+        fields = [
+            "fund_id",
+            "name",
+            "expected_return",
+            "volatility",
+            "optimizer_eligible",
+            "is_whole_portfolio",
+            "display_order",
+            "asset_class_weights",
+            "tax_drag",
+        ]
+
+
+class CMACorrelationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.CMACorrelation
+        fields = ["row_fund_id", "col_fund_id", "correlation"]
+
+
+class CMASnapshotSerializer(serializers.ModelSerializer):
+    fund_assumptions = CMAFundAssumptionSerializer(many=True)
+    correlations = CMACorrelationSerializer(many=True)
+
+    class Meta:
+        model = models.CMASnapshot
+        fields = [
+            "id",
+            "external_id",
+            "name",
+            "version",
+            "status",
+            "source",
+            "notes",
+            "published_at",
+            "created_at",
+            "updated_at",
+            "fund_assumptions",
+            "correlations",
+        ]

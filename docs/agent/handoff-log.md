@@ -171,3 +171,31 @@
   but could not launch because local Chromium was missing; the browser install
   command hung and was terminated. CI is configured to install Chromium before
   running the synthetic browser E2E.
+
+## 2026-04-29 — Postgres Foundation + Fraser PortfolioRun Implemented
+
+- Removed SQLite fallback from active settings; `DATABASE_URL` is now required
+  and must be Postgres.
+- Added `scripts/test-python-postgres.sh` and updated docs/CI expectations
+  around Postgres-backed pytest.
+- Extended local bootstrap to create advisor and financial analyst users from
+  env vars.
+- Extracted tracked Fraser v1 fixtures from the reference HTML without
+  committing the source HTML, then ported covariance/frontier/percentile/
+  projection math into pure `engine/`.
+- Replaced the legacy goal-blend engine path with goal-account-link
+  recommendations, goal/account/household rollups, current-vs-optimal
+  comparison, projection points, warnings, and Fraser audit trace.
+- Added CMA snapshot/fund/correlation models, seed command, analyst-only
+  draft/update/publish APIs, efficient frontier API, and frontend CMA modal.
+- Added immutable `PortfolioRun` plus link recommendation rows, run hashes,
+  committed construction input snapshots, output JSON, advisor summary,
+  technical trace, stale/current state, and frontend run history.
+- Added PlanningVersion snapshots for advisor planning edits and stale marking.
+- Tightened review-state versioning under Postgres row locks after browser E2E
+  exposed fast-edit collisions/stale merges.
+- Updated browser E2E to cover synthetic review commit, advisor portfolio
+  generation/history, and financial analyst CMA/frontier workflow.
+- Verification passed: `uv run ruff check .`, `uv run ruff format --check .`,
+  `scripts/test-python-postgres.sh`, `npm run build`, and Docker Compose
+  `PLAYWRIGHT_BASE_URL=http://localhost:5173 npm run e2e:synthetic`.

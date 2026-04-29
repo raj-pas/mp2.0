@@ -4,7 +4,7 @@ MP2.0 is the planning-first model portfolio platform described in
 [`MP2.0_Working_Canon.md`](MP2.0_Working_Canon.md). This repository currently
 contains the Phase 1 runnable scaffold plus the first secure-local real-data
 review workflow: a Django/DRF backend, Postgres worker queue, React/Vite advisor
-shell, pure Python engine stub, synthetic persona, and Claude-first project
+shell, Fraser link-first portfolio engine, synthetic persona, and Claude-first project
 memory.
 
 ## Current Status
@@ -13,7 +13,7 @@ The scaffold is runnable and useful for local development. The current local
 thin slice now supports:
 
 - synthetic Sandra/Mike Chen client list/detail and generate-portfolio flow
-- local advisor login
+- local advisor and financial analyst login
 - review workspace creation
 - browser multi-file upload into a secure data root outside the repo
 - Postgres-backed worker queue via `process_review_queue`
@@ -28,6 +28,9 @@ thin slice now supports:
 - worker heartbeat/stale visibility, duplicate reconcile suppression, manual
   reconcile, sanitized workspace timeline, strict approval-gated commit, and a
   portfolio engine kill-switch
+- Fraser-derived CMA seed data, efficient frontier math, goal-account-link
+  optimization, immutable PortfolioRun history, advisor explainability, and
+  analyst-only CMA draft/edit/publish workflow
 - immutable audit events at the model and DB-trigger layer
 
 The canon has advanced to v2.3. Next implementation should treat this repo as
@@ -67,17 +70,17 @@ Then open:
 - Backend API: <http://localhost:8000/api/clients/>
 
 The backend automatically runs migrations and loads the synthetic Sandra/Mike
-Chen persona. The `worker` service runs `uv run python web/manage.py
-process_review_queue` and shares Postgres plus the secure data-root mount with
-the backend.
+Chen persona, seeds the Fraser CMA defaults when missing, and bootstraps both
+advisor and financial analyst users when the env vars are present. The `worker`
+service runs `uv run python web/manage.py process_review_queue` and shares
+Postgres plus the secure data-root mount with the backend.
 
 ## Real-Data Local Rules
 
 - `MP20_SECURE_DATA_ROOT` is required for upload/review and must be outside the
   repo. Repo-local paths hard fail.
-- Real-upload APIs require Postgres by default
-  (`MP20_REQUIRE_POSTGRES_FOR_REAL_UPLOADS=1`) so queue claiming and audit
-  immutability follow the production-like path.
+- `DATABASE_URL` is required and must be `postgres://` or `postgresql://`.
+  SQLite is intentionally removed from active code paths.
 - Raw uploaded originals are retained only under the secure data root and are
   not served through the app in this tranche.
 - Full extracted raw text is transient in worker memory. The DB stores structured
@@ -97,10 +100,15 @@ For non-Docker local work:
 
 ```bash
 export MP20_SECURE_DATA_ROOT="$HOME/mp20-secure-data"
+export DATABASE_URL="postgres://mp20:mp20@localhost:5432/mp20"
 export MP20_LOCAL_ADMIN_EMAIL="advisor@example.com"
 export MP20_LOCAL_ADMIN_PASSWORD="change-this-local-password"
+export MP20_LOCAL_ANALYST_EMAIL="analyst@example.com"
+export MP20_LOCAL_ANALYST_PASSWORD="change-this-local-password"
 
 uv run python web/manage.py migrate
+uv run python web/manage.py seed_fraser_cma
+uv run python web/manage.py load_synthetic_personas
 uv run python web/manage.py bootstrap_local_advisor
 uv run python web/manage.py process_review_queue
 ```
@@ -126,17 +134,18 @@ uv run python web/manage.py dispose_review_artifacts --retain-reason "active rev
 uv sync --all-groups
 uv run ruff check .
 uv run ruff format --check .
-uv run pytest
+scripts/test-python-postgres.sh
 
 cd frontend
 npm install
 npm run build
-npx playwright test e2e/synthetic-review.spec.ts --list
+PLAYWRIGHT_BASE_URL=http://localhost:5173 npm run e2e:synthetic
 ```
 
-CI runs the Python checks, frontend build, and a Docker Compose synthetic
-browser E2E. For a local real-bundle browser regression, keep all artifacts under
-the secure root:
+CI runs the Python checks, frontend build, and a Docker Compose browser E2E that
+covers synthetic review commit, advisor portfolio generation/history, and
+financial analyst CMA/frontier workflow. For a local real-bundle browser
+regression, keep all artifacts under the secure root:
 
 ```bash
 export MP20_REAL_BUNDLE_ROOT="/path/outside/repo/to/client-bundles"

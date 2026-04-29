@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.app.json && vite build",
     "e2e:real": "playwright test e2e/real-bundle-regression.spec.ts",
-    "e2e:synthetic": "playwright test e2e/synthetic-review.spec.ts",
+    "e2e:synthetic": "playwright test e2e/synthetic-review.spec.ts e2e/portfolio-cma.spec.ts",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "preview": "vite preview"
   },

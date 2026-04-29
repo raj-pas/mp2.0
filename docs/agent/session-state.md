@@ -2,24 +2,25 @@
 
 **Last updated:** 2026-04-29
 **Branch:** `main`
-**Phase:** Secure ingest hardening plus advisor-grade review tranche
+**Phase:** Postgres foundation plus Fraser PortfolioRun tranche
 **Status:** Local thin slice supports authenticated team-scoped advisor review,
-secure-local upload/review to `engine_ready`, approval-gated commit, and
-defensive committed client display
+secure-local upload/review to `engine_ready`, approval-gated commit, Fraser
+link-first portfolio generation, immutable PortfolioRun history, and analyst
+CMA/frontier workflow.
 
 ## Current Goal
 
 Use the existing scaffold as the base for the canon v2.3 build sequence while
-moving real-data intake through a secure local review gate:
+moving real-data intake through a secure local review gate and generated
+portfolio recommendations through durable PortfolioRun records:
 
 - DB-backed synthetic Sandra/Mike Chen persona
 - authenticated client list/detail in the advisor shell
-- authenticated generate-portfolio call through DRF into the pure Python engine
-  stub
-- light audit events for core actions
-- smoke tests and CI
-- authenticated local advisor review workspace
-- browser multi-file upload into `MP20_SECURE_DATA_ROOT` outside the repo
+- authenticated generate-portfolio call through DRF into the Fraser link-first
+  engine
+- Postgres-only runtime/test foundation; missing or non-Postgres `DATABASE_URL`
+  fails loudly
+- secure browser multi-file upload into `MP20_SECURE_DATA_ROOT` outside the repo
 - Postgres-backed worker queue and parser/extraction pass
 - reviewed client state, missing-field checklist, section approval, matching,
   and versioned commit to current household tables
@@ -29,105 +30,106 @@ moving real-data intake through a secure local review gate:
 - worker heartbeat/stale visibility, retry metadata, duplicate reconcile
   suppression, manual reconcile, OCR overflow metadata, and local artifact
   disposal/report command
+- Fraser extracted fixtures, CMA seed/defaults, analyst-only CMA draft/edit/
+  publish, efficient frontier view, PortfolioRun hashes/traces/history, and
+  advisor explainability
 
-Canon v2.3 raises the next bar substantially:
+Canon v2.3 still raises the next bar:
 
 - Phase A: Som-demo-grade offsite foundation across ingestion, engine, reporting.
 - Phase B: pilot hardening and IS validation before any advisor logs in.
-- Phase C: 3-5 Steadyhand advisors using the system with bounded real-client pilot
-  data.
+- Phase C: 3-5 Steadyhand advisors using the system with bounded real-client
+  pilot data.
 
 ## Active Handoff
 
-Secure ingest hardening and advisor-grade review tranche has landed in the
-working tree. Current verification passed:
+Postgres foundation plus Fraser PortfolioRun tranche has landed in the working
+tree. Current verification passed:
 
 - `uv run ruff check .`
 - `uv run ruff format --check .`
-- `uv run pytest`
+- `scripts/test-python-postgres.sh`
 - `npm run build`
-- `npx playwright test e2e/synthetic-review.spec.ts --list`
-- Full local synthetic Playwright execution was attempted against Docker Compose
-  but stopped before browser launch because Chromium was not installed locally;
-  `npx playwright install chromium` hung and was terminated. CI installs Chromium
-  before running the synthetic browser E2E.
-- Existing browser E2E history remains useful, but this tranche only committed
-  Playwright specs/config and verified test discovery locally; full browser
-  execution is wired for Docker Compose CI.
+- Docker Compose browser E2E:
+  `PLAYWRIGHT_BASE_URL=http://localhost:5173 npm run e2e:synthetic`
 
 Implemented pieces:
 
-- real-upload APIs now fail closed without Postgres; synthetic tests can still
-  use SQLite
-- advisor access is a single shared team scope; financial analysts receive 403
-  for real-client PII surfaces
-- audit rows are immutable through model guards plus DB triggers, and workspace
-  timeline serialization redacts sensitive before/after fields
-- engine kill-switch blocks portfolio generation without blocking intake/review
-- worker heartbeat, stale job flags, retry eligibility, failure code/stage, OCR
-  overflow metadata, duplicate reconcile suppression, and manual reconcile
-  endpoint are implemented
-- Bedrock fact payloads are validated against typed schemas with controlled JSON
-  repair before failure
-- reviewed state now includes field-source metadata; section approval blocks
-  plain `approved` when required fields, unresolved conflicts, or required
-  unknowns remain; commit requires all required sections approved
-- Quick Fill was replaced by editable household, people, accounts, goals,
-  mapping, and risk review sections with collapsed provenance and override notes
-- committed client display uses defensive currency/percent formatting and avoids
-  `$NaN`/blank financial states
-- Playwright synthetic E2E and local real-bundle regression scaffolds were added;
-  real-bundle artifacts must be directed under the secure data root
-- local artifact disposal/report command added:
-  `uv run python web/manage.py dispose_review_artifacts`
-
-This tranche has local commits only; do not push unless explicitly asked.
+- Removed SQLite fallback from active settings. `DATABASE_URL` is required and
+  must use `postgres://` or `postgresql://`.
+- Added `scripts/test-python-postgres.sh`; it starts Compose Postgres, waits for
+  health, exports a localhost Postgres URL when needed, and runs pytest without
+  resetting the DB volume.
+- Docker/local bootstrap now seeds Fraser CMA defaults and creates advisor plus
+  financial analyst local users from env vars.
+- Extracted durable Fraser v1 fixtures from
+  `/Users/saranyaraj/Downloads/mp20_scenario_evaluator_v23-2.html` without
+  committing the full HTML. Advisor console HTML remains reference-only.
+- Ported Fraser covariance/frontier/percentile/projection math into pure
+  `engine/` code and moved optimizer output to link-first recommendations.
+- Added global CMA snapshot/fund/correlation models, seed command, analyst-only
+  draft/update/publish APIs, frontier API, and CMA UI modal.
+- Added immutable PortfolioRun storage, link recommendation rows, run hashes,
+  full committed construction snapshot, engine output JSON, advisor summary,
+  technical trace, current/stale status, and run-history UI.
+- Portfolio generation now starts from committed household/person/account/goal/
+  link state only and fails clearly when no active CMA snapshot exists.
+- Financial analysts can access CMA/frontier metadata but remain blocked from
+  real-client/review PII surfaces; advisors cannot edit or publish CMA.
+- PlanningVersion snapshots can be created for advisor planning edits and mark
+  current portfolio runs stale.
+- Review state versioning now locks workspace rows before merge/version
+  creation so fast Postgres-backed edits do not collide or lose prior edits.
+- Browser E2E now covers synthetic review commit, advisor generate/history, and
+  analyst CMA/frontier workflow. Chart assertions are DOM-based; screenshots are
+  retained as Playwright artifacts on failure.
 
 ## Canon v2.3 Context To Carry Forward
 
-- The optimization unit is `GoalAccountLink`, not goal-alone. Engine output must
-  become per-link first, then per-account and household rollups.
-- Risk is a 5-point snap-to-grid scale mapped to percentiles 5/15/25/35/45.
-  Advisor-visible risk should expose household component, goal component, and
-  combined score.
-- The three-tab household/account/goal view is the central advisor UX. Every tab
-  reconciles to the same total AUM and toggles fund vs asset-class look-through.
-- Extraction/review is now a hardened secure-local scaffold. It is not yet the
-  full five-layer canon system and still needs IS validation, richer temporal
+- The optimization unit is `GoalAccountLink`, not goal-alone. Engine output is
+  per-link first, then per-account and household rollups.
+- Goal risk is a 5-point snap-to-grid scale mapped to percentiles 5/15/25/35/45.
+- The three-tab household/account/goal view remains the central advisor UX.
+  Every tab should reconcile to the same total AUM and eventually toggle fund vs
+  asset-class look-through.
+- Extraction/review is a hardened secure-local scaffold. It is not yet the full
+  five-layer canon system and still needs IS validation, richer temporal
   reconciliation, pseudonymization, and CI PII checks.
 - Real client PII must only enter through the authenticated browser upload with
   `MP20_SECURE_DATA_ROOT` outside the repo. Do not copy real contents into agent
   memory, repo files, CI, or logs.
 - Pilot launch is gated by Phase B exit criteria, including real auth/RBAC,
-  pilot disclaimer, feedback channel, kill-switch, compliance mapping, CMA admin
-  view, and an end-to-end real tier-2 persona review with Lori.
+  pilot disclaimer, feedback channel, kill-switch, compliance mapping, deeper
+  CMA governance, and an end-to-end real tier-2 persona review with Lori.
 
 ## Known Scaffold Drift From Canon
 
-- Engine schemas/output are still Phase 1 goal-level placeholders.
-- Household risk remains 1-10 in code; canon uses 1-5 client/advisor language.
-- `Goal.target_amount` is required in code; canon says future-dollar targets are
-  optional secondary inputs.
-- Extraction/LLM routing now enforces Bedrock env for real-derived facts and
-  keeps raw text transient, but pseudonymization and CI PII checks are pending.
-- Audit log is append-only but does not yet provide an audit browser UI or full
-  input/output trace.
+- Fund-of-funds collapse suggestions are still out of scope.
+- Real tax-drag math is still out of scope; v1 stores neutral/stub tax-drag
+  metadata on CMA funds.
+- Household risk remains 1-10 in some intake/display surfaces; goal risk is now
+  1-5 for portfolio optimization.
+- Extraction/LLM routing enforces Bedrock env for real-derived facts and keeps
+  raw text transient, but pseudonymization and CI PII checks are pending.
+- Audit log is append-only and PortfolioRun stores input/output hashes plus
+  technical trace, but there is no audit browser UI.
 - Auth/RBAC is still early: endpoints require login, advisor team access is
   modeled, and financial analysts are denied PII, but Phase B still needs MFA,
-  session timeout, lockout, password reset, and admin boundaries.
-- Frontend lacks the three-tab pivot, click-through assignment, current-vs-ideal
-  allocation, fan chart, and pilot-mode disclaimer.
+  session timeout, lockout, password reset, and production role governance.
+- Frontend has advisor recommendation/history and analyst CMA/frontier surfaces,
+  but still lacks the full three-tab pivot, asset-class look-through, richer fan
+  chart, and pilot-mode disclaimer.
 
 ## Next Recommended Work
 
-1. Run the Docker Compose synthetic Playwright E2E end to end in CI/local once
-   browsers are installed and the stack is available.
-2. Convert engine schemas and output to the canon v2.3 per-link contract.
-3. Harden extraction/reconciliation into the canon five-layer flow with IS
+1. Harden extraction/reconciliation into the canon five-layer flow with IS
    validation and better source-review UX.
-4. Build the three-tab household/account/goal UI around current reviewed state.
-5. Add Phase B pilot gates: real auth roles, MFA/session policy, disclaimer,
-   kill-switch, feedback channel, richer audit records, and CMA admin boundary.
+2. Build the three-tab household/account/goal UI around current reviewed state
+   and PortfolioRun outputs.
+3. Add Phase B pilot gates: real auth roles, MFA/session policy, disclaimer,
+   feedback channel, richer audit records, and CMA governance.
+4. Add fund-of-funds execution collapse suggestions and real tax-drag math when
+   Fraser/Purpose inputs are ready.
 
 ## Notes for Parallel Sessions
 

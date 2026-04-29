@@ -19,9 +19,10 @@ implemented on `main`:
 - Django/DRF + Postgres backend
 - Postgres-backed ingestion worker queue
 - React/Vite advisor shell
-- pure Python engine stub
+- Fraser-derived link-first portfolio engine
 - synthetic Sandra/Mike Chen persona
-- local advisor login, authenticated client access, and review workspace UI
+- local advisor and financial analyst login, authenticated client access, and
+  review workspace UI
 - secure outside-repo browser upload path
 - advisor-grade reviewed sections with provenance snippets, conflict/unknown
   handling hooks, edit notes, readiness checklist, matching, and strict
@@ -29,6 +30,11 @@ implemented on `main`:
 - worker heartbeat/stale visibility, retry metadata, duplicate reconcile
   suppression, manual reconcile, and provider-safe OCR overflow metadata
 - immutable audit logging with sanitized workspace timeline events
+- Postgres-only settings contract; missing/non-Postgres `DATABASE_URL` fails
+  loudly
+- Fraser CMA seed fixture, analyst-only CMA draft/edit/publish workflow,
+  efficient-frontier view, immutable `PortfolioRun` storage, run hashes,
+  technical trace, advisor "why this recommendation" summary, and run history
 - `MP20_ENGINE_ENABLED` kill-switch for recommendation generation
 - repo-persistent agent memory
 
@@ -49,13 +55,15 @@ implementation backlog.
 - Web code translates DB models into `engine.schemas` Pydantic models at the boundary.
 - The engine contract is moving from goal-level output to goal-account-link output.
   The optimization unit is `GoalAccountLink`, then account and household rollups.
+- `PortfolioRun` is now the source of truth for generated recommendations;
+  `Household.last_engine_output` is legacy/deprecated.
 - External systems stay behind adapters in `integrations/`.
 - AI can extract and style; it must not invent financial numbers.
 - Keep real client raw files out of git.
 - Real uploads must enter only through the authenticated local browser workflow
   with `MP20_SECURE_DATA_ROOT` set outside this repository.
-- Real-upload APIs require Postgres by default; SQLite is only for synthetic
-  tests and non-real local work.
+- `DATABASE_URL` is required and must point to Postgres. SQLite is not an active
+  runtime/test fallback.
 - Real-derived extraction routes through Bedrock in ca-central-1. Anthropic
   direct is synthetic-only.
 - Do not copy real client contents into repo files, memory docs, CI logs, or
@@ -65,15 +73,15 @@ implementation backlog.
   model guards plus backend-specific DB triggers.
 - Client-visible risk vocabulary uses cautious / conservative-balanced /
   balanced / balanced-growth / growth-oriented, not low / medium / high.
-- CMA editing and efficient-frontier visualization are admin-only surfaces.
+- CMA editing and efficient-frontier visualization are financial-analyst-only
+  surfaces. Advisors may generate and view runs but cannot edit CMA inputs.
 
 ## Current Scaffold Gaps vs Canon v2.3
 
-- Engine still returns Phase 1 goal-level blends; canon requires per-link blends,
-  per-account rollups, resolved risk per link, fund-of-funds collapse suggestions,
-  fan chart data per link, tax-drag/CMA audit trace, and compliance ratings.
-- Risk is currently a 1-10 placeholder; canon locks a 5-point snap-to-grid scale
-  mapped to optimizer percentiles 5/15/25/35/45.
+- Engine now returns link-first Fraser recommendations with goal/account/
+  household rollups and risk-to-percentile mapping 1-5 -> 5/15/25/35/45.
+  Remaining canon gaps include fund-of-funds collapse suggestions, real tax-drag
+  math, and compliance ratings.
 - Extraction has a first secure-local scaffold: upload, raw storage, queue,
   local parsers, Bedrock routing, structured facts, reviewed state, readiness,
   and commit. The full five-layer canon workflow still needs richer
@@ -81,9 +89,10 @@ implementation backlog.
 - Auth is still early but no longer open by default: client/review APIs require
   login, and real committed households are advisor-owned. Phase B still requires
   production-grade roles, password reset, MFA, session timeout, and lockout.
-- UI is a Phase 1 advisor shell. Canon requires the household/account/goal
-  three-tab view, fund vs asset-class toggle, click-through goal-account
-  assignment, current-vs-ideal allocation, and pilot disclaimer surfaces.
+- UI now includes advisor recommendation output/history and financial analyst
+  CMA/frontier workflow. Canon still requires the full household/account/goal
+  three-tab pivot, fund vs asset-class toggle, pilot disclaimer surfaces, and
+  richer current-vs-ideal visuals.
 - PII guardrails are partial: secure-root validation, Bedrock fail-closed routing,
   transient raw text, redacted evidence quotes, and sensitive-ID hash/display
   exist. Retention/disposal tooling exists for local raw artifacts. Scrub-pass
@@ -100,12 +109,12 @@ docker compose up --build
 uv sync --all-groups
 uv run ruff check .
 uv run ruff format --check .
-uv run pytest
+scripts/test-python-postgres.sh
 
 cd frontend
 npm install
 npm run build
-npx playwright test e2e/synthetic-review.spec.ts --list
+PLAYWRIGHT_BASE_URL=http://localhost:5173 npm run e2e:synthetic
 ```
 
 ## Git Protocol

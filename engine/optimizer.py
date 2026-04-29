@@ -1,263 +1,408 @@
-"""Phase 1 optimizer stub.
-
-The implementation returns realistic-shaped deterministic output while preserving
-the locked engine I/O contract. It is not yet the production optimizer.
-"""
+"""Fraser link-first portfolio optimizer."""
 
 from __future__ import annotations
 
 from datetime import date
-from math import sqrt
 
-from engine.compliance import risk_rating
+from engine.frontier import (
+    compute_frontier,
+    evaluate_portfolio,
+    optimal_on_frontier,
+    percentile_projection,
+)
 from engine.schemas import (
     Allocation,
+    AllocationDelta,
+    CMASnapshot,
     Constraints,
+    CurrentPortfolioComparison,
     EngineOutput,
     EngineRun,
     FanChartPoint,
     Goal,
-    GoalBlend,
     Household,
+    LinkRecommendation,
     OptimizationMethod,
-    Sleeve,
+    ProjectionPoint,
+    Rollup,
 )
 
-MODEL_VERSION = "phase1_stub_2026_04_28"
+MODEL_VERSION = "fraser_link_frontier_v1"
+RISK_TO_PERCENTILE = {1: 5, 2: 15, 3: 25, 4: 35, 5: 45}
+DRIFT_THRESHOLD = 0.05
 
 
 def optimize(
     household: Household,
-    sleeve_universe: list[Sleeve],
+    cma_snapshot: CMASnapshot,
     method: OptimizationMethod = "percentile",
     constraints: Constraints | None = None,
 ) -> EngineOutput:
-    """Return deterministic Phase 1 portfolio output for a household."""
+    """Optimize every goal-account link and roll recommendations up."""
 
     if not household.goals:
         raise ValueError("household must include at least one goal")
-    if not sleeve_universe:
-        raise ValueError("sleeve_universe must not be empty")
+    if not household.accounts:
+        raise ValueError("household must include at least one account")
 
     constraints = constraints or Constraints()
-    goal_blends: list[GoalBlend] = []
+    eligible_funds = [fund for fund in cma_snapshot.funds if fund.optimizer_eligible]
+    if len(eligible_funds) < 2:
+        raise ValueError("cma_snapshot must include at least two optimizer-eligible funds")
+
+    fund_index = {fund.id: index for index, fund in enumerate(cma_snapshot.funds)}
+    eligible_indexes = [fund_index[fund.id] for fund in eligible_funds]
+    expected_returns = [fund.expected_return for fund in eligible_funds]
+    volatilities = [fund.volatility for fund in eligible_funds]
+    correlation_matrix = [
+        [cma_snapshot.correlation_matrix[i][j] for j in eligible_indexes] for i in eligible_indexes
+    ]
+
+    frontier = compute_frontier(expected_returns, volatilities, correlation_matrix)
+    if not frontier.efficient:
+        raise ValueError("No feasible efficient frontier for active CMA snapshot")
+
+    accounts = {account.id: account for account in household.accounts}
+    link_recommendations: list[LinkRecommendation] = []
     fan_chart: list[FanChartPoint] = []
 
     for goal in household.goals:
-        horizon = _goal_horizon_years(goal)
-        allocations = _allocate_for_goal(household, goal, sleeve_universe)
-        expected_return = _expected_return(allocations, sleeve_universe)
-        volatility = _volatility(allocations, sleeve_universe)
-        rating = risk_rating(allocations, sleeve_universe, horizon)
-        percentile = _frontier_percentile(household, goal)
+        for link in goal.account_allocations:
+            account = accounts.get(link.account_id)
+            if account is None:
+                raise ValueError(f"Goal-account link references unknown account {link.account_id}")
+            allocated_amount = _link_amount(
+                link.allocated_amount, link.allocated_pct, account.current_value
+            )
+            horizon_years = _goal_horizon_years(goal)
+            percentile = RISK_TO_PERCENTILE[goal.goal_risk_score]
+            optimal = optimal_on_frontier(
+                frontier.efficient,
+                periods=horizon_years,
+                percentile=percentile,
+                starting_value=allocated_amount,
+            )
+            if optimal is None:
+                raise ValueError("No optimal frontier point available")
 
-        goal_blends.append(
-            GoalBlend(
+            allocations = [
+                Allocation(sleeve_id=fund.id, sleeve_name=fund.name, weight=weight)
+                for fund, weight in zip(eligible_funds, optimal.weights, strict=True)
+                if weight > 1e-8
+            ]
+            projection = _projection(
+                allocated_amount=allocated_amount,
+                horizon_years=horizon_years,
+                percentile=percentile,
+                expected_return=optimal.expected_return,
+                volatility=optimal.volatility,
+                optimized_value=optimal.value or 0,
+            )
+            comparison = _current_comparison(
+                account=account,
+                expected_returns=expected_returns,
+                volatilities=volatilities,
+                correlation_matrix=correlation_matrix,
+                eligible_funds=eligible_funds,
+                optimal_allocations=allocations,
+                horizon_years=horizon_years,
+                percentile=percentile,
+                allocated_amount=allocated_amount,
+            )
+            drift_flags = _drift_flags(comparison)
+            link_id = f"{goal.id}:{account.id}"
+            advisor_summary = (
+                f"{goal.name} in {account.type} uses goal risk {goal.goal_risk_score}/5 "
+                f"over {horizon_years:.1f} years, optimizing the {percentile}th percentile "
+                f"outcome on the active frontier."
+            )
+            technical_trace = {
+                "link_id": link_id,
+                "goal_id": goal.id,
+                "account_id": account.id,
+                "goal_risk_score": goal.goal_risk_score,
+                "horizon_years": horizon_years,
+                "allocated_amount": allocated_amount,
+                "frontier_percentile": percentile,
+                "selected_frontier_point": {
+                    "expected_return": optimal.expected_return,
+                    "volatility": optimal.volatility,
+                    "projected_value": optimal.value,
+                    "weights": optimal.weights,
+                },
+                "cma_snapshot_id": cma_snapshot.id,
+                "tax_drag_version": cma_snapshot.tax_drag_version,
+            }
+            recommendation = LinkRecommendation(
+                link_id=link_id,
                 goal_id=goal.id,
                 goal_name=goal.name,
-                allocations=allocations,
-                expected_return=expected_return,
-                volatility=volatility,
-                risk_rating=rating,
+                account_id=account.id,
+                account_type=account.type,
+                allocated_amount=allocated_amount,
+                horizon_years=horizon_years,
+                goal_risk_score=goal.goal_risk_score,
                 frontier_percentile=percentile,
+                allocations=allocations,
+                expected_return=optimal.expected_return,
+                volatility=optimal.volatility,
+                projected_value=optimal.value or 0,
+                projection=projection,
+                current_comparison=comparison,
+                drift_flags=drift_flags,
+                advisor_summary=advisor_summary,
+                technical_trace={**technical_trace, "rollup_weighting": "allocated_amount"},
             )
-        )
-        fan_chart.extend(_fan_chart(goal, expected_return, volatility))
+            link_recommendations.append(recommendation)
+            fan_chart.extend(
+                [
+                    FanChartPoint(
+                        link_id=link_id,
+                        goal_id=goal.id,
+                        year=point.year,
+                        p10=point.p10,
+                        p50=point.p50,
+                        p90=point.p90,
+                    )
+                    for point in projection
+                ]
+            )
 
-    household_blend = _household_blend(household.goals, goal_blends)
-    account_risk_ratings = {
-        account.id: risk_rating(
-            _account_or_household_blend(account.current_holdings, household_blend), sleeve_universe
-        )
-        for account in household.accounts
-    }
-    household_rating = risk_rating(household_blend, sleeve_universe)
+    if not link_recommendations:
+        raise ValueError("household must include at least one goal-account link")
 
+    goal_rollups = _rollups_by_goal(household.goals, link_recommendations)
+    account_rollups = _rollups_by_account(household.accounts, link_recommendations)
+    household_rollup = _rollup(
+        id_=household.id,
+        name="Household",
+        recommendations=link_recommendations,
+    )
+    advisor_summary = (
+        f"Generated {len(link_recommendations)} goal-account recommendations using "
+        f"CMA snapshot {cma_snapshot.version}."
+    )
     return EngineOutput(
         household_id=household.id,
-        goal_blends=goal_blends,
-        household_blend=household_blend,
+        link_recommendations=link_recommendations,
+        goal_rollups=goal_rollups,
+        account_rollups=account_rollups,
+        household_rollup=household_rollup,
         fan_chart=fan_chart,
-        account_risk_ratings=account_risk_ratings,
-        household_risk_rating=household_rating,
         audit_trace=EngineRun(
             model_version=MODEL_VERSION,
             method=method,
             params={
-                "risk_composite": (
-                    "0.65 household risk + 0.35 goal risk; necessity and horizon adjusted"
-                ),
-                "note": "Illustrative Phase 1 optimizer stub, not production advice.",
+                "risk_mapping": RISK_TO_PERCENTILE,
+                "drift_threshold": DRIFT_THRESHOLD,
+                "reference": "Fraser scenario evaluator v23-2",
             },
-            sleeve_assumptions=[sleeve.model_dump(mode="json") for sleeve in sleeve_universe],
+            cma_snapshot_id=cma_snapshot.id,
+            cma_version=cma_snapshot.version,
+            fund_assumptions=[fund.model_dump(mode="json") for fund in cma_snapshot.funds],
             constraints=constraints.model_dump(mode="json"),
         ),
-        narrative_summary=(
-            "Illustrative Phase 1 output: goal-specific sleeve blends were generated from "
-            "household risk, goal risk, necessity, and horizon placeholders."
-        ),
+        advisor_summary=advisor_summary,
+        technical_trace={
+            "model_version": MODEL_VERSION,
+            "cma_snapshot_id": cma_snapshot.id,
+            "cma_version": cma_snapshot.version,
+            "link_count": len(link_recommendations),
+            "goal_count": len(goal_rollups),
+            "account_count": len(account_rollups),
+        },
+        warnings=_warnings(link_recommendations),
     )
+
+
+def _link_amount(
+    allocated_amount: float | None, allocated_pct: float | None, account_value: float
+) -> float:
+    if allocated_amount is not None and allocated_amount > 0:
+        return allocated_amount
+    if allocated_pct is not None and allocated_pct > 0 and account_value > 0:
+        return allocated_pct * account_value
+    raise ValueError("Every goal-account link must include allocated dollars or percentage")
 
 
 def _goal_horizon_years(goal: Goal) -> float:
     days = (goal.target_date - date.today()).days
-    return max(days / 365.25, 0.5)
+    return max(days / 365.25, 0.25)
 
 
-def _frontier_percentile(household: Household, goal: Goal) -> int:
-    composite = _risk_composite(household, goal)
-    return round(5 + composite * 45)
-
-
-def _risk_composite(household: Household, goal: Goal) -> float:
-    household_component = (household.household_risk_score - 1) / 9
-    goal_component = (goal.goal_risk_score - 1) / 4
-    return _clamp(0.65 * household_component + 0.35 * goal_component, 0, 1)
-
-
-def _allocate_for_goal(
-    household: Household,
-    goal: Goal,
-    sleeve_universe: list[Sleeve],
-) -> list[Allocation]:
-    horizon = _goal_horizon_years(goal)
-    risk = _risk_composite(household, goal)
-    necessity_drag = goal.necessity_score * 0.045
-
-    if horizon < 3:
-        equity_total = _clamp(0.12 + risk * 0.2 - necessity_drag, 0.03, 0.28)
-        cash_weight = _clamp(0.58 - risk * 0.12 + necessity_drag, 0.45, 0.78)
-    else:
-        horizon_lift = min(horizon, 20) * 0.012
-        equity_total = _clamp(0.24 + risk * 0.55 + horizon_lift - necessity_drag, 0.1, 0.88)
-        cash_weight = _clamp(0.22 - risk * 0.12 - horizon * 0.006 + necessity_drag, 0.04, 0.35)
-
-    fixed_income_weight = _clamp(1 - equity_total - cash_weight, 0.08, 0.68)
-    total = equity_total + fixed_income_weight + cash_weight
-    equity_total /= total
-    fixed_income_weight /= total
-    cash_weight /= total
-
-    weights = _empty_weights(sleeve_universe)
-    _set_weight(weights, "cash_savings", cash_weight)
-    _set_weight(weights, "income_fund", fixed_income_weight)
-
-    equity_sleeves = [
-        ("equity_fund", 0.46),
-        ("global_equity_fund", 0.34),
-        ("canadian_small_cap", 0.1),
-        ("global_small_cap", 0.1),
-    ]
-    for sleeve_id, share in equity_sleeves:
-        _set_weight(weights, sleeve_id, equity_total * share)
-
-    return _allocations_from_weights(weights, sleeve_universe)
-
-
-def _expected_return(allocations: list[Allocation], sleeve_universe: list[Sleeve]) -> float:
-    sleeves = {sleeve.id: sleeve for sleeve in sleeve_universe}
-    return sum(
-        allocation.weight * sleeves[allocation.sleeve_id].expected_return
-        for allocation in allocations
-    )
-
-
-def _volatility(allocations: list[Allocation], sleeve_universe: list[Sleeve]) -> float:
-    sleeves = {sleeve.id: sleeve for sleeve in sleeve_universe}
-    return sqrt(
-        sum(
-            (allocation.weight * sleeves[allocation.sleeve_id].volatility) ** 2
-            for allocation in allocations
-        )
-    )
-
-
-def _fan_chart(goal: Goal, expected_return: float, volatility: float) -> list[FanChartPoint]:
-    horizon = min(max(round(_goal_horizon_years(goal)), 1), 35)
-    monthly = float(goal.contribution_plan.get("monthly", 0) or 0)
-    annual_contribution = monthly * 12
-    points: list[FanChartPoint] = []
-    starting_value = goal.current_funded_amount
-
-    for year in range(horizon + 1):
-        funded = starting_value + annual_contribution * year
-        p50 = funded * ((1 + expected_return) ** year)
-        spread = 1.28 * volatility * sqrt(max(year, 1))
+def _projection(
+    *,
+    allocated_amount: float,
+    horizon_years: float,
+    percentile: int,
+    expected_return: float,
+    volatility: float,
+    optimized_value: float,
+) -> list[ProjectionPoint]:
+    years = sorted({0, max(1, round(horizon_years / 2)), max(1, round(horizon_years))})
+    points: list[ProjectionPoint] = []
+    for year in years:
+        periods = max(float(year), 0.0001)
         points.append(
-            FanChartPoint(
-                goal_id=goal.id,
+            ProjectionPoint(
                 year=year,
-                p10=max(p50 * (1 - spread), 0),
-                p50=p50,
-                p90=p50 * (1 + spread),
+                p10=percentile_projection(
+                    starting_value=allocated_amount,
+                    expected_return=expected_return,
+                    volatility=volatility,
+                    periods=periods,
+                    percentile=10,
+                ),
+                p50=percentile_projection(
+                    starting_value=allocated_amount,
+                    expected_return=expected_return,
+                    volatility=volatility,
+                    periods=periods,
+                    percentile=50,
+                ),
+                p90=percentile_projection(
+                    starting_value=allocated_amount,
+                    expected_return=expected_return,
+                    volatility=volatility,
+                    periods=periods,
+                    percentile=90,
+                ),
+                optimized_percentile_value=optimized_value if year == max(years) else 0,
             )
         )
-
     return points
 
 
-def _household_blend(goals: list[Goal], goal_blends: list[GoalBlend]) -> list[Allocation]:
-    if not goal_blends:
-        return []
+def _current_comparison(
+    *,
+    account,
+    expected_returns: list[float],
+    volatilities: list[float],
+    correlation_matrix: list[list[float]],
+    eligible_funds,
+    optimal_allocations: list[Allocation],
+    horizon_years: float,
+    percentile: int,
+    allocated_amount: float,
+) -> CurrentPortfolioComparison:
+    if not account.current_holdings:
+        return CurrentPortfolioComparison(missing_holdings=True)
 
-    weights_by_goal = {
-        goal.id: max(goal.current_funded_amount, goal.target_amount * 0.1) for goal in goals
-    }
-    total_goal_weight = sum(weights_by_goal.values())
-    sleeve_weights: dict[str, tuple[str, float]] = {}
+    fund_ids = [fund.id for fund in eligible_funds]
+    weights = [0.0 for _ in fund_ids]
+    for holding in account.current_holdings:
+        if holding.sleeve_id in fund_ids:
+            weights[fund_ids.index(holding.sleeve_id)] += holding.weight
 
-    for goal_blend in goal_blends:
-        goal_weight = weights_by_goal[goal_blend.goal_id] / total_goal_weight
-        for allocation in goal_blend.allocations:
-            _, current_weight = sleeve_weights.get(
-                allocation.sleeve_id, (allocation.sleeve_name, 0)
-            )
-            sleeve_weights[allocation.sleeve_id] = (
-                allocation.sleeve_name,
-                current_weight + allocation.weight * goal_weight,
-            )
+    if sum(weights) <= 0:
+        return CurrentPortfolioComparison(missing_holdings=True)
 
-    return [
-        Allocation(sleeve_id=sleeve_id, sleeve_name=name, weight=weight)
-        for sleeve_id, (name, weight) in sorted(sleeve_weights.items())
-        if weight > 0
+    total = sum(weights)
+    weights = [weight / total for weight in weights]
+    current = evaluate_portfolio(
+        weights,
+        expected_returns,
+        volatilities,
+        correlation_matrix,
+        periods=horizon_years,
+        percentile=percentile,
+        starting_value=allocated_amount,
+    )
+    current_allocations = [
+        Allocation(sleeve_id=fund.id, sleeve_name=fund.name, weight=weight)
+        for fund, weight in zip(eligible_funds, weights, strict=True)
+        if weight > 1e-8
     ]
-
-
-def _account_or_household_blend(holdings, household_blend: list[Allocation]) -> list[Allocation]:
-    if not holdings:
-        return household_blend
-    return [
-        Allocation(
-            sleeve_id=holding.sleeve_id, sleeve_name=holding.sleeve_name, weight=holding.weight
+    optimal_by_id = {allocation.sleeve_id: allocation.weight for allocation in optimal_allocations}
+    deltas = [
+        AllocationDelta(
+            sleeve_id=fund.id,
+            sleeve_name=fund.name,
+            weight_delta=optimal_by_id.get(fund.id, 0.0) - weight,
         )
-        for holding in holdings
+        for fund, weight in zip(eligible_funds, weights, strict=True)
+        if abs(optimal_by_id.get(fund.id, 0.0) - weight) > 1e-8
     ]
+    return CurrentPortfolioComparison(
+        missing_holdings=False,
+        expected_return=current.expected_return,
+        volatility=current.volatility,
+        allocations=current_allocations,
+        deltas=deltas,
+    )
 
 
-def _empty_weights(sleeve_universe: list[Sleeve]) -> dict[str, float]:
-    return {sleeve.id: 0.0 for sleeve in sleeve_universe}
+def _drift_flags(comparison: CurrentPortfolioComparison) -> list[str]:
+    if comparison.missing_holdings:
+        return ["missing_holdings"]
+    if any(abs(delta.weight_delta) >= DRIFT_THRESHOLD for delta in comparison.deltas):
+        return ["review_rebalance"]
+    return []
 
 
-def _set_weight(weights: dict[str, float], sleeve_id: str, weight: float) -> None:
-    if sleeve_id in weights:
-        weights[sleeve_id] = weight
-
-
-def _allocations_from_weights(
-    weights: dict[str, float], sleeve_universe: list[Sleeve]
-) -> list[Allocation]:
-    sleeves = {sleeve.id: sleeve for sleeve in sleeve_universe}
-    total = sum(weights.values())
-    if total <= 0:
-        raise ValueError("allocation weights must sum to a positive value")
-
+def _rollups_by_goal(goals: list[Goal], recommendations: list[LinkRecommendation]) -> list[Rollup]:
     return [
-        Allocation(sleeve_id=sleeve_id, sleeve_name=sleeves[sleeve_id].name, weight=weight / total)
-        for sleeve_id, weight in sorted(weights.items())
-        if weight > 0
+        _rollup(
+            id_=goal.id,
+            name=goal.name,
+            recommendations=[item for item in recommendations if item.goal_id == goal.id],
+        )
+        for goal in goals
+        if any(item.goal_id == goal.id for item in recommendations)
     ]
 
 
-def _clamp(value: float, lower: float, upper: float) -> float:
-    return max(lower, min(upper, value))
+def _rollups_by_account(accounts, recommendations: list[LinkRecommendation]) -> list[Rollup]:
+    return [
+        _rollup(
+            id_=account.id,
+            name=account.type,
+            recommendations=[item for item in recommendations if item.account_id == account.id],
+        )
+        for account in accounts
+        if any(item.account_id == account.id for item in recommendations)
+    ]
+
+
+def _rollup(id_: str, name: str, recommendations: list[LinkRecommendation]) -> Rollup:
+    allocated_amount = sum(item.allocated_amount for item in recommendations)
+    if allocated_amount <= 0:
+        return Rollup(
+            id=id_,
+            name=name,
+            allocated_amount=0,
+            allocations=[],
+            expected_return=0,
+            volatility=0,
+        )
+
+    weights: dict[str, tuple[str, float]] = {}
+    expected_return = 0.0
+    volatility = 0.0
+    for item in recommendations:
+        share = item.allocated_amount / allocated_amount
+        expected_return += item.expected_return * share
+        volatility += item.volatility * share
+        for allocation in item.allocations:
+            label, current = weights.get(allocation.sleeve_id, (allocation.sleeve_name, 0.0))
+            weights[allocation.sleeve_id] = (label, current + allocation.weight * share)
+
+    return Rollup(
+        id=id_,
+        name=name,
+        allocated_amount=allocated_amount,
+        allocations=[
+            Allocation(sleeve_id=sleeve_id, sleeve_name=label, weight=weight)
+            for sleeve_id, (label, weight) in sorted(weights.items())
+            if weight > 1e-8
+        ],
+        expected_return=expected_return,
+        volatility=volatility,
+    )
+
+
+def _warnings(recommendations: list[LinkRecommendation]) -> list[str]:
+    warnings: set[str] = set()
+    for recommendation in recommendations:
+        warnings.update(recommendation.drift_flags)
+    return sorted(warnings)

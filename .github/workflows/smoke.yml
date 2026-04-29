@@ -8,6 +8,22 @@ on:
 jobs:
   python:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: mp20
+          POSTGRES_USER: mp20
+          POSTGRES_PASSWORD: mp20
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mp20 -d mp20"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://mp20:mp20@localhost:5432/mp20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -48,6 +64,8 @@ jobs:
           MP20_SECURE_DATA_ROOT=$RUNNER_TEMP/mp20-secure-data
           MP20_LOCAL_ADMIN_EMAIL=advisor@example.com
           MP20_LOCAL_ADMIN_PASSWORD=change-this-local-password
+          MP20_LOCAL_ANALYST_EMAIL=analyst@example.com
+          MP20_LOCAL_ANALYST_PASSWORD=change-this-local-password
           MP20_ENGINE_ENABLED=true
           EOF
       - name: Start Docker Compose stack
@@ -63,6 +81,8 @@ jobs:
           PLAYWRIGHT_BASE_URL: http://localhost:5173
           MP20_LOCAL_ADMIN_EMAIL: advisor@example.com
           MP20_LOCAL_ADMIN_PASSWORD: change-this-local-password
+          MP20_LOCAL_ANALYST_EMAIL: analyst@example.com
+          MP20_LOCAL_ANALYST_PASSWORD: change-this-local-password
         run: npm run e2e:synthetic
       - name: Docker Compose logs
         if: failure()

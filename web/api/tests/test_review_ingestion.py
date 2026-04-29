@@ -167,9 +167,10 @@ def test_authenticated_upload_deduplicates_and_enqueues(tmp_path, settings) -> N
 
 
 @pytest.mark.django_db
-def test_real_upload_rejects_sqlite_queue_path(tmp_path, settings) -> None:
+def test_real_upload_uses_secure_storage_and_queues_without_backend_flag(
+    tmp_path, settings
+) -> None:
     settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
-    settings.MP20_REQUIRE_POSTGRES_FOR_REAL_UPLOADS = True
     user = _user()
     client = APIClient()
     client.force_authenticate(user=user)
@@ -181,10 +182,11 @@ def test_real_upload_rejects_sqlite_queue_path(tmp_path, settings) -> None:
         format="multipart",
     )
 
-    assert response.status_code == 503
-    assert "requires PostgreSQL" in response.json()["detail"]
-    assert workspace.documents.count() == 0
-    assert AuditEvent.objects.filter(action="real_upload_blocked").exists()
+    assert response.status_code == 200
+    assert len(response.json()["uploaded"]) == 1
+    assert workspace.documents.count() == 1
+    assert workspace.processing_jobs.filter(status=models.ProcessingJob.Status.QUEUED).exists()
+    assert AuditEvent.objects.filter(action="review_documents_uploaded").exists()
 
 
 @pytest.mark.django_db

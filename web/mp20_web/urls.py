@@ -20,6 +20,33 @@ urlpatterns = [
         name="generate-portfolio",
     ),
     path(
+        "api/clients/<str:household_id>/portfolio-runs/",
+        views.PortfolioRunListView.as_view(),
+        name="portfolio-run-list",
+    ),
+    path(
+        "api/clients/<str:household_id>/planning-versions/",
+        views.PlanningVersionListView.as_view(),
+        name="planning-version-list",
+    ),
+    path("api/cma/snapshots/", views.CMASnapshotListView.as_view(), name="cma-snapshot-list"),
+    path(
+        "api/cma/snapshots/<str:snapshot_id>/",
+        views.CMASnapshotDetailView.as_view(),
+        name="cma-snapshot-detail",
+    ),
+    path("api/cma/active/", views.CMAActiveView.as_view(), name="cma-active"),
+    path(
+        "api/cma/snapshots/<str:snapshot_id>/publish/",
+        views.CMASnapshotPublishView.as_view(),
+        name="cma-snapshot-publish",
+    ),
+    path(
+        "api/cma/snapshots/<str:snapshot_id>/frontier/",
+        views.CMAFrontierView.as_view(),
+        name="cma-frontier",
+    ),
+    path(
         "api/review-workspaces/",
         views.ReviewWorkspaceListCreateView.as_view(),
         name="review-workspace-list",

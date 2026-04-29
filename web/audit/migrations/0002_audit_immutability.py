@@ -5,63 +5,43 @@ from django.db import migrations
 
 def add_audit_immutability(apps, schema_editor):  # noqa: ARG001
     vendor = schema_editor.connection.vendor
-    if vendor == "postgresql":
-        schema_editor.execute(
-            """
-            CREATE OR REPLACE FUNCTION audit_event_immutable()
-            RETURNS trigger AS $$
-            BEGIN
-                RAISE EXCEPTION 'Audit events are immutable';
-            END;
-            $$ LANGUAGE plpgsql;
-            """
-        )
-        schema_editor.execute(
-            """
-            DROP TRIGGER IF EXISTS audit_event_no_update ON audit_auditevent;
-            CREATE TRIGGER audit_event_no_update
-            BEFORE UPDATE ON audit_auditevent
-            FOR EACH ROW EXECUTE FUNCTION audit_event_immutable();
-            """
-        )
-        schema_editor.execute(
-            """
-            DROP TRIGGER IF EXISTS audit_event_no_delete ON audit_auditevent;
-            CREATE TRIGGER audit_event_no_delete
-            BEFORE DELETE ON audit_auditevent
-            FOR EACH ROW EXECUTE FUNCTION audit_event_immutable();
-            """
-        )
-    elif vendor == "sqlite":
-        schema_editor.execute(
-            """
-            CREATE TRIGGER IF NOT EXISTS audit_event_no_update
-            BEFORE UPDATE ON audit_auditevent
-            BEGIN
-                SELECT RAISE(ABORT, 'Audit events are immutable');
-            END;
-            """
-        )
-        schema_editor.execute(
-            """
-            CREATE TRIGGER IF NOT EXISTS audit_event_no_delete
-            BEFORE DELETE ON audit_auditevent
-            BEGIN
-                SELECT RAISE(ABORT, 'Audit events are immutable');
-            END;
-            """
-        )
+    if vendor != "postgresql":
+        return
+    schema_editor.execute(
+        """
+        CREATE OR REPLACE FUNCTION audit_event_immutable()
+        RETURNS trigger AS $$
+        BEGIN
+            RAISE EXCEPTION 'Audit events are immutable';
+        END;
+        $$ LANGUAGE plpgsql;
+        """
+    )
+    schema_editor.execute(
+        """
+        DROP TRIGGER IF EXISTS audit_event_no_update ON audit_auditevent;
+        CREATE TRIGGER audit_event_no_update
+        BEFORE UPDATE ON audit_auditevent
+        FOR EACH ROW EXECUTE FUNCTION audit_event_immutable();
+        """
+    )
+    schema_editor.execute(
+        """
+        DROP TRIGGER IF EXISTS audit_event_no_delete ON audit_auditevent;
+        CREATE TRIGGER audit_event_no_delete
+        BEFORE DELETE ON audit_auditevent
+        FOR EACH ROW EXECUTE FUNCTION audit_event_immutable();
+        """
+    )
 
 
 def drop_audit_immutability(apps, schema_editor):  # noqa: ARG001
     vendor = schema_editor.connection.vendor
-    if vendor == "postgresql":
-        schema_editor.execute("DROP TRIGGER IF EXISTS audit_event_no_update ON audit_auditevent;")
-        schema_editor.execute("DROP TRIGGER IF EXISTS audit_event_no_delete ON audit_auditevent;")
-        schema_editor.execute("DROP FUNCTION IF EXISTS audit_event_immutable();")
-    elif vendor == "sqlite":
-        schema_editor.execute("DROP TRIGGER IF EXISTS audit_event_no_update;")
-        schema_editor.execute("DROP TRIGGER IF EXISTS audit_event_no_delete;")
+    if vendor != "postgresql":
+        return
+    schema_editor.execute("DROP TRIGGER IF EXISTS audit_event_no_update ON audit_auditevent;")
+    schema_editor.execute("DROP TRIGGER IF EXISTS audit_event_no_delete ON audit_auditevent;")
+    schema_editor.execute("DROP FUNCTION IF EXISTS audit_event_immutable();")
 
 
 class Migration(migrations.Migration):

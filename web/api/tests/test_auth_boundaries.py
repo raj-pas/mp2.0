@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.core.management import call_command
 from django.urls import reverse
 from rest_framework.test import APIClient
 from web.api import models
@@ -58,6 +59,25 @@ def test_financial_analyst_cannot_access_real_client_pii() -> None:
     ]
 
     assert {response.status_code for response in responses} == {403}
+
+
+@pytest.mark.django_db
+def test_advisor_cannot_edit_or_view_analyst_cma_surfaces() -> None:
+    call_command("seed_fraser_cma")
+    advisor = _user("advisor@example.com")
+    active = models.CMASnapshot.objects.get(status=models.CMASnapshot.Status.ACTIVE)
+    client = APIClient()
+    client.force_authenticate(user=advisor)
+
+    responses = [
+        client.get(reverse("cma-snapshot-list")),
+        client.post(reverse("cma-snapshot-list"), {"copy_from_snapshot_id": active.external_id}),
+        client.post(reverse("cma-snapshot-publish", args=[active.external_id])),
+        client.get(reverse("cma-frontier", args=[active.external_id])),
+    ]
+
+    assert {response.status_code for response in responses} == {403}
+    assert client.get(reverse("cma-active")).status_code == 200
 
 
 @pytest.mark.django_db

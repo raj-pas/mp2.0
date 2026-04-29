@@ -34,13 +34,14 @@ export type Account = {
   current_value: string;
   contribution_room: string | null;
   is_held_at_purpose: boolean;
+  missing_holdings_confirmed: boolean;
   holdings: Holding[];
 };
 
 export type Goal = {
   id: string;
   name: string;
-  target_amount: string;
+  target_amount: string | null;
   target_date: string;
   necessity_score: number;
   current_funded_amount: string;
@@ -62,7 +63,8 @@ export type HouseholdDetail = HouseholdSummary & {
   members: Person[];
   goals: Goal[];
   accounts: Account[];
-  last_engine_output: EngineOutput | Record<string, never>;
+  latest_portfolio_run: PortfolioRun | null;
+  portfolio_runs: PortfolioRunSummary[];
 };
 
 export type Allocation = {
@@ -71,34 +73,135 @@ export type Allocation = {
   weight: number;
 };
 
-export type GoalBlend = {
+export type AllocationDelta = {
+  sleeve_id: string;
+  sleeve_name: string;
+  weight_delta: number;
+};
+
+export type LinkRecommendation = {
+  link_id: string;
   goal_id: string;
   goal_name: string;
+  account_id: string;
+  account_type: string;
+  allocated_amount: number;
+  horizon_years: number;
+  goal_risk_score: number;
+  frontier_percentile: number;
   allocations: Allocation[];
   expected_return: number;
   volatility: number;
-  risk_rating: "low" | "medium" | "high";
-  frontier_percentile: number;
+  projected_value: number;
+  projection: Array<{
+    year: number;
+    p10: number;
+    p50: number;
+    p90: number;
+    optimized_percentile_value: number;
+  }>;
+  current_comparison: {
+    missing_holdings: boolean;
+    expected_return: number | null;
+    volatility: number | null;
+    allocations: Allocation[];
+    deltas: AllocationDelta[];
+  };
+  drift_flags: string[];
+  advisor_summary: string;
+  technical_trace: Record<string, unknown>;
+};
+
+export type Rollup = {
+  id: string;
+  name: string;
+  allocated_amount: number;
+  allocations: Allocation[];
+  expected_return: number;
+  volatility: number;
 };
 
 export type EngineOutput = {
+  schema_version: string;
   household_id: string;
-  goal_blends: GoalBlend[];
-  household_blend: Allocation[];
+  link_recommendations: LinkRecommendation[];
+  goal_rollups: Rollup[];
+  account_rollups: Rollup[];
+  household_rollup: Rollup;
   fan_chart: Array<{
+    link_id: string;
     goal_id: string;
     year: number;
     p10: number;
     p50: number;
     p90: number;
   }>;
-  account_risk_ratings: Record<string, "low" | "medium" | "high">;
-  household_risk_rating: "low" | "medium" | "high";
-  narrative_summary: string;
+  advisor_summary: string;
+  technical_trace: Record<string, unknown>;
+  warnings: string[];
   audit_trace: {
     model_version: string;
     method: string;
+    cma_snapshot_id: string;
+    cma_version: number;
   };
+};
+
+export type PortfolioRunSummary = {
+  id: number;
+  external_id: string;
+  status: "current" | "stale";
+  stale_reason: string;
+  cma_snapshot_id: string;
+  engine_version: string;
+  advisor_summary: string;
+  input_hash: string;
+  output_hash: string;
+  generated_by_email: string;
+  created_at: string;
+};
+
+export type PortfolioRun = PortfolioRunSummary & {
+  output: EngineOutput;
+  technical_trace: Record<string, unknown>;
+  link_recommendation_rows: Array<{
+    goal_external_id: string;
+    account_external_id: string;
+    allocated_amount: string;
+    frontier_percentile: number;
+    expected_return: string;
+    volatility: string;
+    allocations: Allocation[];
+  }>;
+};
+
+export type CMASnapshot = {
+  id: number;
+  external_id: string;
+  name: string;
+  version: number;
+  status: "draft" | "active" | "archived";
+  source: string;
+  notes: string;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+  fund_assumptions: Array<{
+    fund_id: string;
+    name: string;
+    expected_return: string;
+    volatility: string;
+    optimizer_eligible: boolean;
+    is_whole_portfolio: boolean;
+    display_order: number;
+    asset_class_weights: Record<string, number>;
+    tax_drag: Record<string, number>;
+  }>;
+  correlations: Array<{
+    row_fund_id: string;
+    col_fund_id: string;
+    correlation: string;
+  }>;
 };
 
 export type SessionPayload = {

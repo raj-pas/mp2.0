@@ -12,10 +12,30 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { fetchClient, fetchClients, fetchSession, generatePortfolio, login, logout } from "./api";
+import {
+  createCmaDraft,
+  fetchClient,
+  fetchClients,
+  fetchCmaFrontier,
+  fetchCmaSnapshots,
+  fetchSession,
+  generatePortfolio,
+  login,
+  logout,
+  publishCmaSnapshot,
+  updateCmaSnapshot,
+} from "./api";
 import { Button } from "./components/ui/button";
 import { ReviewShell } from "./ReviewShell";
-import type { Account, EngineOutput, Goal, HouseholdDetail, HouseholdSummary } from "./types";
+import type {
+  Account,
+  Allocation,
+  CMASnapshot,
+  Goal,
+  HouseholdDetail,
+  HouseholdSummary,
+  PortfolioRun,
+} from "./types";
 
 const currency = new Intl.NumberFormat("en-CA", {
   style: "currency",
@@ -30,22 +50,24 @@ const percent = new Intl.NumberFormat("en-CA", {
 
 function App() {
   const [selectedClientId, setSelectedClientId] = useState<string>("hh_sandra_mike_chen");
-  const [mode, setMode] = useState<"clients" | "review">("clients");
+  const [mode, setMode] = useState<"clients" | "review" | "cma">("clients");
   const queryClient = useQueryClient();
   const session = useQuery({
     queryKey: ["session"],
     queryFn: fetchSession,
   });
   const isAuthenticated = Boolean(session.data?.authenticated);
+  const userRole = session.data?.user?.role ?? "";
+  const canAccessClients = isAuthenticated && userRole !== "financial_analyst";
   const clients = useQuery({
     queryKey: ["clients"],
     queryFn: fetchClients,
-    enabled: isAuthenticated,
+    enabled: canAccessClients,
   });
   const selectedClient = useQuery({
     queryKey: ["client", selectedClientId],
     queryFn: () => fetchClient(selectedClientId),
-    enabled: Boolean(selectedClientId) && isAuthenticated,
+    enabled: Boolean(selectedClientId) && canAccessClients,
   });
   const portfolioMutation = useMutation({
     mutationFn: () => generatePortfolio(selectedClientId),
@@ -67,9 +89,8 @@ function App() {
     if (portfolioMutation.data) {
       return portfolioMutation.data;
     }
-    const saved = selectedClient.data?.last_engine_output;
-    return saved && "goal_blends" in saved ? (saved as EngineOutput) : null;
-  }, [portfolioMutation.data, selectedClient.data?.last_engine_output]);
+    return selectedClient.data?.latest_portfolio_run ?? null;
+  }, [portfolioMutation.data, selectedClient.data?.latest_portfolio_run]);
 
   return (
     <main className="min-h-screen bg-[#f7f8f5] text-ink">
@@ -84,12 +105,15 @@ function App() {
               <p className="text-xs text-slate-500">Secure local scaffold</p>
             </div>
           </div>
-          <div className="mb-5 grid grid-cols-2 gap-2">
+          <div className="mb-5 grid grid-cols-3 gap-2">
             <ModeButton active={mode === "clients"} icon={<Database size={15} />} onClick={() => setMode("clients")}>
               Clients
             </ModeButton>
             <ModeButton active={mode === "review"} icon={<FileText size={15} />} onClick={() => setMode("review")}>
               Review
+            </ModeButton>
+            <ModeButton active={mode === "cma"} icon={<BarChart3 size={15} />} onClick={() => setMode("cma")}>
+              CMA
             </ModeButton>
           </div>
           <SessionStatus
@@ -100,16 +124,24 @@ function App() {
             onLogout={() => logoutMutation.mutate()}
           />
           <ClientList
-            authenticated={isAuthenticated}
-            clients={isAuthenticated ? (clients.data ?? []) : []}
-            isLoading={isAuthenticated && clients.isLoading}
+            authenticated={canAccessClients}
+            clients={canAccessClients ? (clients.data ?? []) : []}
+            isLoading={canAccessClients && clients.isLoading}
             selectedClientId={selectedClientId}
             onSelect={setSelectedClientId}
           />
         </aside>
 
         <section className="min-w-0 px-6 py-5">
-          {mode === "review" ? (
+          {mode === "cma" ? (
+            session.isLoading ? (
+              <EmptyState label="Checking session" />
+            ) : isAuthenticated ? (
+              <CmaConsole />
+            ) : (
+              <LoginPanel />
+            )
+          ) : mode === "review" ? (
             session.isLoading ? (
               <EmptyState label="Checking session" />
             ) : isAuthenticated ? (
@@ -334,7 +366,7 @@ function AdvisorWorkspace({
   onGenerate,
 }: {
   client: HouseholdDetail;
-  output: EngineOutput | null;
+  output: PortfolioRun | null;
   error?: string;
   isGenerating: boolean;
   onGenerate: () => void;
@@ -367,8 +399,301 @@ function AdvisorWorkspace({
           <GoalsPanel goals={client.goals} />
           <AccountsPanel accounts={client.accounts} />
         </div>
-        <PortfolioPanel output={output} />
+        <PortfolioPanel output={output} runHistory={client.portfolio_runs} />
       </div>
+    </div>
+  );
+}
+
+function CmaConsole() {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState<CMASnapshot | null>(null);
+  const snapshots = useQuery({
+    queryKey: ["cma-snapshots"],
+    queryFn: fetchCmaSnapshots,
+  });
+  const active = snapshots.data?.find((snapshot) => snapshot.status === "active");
+  const frontier = useQuery({
+    queryKey: ["cma-frontier", active?.external_id],
+    queryFn: () => fetchCmaFrontier(active!.external_id),
+    enabled: Boolean(active),
+  });
+  const createDraftMutation = useMutation({
+    mutationFn: () => createCmaDraft(active!.external_id),
+    onSuccess: (snapshot) => {
+      setDraft(snapshot);
+      void queryClient.invalidateQueries({ queryKey: ["cma-snapshots"] });
+    },
+  });
+  const saveDraftMutation = useMutation({
+    mutationFn: (snapshot: CMASnapshot) =>
+      updateCmaSnapshot(snapshot.external_id, {
+        notes: snapshot.notes,
+        fund_assumptions: snapshot.fund_assumptions,
+      }),
+    onSuccess: (snapshot) => {
+      setDraft(snapshot);
+      void queryClient.invalidateQueries({ queryKey: ["cma-snapshots"] });
+    },
+  });
+  const publishMutation = useMutation({
+    mutationFn: (snapshot: CMASnapshot) => publishCmaSnapshot(snapshot.external_id),
+    onSuccess: () => {
+      setDraft(null);
+      void queryClient.invalidateQueries({ queryKey: ["cma-snapshots"] });
+    },
+  });
+  const cmaError =
+    snapshots.error ??
+    createDraftMutation.error ??
+    saveDraftMutation.error ??
+    publishMutation.error;
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-5">
+      <header className="border-b border-slate-200 pb-4">
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+          Financial Analyst
+        </p>
+        <h2 className="mt-1 text-3xl font-semibold">CMA & Frontier</h2>
+      </header>
+      {cmaError ? (
+        <div className="rounded-md bg-[#ffe0d2] px-4 py-3 text-sm text-[#7d3b20]">
+          {(cmaError as Error).message}
+        </div>
+      ) : null}
+      <section className="rounded-md border border-slate-200 bg-white shadow-soft">
+        <PanelTitle icon={<Database size={17} />} title="Active Snapshot" />
+        <div className="p-4">
+          {active ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold">
+                    {active.name} v{active.version}
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">{active.source}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-mist px-2 py-1 text-xs font-bold uppercase">
+                    {active.status}
+                  </span>
+                  <Button
+                    disabled={createDraftMutation.isPending}
+                    onClick={() => createDraftMutation.mutate()}
+                  >
+                    <RefreshCw
+                      size={16}
+                      className={createDraftMutation.isPending ? "animate-spin" : ""}
+                    />
+                    New Draft
+                  </Button>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 gap-2 max-lg:grid-cols-2 max-sm:grid-cols-1">
+                {active.fund_assumptions.map((fund) => (
+                  <div className="rounded-md bg-[#fbfaf5] px-3 py-2 text-sm" key={fund.fund_id}>
+                    <div className="font-medium">{fund.name}</div>
+                    <div className="text-xs text-slate-500">
+                      Return {percent.format(Number(fund.expected_return))} · Vol{" "}
+                      {percent.format(Number(fund.volatility))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : snapshots.isLoading ? (
+            <div className="text-sm text-slate-500">Loading CMA snapshots</div>
+          ) : (
+            <div className="text-sm text-slate-500">No active CMA snapshot</div>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-md border border-slate-200 bg-white shadow-soft">
+        <PanelTitle icon={<FileText size={17} />} title="Draft Snapshots" />
+        <div className="divide-y divide-slate-100">
+          {(snapshots.data ?? [])
+            .filter((snapshot) => snapshot.status === "draft")
+            .map((snapshot) => (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+                key={snapshot.external_id}
+              >
+                <div>
+                  <div className="font-semibold">
+                    {snapshot.name} v{snapshot.version}
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">{snapshot.notes || "Draft"}</div>
+                </div>
+                <Button onClick={() => setDraft(snapshot)}>Edit</Button>
+              </div>
+            ))}
+          {snapshots.data?.some((snapshot) => snapshot.status === "draft") ? null : (
+            <div className="px-4 py-3 text-sm text-slate-500">No draft CMA snapshots</div>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-md border border-slate-200 bg-white shadow-soft">
+        <PanelTitle icon={<BarChart3 size={17} />} title="Efficient Frontier" />
+        <div className="p-4">
+          {frontier.data ? (
+            <div>
+              <div className="mb-3 text-sm text-slate-600">
+                {frontier.data.efficient.length} efficient points · {frontier.data.funds.length} funds
+              </div>
+              <div className="h-56 border-l border-b border-slate-200 p-3">
+                <div className="relative h-full">
+                  {frontier.data.efficient.map((point, index) => (
+                    <span
+                      className="absolute h-2 w-2 rounded-full bg-spruce"
+                      key={`${point.expected_return}-${point.volatility}-${index}`}
+                      style={{
+                        bottom: `${Math.min(point.expected_return * 1200, 96)}%`,
+                        left: `${Math.min(point.volatility * 500, 96)}%`,
+                      }}
+                      title={`Return ${percent.format(point.expected_return)}, Vol ${percent.format(point.volatility)}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : frontier.isLoading ? (
+            <div className="text-sm text-slate-500">Loading frontier</div>
+          ) : (
+            <div className="text-sm text-slate-500">Frontier unavailable</div>
+          )}
+        </div>
+      </section>
+      {draft ? (
+        <CmaDraftModal
+          draft={draft}
+          isPublishing={publishMutation.isPending}
+          isSaving={saveDraftMutation.isPending}
+          onChange={setDraft}
+          onClose={() => setDraft(null)}
+          onPublish={() => publishMutation.mutate(draft)}
+          onSave={() => saveDraftMutation.mutate(draft)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function CmaDraftModal({
+  draft,
+  isPublishing,
+  isSaving,
+  onChange,
+  onClose,
+  onPublish,
+  onSave,
+}: {
+  draft: CMASnapshot;
+  isPublishing: boolean;
+  isSaving: boolean;
+  onChange: (draft: CMASnapshot) => void;
+  onClose: () => void;
+  onPublish: () => void;
+  onSave: () => void;
+}) {
+  const updateFund = (
+    fundId: string,
+    field: "expected_return" | "volatility",
+    value: string,
+  ) => {
+    onChange({
+      ...draft,
+      fund_assumptions: draft.fund_assumptions.map((fund) =>
+        fund.fund_id === fundId ? { ...fund, [field]: value } : fund,
+      ),
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4">
+      <section className="max-h-[88vh] w-full max-w-4xl overflow-auto rounded-md bg-white shadow-xl">
+        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              CMA Draft
+            </p>
+            <h3 className="mt-1 text-xl font-semibold">
+              {draft.name} v{draft.version}
+            </h3>
+          </div>
+          <button
+            className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600"
+            onClick={onClose}
+            type="button"
+          >
+            Close
+          </button>
+        </header>
+        <div className="space-y-4 p-4">
+          <label className="block text-sm font-semibold">
+            Notes
+            <textarea
+              className="mt-2 min-h-20 w-full rounded-md border border-slate-200 px-3 py-2 font-normal outline-none focus:border-spruce"
+              onChange={(event) => onChange({ ...draft, notes: event.target.value })}
+              value={draft.notes}
+            />
+          </label>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[680px] text-left text-sm">
+              <thead className="border-b border-slate-100 text-xs uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th className="py-2 pr-3">Fund</th>
+                  <th className="px-3 py-2">Expected Return</th>
+                  <th className="px-3 py-2">Volatility</th>
+                  <th className="px-3 py-2">Eligible</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {draft.fund_assumptions.map((fund) => (
+                  <tr key={fund.fund_id}>
+                    <td className="py-2 pr-3 font-medium">{fund.name}</td>
+                    <td className="px-3 py-2">
+                      <input
+                        className="h-10 w-full rounded-md border border-slate-200 px-2 outline-none focus:border-spruce"
+                        onChange={(event) =>
+                          updateFund(fund.fund_id, "expected_return", event.target.value)
+                        }
+                        type="number"
+                        step="0.0001"
+                        value={fund.expected_return}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        className="h-10 w-full rounded-md border border-slate-200 px-2 outline-none focus:border-spruce"
+                        onChange={(event) =>
+                          updateFund(fund.fund_id, "volatility", event.target.value)
+                        }
+                        type="number"
+                        step="0.0001"
+                        value={fund.volatility}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      {fund.optimizer_eligible ? "Yes" : "No"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button disabled={isSaving} onClick={onSave}>
+              {isSaving ? "Saving" : "Save Draft"}
+            </Button>
+            <Button disabled={isPublishing || isSaving} onClick={onPublish}>
+              {isPublishing ? "Publishing" : "Publish"}
+            </Button>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
@@ -424,7 +749,7 @@ function GoalsPanel({ goals }: { goals: Goal[] }) {
               </div>
             </div>
             <div className="text-right max-sm:text-left">
-              <div className="font-semibold">{formatCurrency(goal.target_amount)}</div>
+              <div className="font-semibold">{goal.target_amount ? formatCurrency(goal.target_amount) : "No target"}</div>
               <div className="mt-1 text-xs uppercase tracking-wider text-slate-500">
                 {goal.target_date} · necessity {goal.necessity_score}/5
               </div>
@@ -470,29 +795,41 @@ function AccountsPanel({ accounts }: { accounts: Account[] }) {
   );
 }
 
-function PortfolioPanel({ output }: { output: EngineOutput | null }) {
+function PortfolioPanel({
+  output,
+  runHistory,
+}: {
+  output: PortfolioRun | null;
+  runHistory: HouseholdDetail["portfolio_runs"];
+}) {
   if (!output) {
     return (
       <section className="rounded-md border border-slate-200 bg-white p-5 shadow-soft">
         <PanelTitle icon={<BarChart3 size={17} />} title="Portfolio Output" />
         <div className="mt-8 rounded-md bg-skyglass px-4 py-5 text-sm text-slate-700">
-          Generate the portfolio to call the Phase 1 engine stub and write an audit event.
+          Generate the portfolio to create a link-level Fraser recommendation run.
         </div>
       </section>
     );
   }
 
+  const engineOutput = output.output;
+  const history = [
+    output,
+    ...runHistory.filter((run) => run.external_id !== output.external_id),
+  ].slice(0, 5);
   return (
     <section className="rounded-md border border-slate-200 bg-white shadow-soft">
       <PanelTitle icon={<BarChart3 size={17} />} title="Portfolio Output" />
       <div className="space-y-5 p-4">
         <div className="rounded-md bg-mist px-4 py-3">
           <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-            Household Risk Rating
+            Latest Run
           </div>
-          <div className="mt-1 flex items-center gap-2 text-2xl font-semibold">
-            {output.household_risk_rating}
-            <RiskBadge rating={output.household_risk_rating} />
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-700">
+            <span className="font-semibold">{output.status}</span>
+            <span>CMA {engineOutput.audit_trace.cma_version}</span>
+            <span>{new Date(output.created_at).toLocaleString()}</span>
           </div>
         </div>
 
@@ -500,41 +837,82 @@ function PortfolioPanel({ output }: { output: EngineOutput | null }) {
           <h3 className="mb-2 text-sm font-bold uppercase tracking-wider text-slate-500">
             Household Blend
           </h3>
-          <AllocationBars allocations={output.household_blend} />
+          <AllocationBars allocations={engineOutput.household_rollup.allocations} />
         </div>
 
         <div>
           <h3 className="mb-2 text-sm font-bold uppercase tracking-wider text-slate-500">
-            Goal Blends
+            Goal-Account Recommendations
           </h3>
           <div className="space-y-3">
-            {output.goal_blends.map((blend) => (
-              <div className="rounded-md border border-slate-100 p-3" key={blend.goal_id}>
+            {engineOutput.link_recommendations.map((recommendation) => (
+              <div className="rounded-md border border-slate-100 p-3" key={recommendation.link_id}>
                 <div className="flex items-center justify-between gap-3">
-                  <div className="font-semibold">{blend.goal_name}</div>
-                  <RiskBadge rating={blend.risk_rating} />
+                  <div>
+                    <div className="font-semibold">{recommendation.goal_name}</div>
+                    <div className="text-xs text-slate-500">
+                      {recommendation.account_type} · {formatCurrency(recommendation.allocated_amount)}
+                    </div>
+                  </div>
+                  <span className="rounded-full bg-mist px-2 py-1 text-xs font-bold">
+                    p{recommendation.frontier_percentile}
+                  </span>
                 </div>
                 <div className="mt-2 text-xs text-slate-500">
-                  Return {percent.format(blend.expected_return)} · Volatility{" "}
-                  {percent.format(blend.volatility)} · Frontier p{blend.frontier_percentile}
+                  Return {percent.format(recommendation.expected_return)} · Volatility{" "}
+                  {percent.format(recommendation.volatility)} · Horizon{" "}
+                  {recommendation.horizon_years.toFixed(1)} years
                 </div>
                 <div className="mt-3">
-                  <AllocationBars allocations={blend.allocations} compact />
+                  <AllocationBars allocations={recommendation.allocations} compact />
                 </div>
+                {recommendation.current_comparison.missing_holdings ? (
+                  <div className="mt-3 rounded-md bg-[#fff1c7] px-3 py-2 text-xs text-[#775b0b]">
+                    Current holdings are unavailable or not mapped to the Fraser fund universe.
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
         </div>
 
-        <div className="rounded-md bg-[#fbfaf5] px-4 py-3 text-sm text-slate-700">
-          {output.narrative_summary}
+        <div>
+          <h3 className="mb-2 text-sm font-bold uppercase tracking-wider text-slate-500">
+            Run History
+          </h3>
+          <div className="divide-y divide-slate-100 rounded-md border border-slate-100">
+            {history.map((run) => (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-sm"
+                key={run.external_id}
+              >
+                <div>
+                  <span className="font-semibold">{run.status}</span>
+                  <span className="ml-2 text-slate-500">
+                    {new Date(run.created_at).toLocaleString()}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-500">{run.engine_version}</div>
+              </div>
+            ))}
+          </div>
         </div>
+
+        <details className="rounded-md bg-[#fbfaf5] px-4 py-3 text-sm text-slate-700">
+          <summary className="cursor-pointer font-semibold">Why this recommendation?</summary>
+          <p className="mt-2">{output.advisor_summary}</p>
+          <div className="mt-3 grid gap-2 text-xs text-slate-500">
+            <span>Engine {output.engine_version}</span>
+            <span>Input hash {output.input_hash.slice(0, 12)}</span>
+            <span>Output hash {output.output_hash.slice(0, 12)}</span>
+          </div>
+        </details>
       </div>
     </section>
   );
 }
 
-function AllocationBars({ allocations, compact = false }: { allocations: EngineOutput["household_blend"]; compact?: boolean }) {
+function AllocationBars({ allocations, compact = false }: { allocations: Allocation[]; compact?: boolean }) {
   const palette = ["bg-spruce", "bg-copper", "bg-citrine", "bg-[#5b7f95]", "bg-[#8f6f9f]", "bg-[#7a8b42]"];
   return (
     <div className="space-y-2">

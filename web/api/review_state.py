@@ -207,6 +207,13 @@ def readiness_for_state(state: dict[str, Any]) -> Readiness:
 
     if accounts and goals and not links:
         missing.append(_missing("goal_account_mapping", "Advisor-confirmed goal-account mapping"))
+    elif links:
+        if any(
+            link.get("allocated_amount") is None and link.get("allocated_pct") is None
+            for link in links
+        ):
+            missing.append(_missing("goal_account_mapping", "Allocated dollars or percentage"))
+        missing.extend(_full_assignment_blockers(accounts, links))
     if not risk.get("household_score") and not household.get("household_risk_score"):
         missing.append(_missing("risk", "Household risk input"))
 
@@ -219,31 +226,74 @@ def readiness_for_state(state: dict[str, Any]) -> Readiness:
     )
 
 
+def _full_assignment_blockers(
+    accounts: list[dict[str, Any]], links: list[dict[str, Any]]
+) -> list[dict[str, str]]:
+    blockers: list[dict[str, str]] = []
+    for account in accounts:
+        if account.get("is_held_at_purpose") is False:
+            continue
+        account_id = str(account.get("id") or "")
+        if not account_id:
+            continue
+        account_links = [link for link in links if str(link.get("account_id")) == account_id]
+        if not account_links:
+            blockers.append(_missing("goal_account_mapping", "Every Purpose account assigned"))
+            continue
+        account_value = _number(account.get("current_value"))
+        if account_value <= 0:
+            continue
+        if all(link.get("allocated_amount") is not None for link in account_links):
+            allocated = sum(_number(link.get("allocated_amount")) for link in account_links)
+            if abs(allocated - account_value) > Decimal("1.00"):
+                blockers.append(_missing("goal_account_mapping", "Full account-dollar assignment"))
+        elif all(link.get("allocated_pct") is not None for link in account_links):
+            allocated_pct = sum(_number(link.get("allocated_pct")) for link in account_links)
+            if abs(allocated_pct - Decimal("1")) > Decimal("0.0001"):
+                blockers.append(_missing("goal_account_mapping", "Full account-percent assignment"))
+        else:
+            blockers.append(_missing("goal_account_mapping", "Consistent assignment basis"))
+    return blockers
+
+
+@transaction.atomic
 def create_state_version(
     workspace: models.ReviewWorkspace,
     *,
     user,
     state: dict[str, Any] | None = None,
 ) -> models.ReviewedClientStateVersion:
-    state = state or workspace.reviewed_state or reviewed_state_from_workspace(workspace)
+    locked_workspace = models.ReviewWorkspace.objects.select_for_update().get(pk=workspace.pk)
+    state = (
+        state or locked_workspace.reviewed_state or reviewed_state_from_workspace(locked_workspace)
+    )
     readiness = readiness_for_state(state)
-    next_version = models.ReviewedClientStateVersion.objects.filter(workspace=workspace).count() + 1
+    latest_version = (
+        models.ReviewedClientStateVersion.objects.filter(workspace=locked_workspace)
+        .order_by("-version")
+        .values_list("version", flat=True)
+        .first()
+    )
+    next_version = (latest_version or 0) + 1
     version = models.ReviewedClientStateVersion.objects.create(
-        workspace=workspace,
+        workspace=locked_workspace,
         version=next_version,
         schema_version=REVIEW_SCHEMA_VERSION,
         state=state,
         readiness=readiness.__dict__,
         created_by=user if getattr(user, "is_authenticated", False) else None,
     )
-    workspace.reviewed_state = state
-    workspace.readiness = readiness.__dict__
-    workspace.status = (
+    locked_workspace.reviewed_state = state
+    locked_workspace.readiness = readiness.__dict__
+    locked_workspace.status = (
         models.ReviewWorkspace.Status.ENGINE_READY
         if readiness.engine_ready
         else models.ReviewWorkspace.Status.REVIEW_READY
     )
-    workspace.save(update_fields=["reviewed_state", "readiness", "status", "updated_at"])
+    locked_workspace.save(update_fields=["reviewed_state", "readiness", "status", "updated_at"])
+    workspace.reviewed_state = locked_workspace.reviewed_state
+    workspace.readiness = locked_workspace.readiness
+    workspace.status = locked_workspace.status
     return version
 
 
@@ -631,6 +681,7 @@ def _merge_household_state(household: models.Household, state: dict[str, Any]) -
             regulatory_risk_rating=account_state.get("regulatory_risk_rating") or "medium",
             current_value=_number(account_state.get("current_value")),
             is_held_at_purpose=bool(account_state.get("is_held_at_purpose", True)),
+            missing_holdings_confirmed=bool(account_state.get("missing_holdings_confirmed", False)),
         )
         accounts_by_id[external_id] = account
         for holding_index, holding_state in enumerate(account_state.get("holdings") or [], start=1):
@@ -651,7 +702,11 @@ def _merge_household_state(household: models.Household, state: dict[str, Any]) -
             external_id=external_id,
             household=household,
             name=goal_state.get("name") or f"Reviewed goal {index}",
-            target_amount=_number(goal_state.get("target_amount") or 1),
+            target_amount=(
+                _number(goal_state.get("target_amount"))
+                if goal_state.get("target_amount") is not None
+                else None
+            ),
             target_date=_target_date(goal_state),
             necessity_score=_int_or_default(goal_state.get("necessity_score"), 3),
             current_funded_amount=_number(goal_state.get("current_funded_amount")),

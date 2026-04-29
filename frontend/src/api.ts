@@ -1,9 +1,10 @@
 import type {
-  EngineOutput,
+  CMASnapshot,
   ExtractedFact,
   HouseholdDetail,
   HouseholdSummary,
   MatchCandidate,
+  PortfolioRun,
   ReviewWorkspace,
   ReviewWorkspaceSummary,
   ReviewedClientState,
@@ -52,10 +53,49 @@ export function fetchClient(id: string): Promise<HouseholdDetail> {
   return request<HouseholdDetail>(`/api/clients/${id}/`);
 }
 
-export function generatePortfolio(id: string): Promise<EngineOutput> {
-  return request<EngineOutput>(`/api/clients/${id}/generate-portfolio/`, {
+export function generatePortfolio(id: string): Promise<PortfolioRun> {
+  return request<PortfolioRun>(`/api/clients/${id}/generate-portfolio/`, {
     method: "POST",
   });
+}
+
+export function fetchCmaSnapshots(): Promise<CMASnapshot[]> {
+  return request<CMASnapshot[]>("/api/cma/snapshots/");
+}
+
+export function createCmaDraft(copyFromSnapshotId: string): Promise<CMASnapshot> {
+  return request<CMASnapshot>("/api/cma/snapshots/", {
+    method: "POST",
+    body: JSON.stringify({ copy_from_snapshot_id: copyFromSnapshotId }),
+  });
+}
+
+export function updateCmaSnapshot(
+  id: string,
+  payload: Partial<CMASnapshot>,
+): Promise<CMASnapshot> {
+  return request<CMASnapshot>(`/api/cma/snapshots/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function publishCmaSnapshot(id: string): Promise<CMASnapshot> {
+  return request<CMASnapshot>(`/api/cma/snapshots/${id}/publish/`, {
+    method: "POST",
+  });
+}
+
+export function fetchCmaFrontier(id: string): Promise<{
+  snapshot_id: string;
+  funds: Array<{ id: string; name: string }>;
+  efficient: Array<{ expected_return: number; volatility: number; weights: number[] }>;
+}> {
+  return request<{
+    snapshot_id: string;
+    funds: Array<{ id: string; name: string }>;
+    efficient: Array<{ expected_return: number; volatility: number; weights: number[] }>;
+  }>(`/api/cma/snapshots/${id}/frontier/`);
 }
 
 export function fetchSession(): Promise<SessionPayload> {

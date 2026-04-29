@@ -85,6 +85,7 @@ class Account(models.Model):
     contribution_room = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     contribution_history = models.JSONField(default=list, blank=True)
     is_held_at_purpose = models.BooleanField(default=True)
+    missing_holdings_confirmed = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["account_type", "external_id"]
@@ -111,7 +112,7 @@ class Goal(models.Model):
     external_id = models.CharField(max_length=120, unique=True)
     household = models.ForeignKey(Household, related_name="goals", on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
-    target_amount = models.DecimalField(max_digits=14, decimal_places=2)
+    target_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     target_date = models.DateField()
     necessity_score = models.PositiveSmallIntegerField(default=3)
     current_funded_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
@@ -140,6 +141,173 @@ class GoalAccountLink(models.Model):
 
     def __str__(self) -> str:
         return f"{self.goal} ← {self.account}"
+
+
+class CMASnapshot(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        ACTIVE = "active", "Active"
+        ARCHIVED = "archived", "Archived"
+
+    external_id = models.CharField(max_length=120, unique=True, default=uuid_string)
+    name = models.CharField(max_length=255, default="Fraser CMA")
+    version = models.PositiveIntegerField(default=1)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    source = models.CharField(max_length=500, blank=True)
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="created_cma_snapshots",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+    )
+    published_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="published_cma_snapshots",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+    )
+    published_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-version", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["status"],
+                condition=models.Q(status="active"),
+                name="unique_active_cma_snapshot",
+            ),
+            models.UniqueConstraint(fields=["version"], name="unique_cma_snapshot_version"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} v{self.version} ({self.status})"
+
+
+class CMAFundAssumption(models.Model):
+    snapshot = models.ForeignKey(
+        CMASnapshot, related_name="fund_assumptions", on_delete=models.CASCADE
+    )
+    fund_id = models.CharField(max_length=120)
+    name = models.CharField(max_length=255)
+    expected_return = models.DecimalField(max_digits=10, decimal_places=8)
+    volatility = models.DecimalField(max_digits=10, decimal_places=8)
+    optimizer_eligible = models.BooleanField(default=True)
+    is_whole_portfolio = models.BooleanField(default=False)
+    display_order = models.PositiveSmallIntegerField(default=0)
+    asset_class_weights = models.JSONField(default=dict, blank=True)
+    tax_drag = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["display_order", "fund_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["snapshot", "fund_id"], name="unique_cma_fund_per_snapshot"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.snapshot} {self.name}"
+
+
+class CMACorrelation(models.Model):
+    snapshot = models.ForeignKey(CMASnapshot, related_name="correlations", on_delete=models.CASCADE)
+    row_fund_id = models.CharField(max_length=120)
+    col_fund_id = models.CharField(max_length=120)
+    correlation = models.DecimalField(max_digits=8, decimal_places=5)
+
+    class Meta:
+        ordering = ["row_fund_id", "col_fund_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["snapshot", "row_fund_id", "col_fund_id"],
+                name="unique_cma_correlation_cell",
+            )
+        ]
+
+
+class PortfolioRun(models.Model):
+    class Status(models.TextChoices):
+        CURRENT = "current", "Current"
+        STALE = "stale", "Stale"
+
+    external_id = models.CharField(max_length=120, unique=True, default=uuid_string)
+    household = models.ForeignKey(
+        Household, related_name="portfolio_runs", on_delete=models.CASCADE
+    )
+    cma_snapshot = models.ForeignKey(
+        CMASnapshot, related_name="portfolio_runs", on_delete=models.PROTECT
+    )
+    generated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="portfolio_runs",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.CURRENT)
+    stale_reason = models.CharField(max_length=255, blank=True)
+    input_snapshot = models.JSONField(default=dict)
+    output = models.JSONField(default=dict)
+    input_hash = models.CharField(max_length=64)
+    output_hash = models.CharField(max_length=64)
+    engine_version = models.CharField(max_length=120)
+    advisor_summary = models.TextField(blank=True)
+    technical_trace = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.household} portfolio run {self.external_id}"
+
+
+class PortfolioRunLinkRecommendation(models.Model):
+    portfolio_run = models.ForeignKey(
+        PortfolioRun, related_name="link_recommendation_rows", on_delete=models.CASCADE
+    )
+    goal = models.ForeignKey(Goal, on_delete=models.SET_NULL, null=True, blank=True)
+    account = models.ForeignKey(Account, on_delete=models.SET_NULL, null=True, blank=True)
+    goal_external_id = models.CharField(max_length=120)
+    account_external_id = models.CharField(max_length=120)
+    allocated_amount = models.DecimalField(max_digits=14, decimal_places=2)
+    frontier_percentile = models.PositiveSmallIntegerField()
+    expected_return = models.DecimalField(max_digits=10, decimal_places=8)
+    volatility = models.DecimalField(max_digits=10, decimal_places=8)
+    allocations = models.JSONField(default=list)
+
+    class Meta:
+        ordering = ["goal_external_id", "account_external_id"]
+
+
+class PlanningVersion(models.Model):
+    household = models.ForeignKey(
+        Household, related_name="planning_versions", on_delete=models.CASCADE
+    )
+    version = models.PositiveIntegerField()
+    state = models.JSONField(default=dict)
+    rationale = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="planning_versions",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-version"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["household", "version"], name="unique_planning_version_per_household"
+            )
+        ]
 
 
 class ReviewWorkspace(models.Model):
