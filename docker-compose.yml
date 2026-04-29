@@ -17,9 +17,13 @@ services:
 
   backend:
     build: .
+    env_file:
+      - path: .env
+        required: false
     command: >
       sh -c "uv run python web/manage.py migrate &&
              uv run python web/manage.py load_synthetic_personas &&
+             uv run python web/manage.py bootstrap_local_advisor --skip-if-missing &&
              uv run python web/manage.py runserver 0.0.0.0:8000"
     environment:
       DJANGO_SECRET_KEY: mp20-local-dev-only
@@ -27,15 +31,45 @@ services:
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0,backend
       DATABASE_URL: postgres://mp20:mp20@db:5432/mp20
       CORS_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      MP20_SECURE_DATA_ROOT: /secure-data
+      AWS_REGION: ${AWS_REGION:-ca-central-1}
+      BEDROCK_MODEL: ${BEDROCK_MODEL:-}
       UV_PROJECT_ENVIRONMENT: /opt/mp20-venv
       UV_LINK_MODE: copy
     volumes:
       - .:/app
+      - ${MP20_SECURE_DATA_ROOT:?Set MP20_SECURE_DATA_ROOT outside the repo}:/secure-data
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+
+  worker:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    command: sh -c "uv run python web/manage.py migrate && uv run python web/manage.py process_review_queue"
+    environment:
+      DJANGO_SECRET_KEY: mp20-local-dev-only
+      DJANGO_DEBUG: "1"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0,backend
+      DATABASE_URL: postgres://mp20:mp20@db:5432/mp20
+      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      MP20_SECURE_DATA_ROOT: /secure-data
+      AWS_REGION: ${AWS_REGION:-ca-central-1}
+      BEDROCK_MODEL: ${BEDROCK_MODEL:-}
+      UV_PROJECT_ENVIRONMENT: /opt/mp20-venv
+      UV_LINK_MODE: copy
+    volumes:
+      - .:/app
+      - ${MP20_SECURE_DATA_ROOT:?Set MP20_SECURE_DATA_ROOT outside the repo}:/secure-data
+    depends_on:
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_started
 
   frontend:
     image: node:22-bookworm

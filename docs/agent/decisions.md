@@ -15,6 +15,20 @@ authoritative when more detail is needed.
 - Keep Django persistence models separate from engine Pydantic schemas.
 - Translate web DB state into engine inputs at the web/engine boundary.
 - Add light real audit logging in Phase 1; defer immutability triggers.
+- Real-upload features require `MP20_SECURE_DATA_ROOT` outside the repo and hard
+  fail if it is missing or repo-local.
+- Use Postgres rows as the local processing queue for now. Backend enqueues;
+  worker claims with row locking and processes through
+  `process_review_queue`.
+- Real-derived extraction requires Bedrock env and ca-central-1 routing. Missing
+  Bedrock configuration is a fail-closed worker error.
+- Full raw extracted text remains transient. Persist structured facts,
+  provenance/run metadata, and minimally redacted evidence quotes only.
+- Sensitive identifiers are stored as hash plus redacted display, not plaintext.
+- Household uniqueness for review commits is internal generated ID; matching is
+  advisory and commit must be link-or-create.
+- Failed documents do not block review. Manual retry queues another processing
+  job.
 
 ## Canon v2.3 Decisions to Implement Next
 
@@ -69,8 +83,9 @@ authoritative when more detail is needed.
   optional unless volunteered.
 - Current UI surfaces low/medium/high in visible risk badges; canon reserves that
   vocabulary for internal/compliance mapping.
-- Current extraction, LLM, Croesus, Conquest, custodian, and PDF integrations are
-  stubs only.
+- Current extraction/review is a secure-local scaffold, not full canon Layer 1-5:
+  richer source review, temporal reconciliation, IS validation, pseudonymization,
+  retention/disposal, and CI PII checks are still needed.
 - Current audit log has writes but not immutability trigger, browse UI, or full
   input-to-output trace.
 - Current RBAC hook allows all access; Phase B needs real role enforcement.

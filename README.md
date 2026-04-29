@@ -2,14 +2,29 @@
 
 MP2.0 is the planning-first model portfolio platform described in
 [`MP2.0_Working_Canon.md`](MP2.0_Working_Canon.md). This repository currently
-contains the Phase 1 runnable scaffold: a Django/DRF backend, React/Vite advisor
+contains the Phase 1 runnable scaffold plus the first secure-local real-data
+review workflow: a Django/DRF backend, Postgres worker queue, React/Vite advisor
 shell, pure Python engine stub, synthetic persona, and Claude-first project
 memory.
 
 ## Current Status
 
-The scaffold is runnable and useful for local development, but the canon has
-advanced to v2.3. Next implementation should treat this repo as the base for:
+The scaffold is runnable and useful for local development. The current local
+thin slice now supports:
+
+- synthetic Sandra/Mike Chen client list/detail and generate-portfolio flow
+- local advisor login
+- review workspace creation
+- browser multi-file upload into a secure data root outside the repo
+- Postgres-backed worker queue via `process_review_queue`
+- local parsing for TXT/MD, CSV, XLSX, DOCX, and native-text PDFs
+- Bedrock-routed extraction for real-derived text and practical image/scanned
+  PDF OCR paths
+- reviewed client state, missing-field checklist, section approval, advisory
+  matching, and link-or-create commit into the current household tables
+
+The canon has advanced to v2.3. Next implementation should treat this repo as
+the base for:
 
 - Phase A: offsite scaffold and Som-demo-grade ingestion -> engine -> reporting
   flow.
@@ -20,6 +35,18 @@ See [`CLAUDE.md`](CLAUDE.md) and [`docs/agent/session-state.md`](docs/agent/sess
 for the current implementation context and known scaffold gaps.
 
 ## Local Start
+
+Create a local `.env` from the example and set a secure upload directory outside
+this repository:
+
+```bash
+cp .env.example .env
+mkdir -p ~/mp20-secure-data
+```
+
+Edit `.env` so `MP20_SECURE_DATA_ROOT` points at that outside-repo directory.
+Set `MP20_LOCAL_ADMIN_EMAIL` and `MP20_LOCAL_ADMIN_PASSWORD` if you want Docker
+Compose to bootstrap a local login automatically.
 
 Docker Compose is the canonical path:
 
@@ -33,7 +60,44 @@ Then open:
 - Backend API: <http://localhost:8000/api/clients/>
 
 The backend automatically runs migrations and loads the synthetic Sandra/Mike
-Chen persona.
+Chen persona. The `worker` service runs `uv run python web/manage.py
+process_review_queue` and shares Postgres plus the secure data-root mount with
+the backend.
+
+## Real-Data Local Rules
+
+- `MP20_SECURE_DATA_ROOT` is required for upload/review and must be outside the
+  repo. Repo-local paths hard fail.
+- Raw uploaded originals are retained only under the secure data root and are
+  not served through the app in this tranche.
+- Full extracted raw text is transient in worker memory. The DB stores structured
+  facts, run metadata, provenance, and minimally redacted evidence quotes.
+- Sensitive identifiers are stored as hash plus redacted display, not plaintext.
+- Real-derived extraction requires Bedrock env vars:
+  `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION=ca-central-1`, and
+  `BEDROCK_MODEL`.
+- Do not copy real client contents into repo files, agent memory docs, CI logs,
+  or commit messages.
+
+## Local Login and Worker Commands
+
+For non-Docker local work:
+
+```bash
+export MP20_SECURE_DATA_ROOT="$HOME/mp20-secure-data"
+export MP20_LOCAL_ADMIN_EMAIL="advisor@example.com"
+export MP20_LOCAL_ADMIN_PASSWORD="change-this-local-password"
+
+uv run python web/manage.py migrate
+uv run python web/manage.py bootstrap_local_advisor
+uv run python web/manage.py process_review_queue
+```
+
+For one-off queue processing in tests or debugging:
+
+```bash
+uv run python web/manage.py process_review_queue --once
+```
 
 ## Local Checks
 

@@ -6,6 +6,10 @@ falls behind.
 
 ## Phase B / Real-PII Blockers
 
+Secure-local browser upload now exists for controlled local review, but these
+remain blockers for any broader pilot, staging deployment, or sharing of
+real-derived outputs.
+
 | Question | Owner | Phase Impact |
 | --- | --- | --- |
 | Written authorization basis for using real Steadyhand client documents in product development | Lori + Amitha | REAL-PII BLOCKER before any real file is copied |

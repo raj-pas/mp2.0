@@ -29,6 +29,9 @@ npm-debug.log*
 personas/*/raw/
 personas/*/real/
 personas/**/*_raw.*
+secure-data/
+mp20-secure-data/
+real-data/
 
 # OS/editor
 .DS_Store

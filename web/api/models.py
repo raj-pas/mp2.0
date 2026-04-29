@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import uuid
+
+from django.conf import settings
 from django.db import models
+
+
+def uuid_string() -> str:
+    return str(uuid.uuid4())
 
 
 class Household(models.Model):
@@ -126,3 +133,241 @@ class GoalAccountLink(models.Model):
 
     def __str__(self) -> str:
         return f"{self.goal} ← {self.account}"
+
+
+class ReviewWorkspace(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        PROCESSING = "processing", "Processing"
+        REVIEW_READY = "review_ready", "Review ready"
+        ENGINE_READY = "engine_ready", "Engine ready"
+        COMMITTED = "committed", "Committed"
+
+    class DataOrigin(models.TextChoices):
+        SYNTHETIC = "synthetic", "Synthetic"
+        REAL_DERIVED = "real_derived", "Real-derived"
+
+    external_id = models.CharField(max_length=120, unique=True, default=uuid_string)
+    label = models.CharField(max_length=255)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="review_workspaces",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+    )
+    status = models.CharField(max_length=40, choices=Status.choices, default=Status.DRAFT)
+    data_origin = models.CharField(
+        max_length=40, choices=DataOrigin.choices, default=DataOrigin.REAL_DERIVED
+    )
+    linked_household = models.ForeignKey(
+        Household,
+        related_name="review_workspaces",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    reviewed_state = models.JSONField(default=dict, blank=True)
+    readiness = models.JSONField(default=dict, blank=True)
+    match_candidates = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-created_at"]
+
+    def __str__(self) -> str:
+        return self.label
+
+
+class ReviewDocument(models.Model):
+    class Status(models.TextChoices):
+        UPLOADED = "uploaded", "Uploaded"
+        DUPLICATE = "duplicate", "Duplicate"
+        CLASSIFIED = "classified", "Classified"
+        TEXT_EXTRACTED = "text_extracted", "Text extracted"
+        OCR_REQUIRED = "ocr_required", "OCR required"
+        OCR_COMPLETE = "ocr_complete", "OCR complete"
+        FACTS_EXTRACTED = "facts_extracted", "Facts extracted"
+        RECONCILED = "reconciled", "Reconciled"
+        UNSUPPORTED = "unsupported", "Unsupported"
+        FAILED = "failed", "Failed"
+
+    workspace = models.ForeignKey(
+        ReviewWorkspace, related_name="documents", on_delete=models.CASCADE
+    )
+    original_filename = models.CharField(max_length=500)
+    content_type = models.CharField(max_length=255, blank=True)
+    extension = models.CharField(max_length=20, blank=True)
+    file_size = models.PositiveBigIntegerField(default=0)
+    sha256 = models.CharField(max_length=64)
+    storage_path = models.CharField(max_length=1000, blank=True)
+    document_type = models.CharField(max_length=80, default="unknown")
+    status = models.CharField(max_length=40, choices=Status.choices, default=Status.UPLOADED)
+    failure_reason = models.TextField(blank=True)
+    processing_metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "sha256"], name="unique_review_document_workspace_sha"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return self.original_filename
+
+
+class ProcessingJob(models.Model):
+    class JobType(models.TextChoices):
+        PROCESS_DOCUMENT = "process_document", "Process document"
+        RECONCILE_WORKSPACE = "reconcile_workspace", "Reconcile workspace"
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        PROCESSING = "processing", "Processing"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    workspace = models.ForeignKey(
+        ReviewWorkspace, related_name="processing_jobs", on_delete=models.CASCADE
+    )
+    document = models.ForeignKey(
+        ReviewDocument,
+        related_name="processing_jobs",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    job_type = models.CharField(
+        max_length=40, choices=JobType.choices, default=JobType.PROCESS_DOCUMENT
+    )
+    status = models.CharField(max_length=40, choices=Status.choices, default=Status.QUEUED)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    max_attempts = models.PositiveSmallIntegerField(default=3)
+    locked_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.job_type}:{self.status}"
+
+
+class ExtractedFact(models.Model):
+    class Confidence(models.TextChoices):
+        HIGH = "high", "High"
+        MEDIUM = "medium", "Medium"
+        LOW = "low", "Low"
+
+    class DerivationMethod(models.TextChoices):
+        EXTRACTED = "extracted", "Extracted"
+        INFERRED = "inferred", "Inferred"
+        DEFAULTED = "defaulted", "Defaulted"
+
+    workspace = models.ForeignKey(
+        ReviewWorkspace, related_name="extracted_facts", on_delete=models.CASCADE
+    )
+    document = models.ForeignKey(
+        ReviewDocument, related_name="extracted_facts", on_delete=models.CASCADE
+    )
+    field = models.CharField(max_length=255)
+    value = models.JSONField(default=dict)
+    asserted_at = models.DateField(null=True, blank=True)
+    confidence = models.CharField(
+        max_length=20, choices=Confidence.choices, default=Confidence.MEDIUM
+    )
+    derivation_method = models.CharField(
+        max_length=20, choices=DerivationMethod.choices, default=DerivationMethod.EXTRACTED
+    )
+    source_page = models.PositiveIntegerField(null=True, blank=True)
+    source_location = models.CharField(max_length=255, blank=True)
+    evidence_quote = models.TextField(blank=True)
+    extraction_run_id = models.CharField(max_length=255)
+    is_current = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["field", "-asserted_at", "-created_at"]
+
+    def __str__(self) -> str:
+        return self.field
+
+
+class ReviewedClientStateVersion(models.Model):
+    workspace = models.ForeignKey(
+        ReviewWorkspace, related_name="state_versions", on_delete=models.CASCADE
+    )
+    version = models.PositiveIntegerField()
+    schema_version = models.CharField(max_length=40, default="reviewed_client_state.v1")
+    state = models.JSONField(default=dict)
+    readiness = models.JSONField(default=dict)
+    is_committed = models.BooleanField(default=False)
+    committed_household = models.ForeignKey(
+        Household,
+        related_name="reviewed_state_versions",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="reviewed_state_versions",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-version"]
+        constraints = [
+            models.UniqueConstraint(fields=["workspace", "version"], name="unique_state_version")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.workspace_id}:v{self.version}"
+
+
+class SectionApproval(models.Model):
+    class Status(models.TextChoices):
+        APPROVED = "approved", "Approved"
+        APPROVED_WITH_UNKNOWNS = "approved_with_unknowns", "Approved with unknowns"
+        NEEDS_ATTENTION = "needs_attention", "Needs attention"
+        NOT_READY = "not_ready_for_recommendation", "Not ready for recommendation"
+
+    workspace = models.ForeignKey(
+        ReviewWorkspace, related_name="section_approvals", on_delete=models.CASCADE
+    )
+    section = models.CharField(max_length=80)
+    status = models.CharField(max_length=40, choices=Status.choices, default=Status.NEEDS_ATTENTION)
+    notes = models.TextField(blank=True)
+    data = models.JSONField(default=dict, blank=True)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="section_approvals",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["section"]
+        constraints = [
+            models.UniqueConstraint(fields=["workspace", "section"], name="unique_section_approval")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.section}:{self.status}"

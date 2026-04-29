@@ -100,3 +100,122 @@ export type EngineOutput = {
     method: string;
   };
 };
+
+export type SessionPayload = {
+  authenticated: boolean;
+  csrf_token: string;
+  user: null | {
+    email: string;
+    name: string;
+    role: string;
+  };
+};
+
+export type Readiness = {
+  engine_ready: boolean;
+  kyc_compliance_ready: boolean;
+  missing: Array<{
+    section: string;
+    label: string;
+  }>;
+};
+
+export type ReviewDocument = {
+  id: number;
+  original_filename: string;
+  content_type: string;
+  extension: string;
+  file_size: number;
+  sha256: string;
+  document_type: string;
+  status: string;
+  failure_reason: string;
+  processing_metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProcessingJob = {
+  id: number;
+  document_id: number | null;
+  job_type: string;
+  status: string;
+  attempts: number;
+  max_attempts: number;
+  last_error: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SectionApproval = {
+  id: number;
+  section: string;
+  status: string;
+  notes: string;
+  data: Record<string, unknown>;
+  approved_at: string | null;
+  updated_at: string;
+};
+
+export type ReviewedClientState = {
+  schema_version: string;
+  household: Record<string, unknown>;
+  people: Array<Record<string, unknown>>;
+  accounts: Array<Record<string, unknown>>;
+  goals: Array<Record<string, unknown>>;
+  goal_account_links: Array<Record<string, unknown>>;
+  risk: Record<string, unknown>;
+  planning: Record<string, unknown>;
+  behavioral_notes: Record<string, unknown>;
+  unknowns: Array<Record<string, unknown> | string>;
+  conflicts: Array<Record<string, unknown>>;
+  source_summary: Array<Record<string, unknown>>;
+  readiness: Readiness;
+};
+
+export type ReviewWorkspaceSummary = {
+  id: number;
+  external_id: string;
+  label: string;
+  status: string;
+  data_origin: string;
+  readiness: Partial<Readiness>;
+  document_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ReviewWorkspace = ReviewWorkspaceSummary & {
+  owner_email: string | null;
+  linked_household_id: string | null;
+  reviewed_state: Partial<ReviewedClientState>;
+  match_candidates: MatchCandidate[];
+  documents: ReviewDocument[];
+  processing_jobs: ProcessingJob[];
+  section_approvals: SectionApproval[];
+};
+
+export type ExtractedFact = {
+  id: number;
+  document_id: number;
+  document_name: string;
+  document_type: string;
+  field: string;
+  value: unknown;
+  asserted_at: string | null;
+  confidence: string;
+  derivation_method: string;
+  source_page: number | null;
+  source_location: string;
+  evidence_quote: string;
+  extraction_run_id: string;
+  is_current: boolean;
+  created_at: string;
+};
+
+export type MatchCandidate = {
+  household_id: string;
+  display_name: string;
+  confidence: number;
+  reasons: string[];
+};

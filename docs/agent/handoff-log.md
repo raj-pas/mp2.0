@@ -49,3 +49,23 @@
   goal-level Phase 1 output, extraction is stubbed, auth/RBAC is Phase 0, PII
   controls are incomplete, audit is light, and the UI lacks the three-tab /
   click-through recommendation workflow.
+
+## 2026-04-28 — Secure-Local Review Tranche Implemented
+
+- Added secure-root validation for `MP20_SECURE_DATA_ROOT`; upload/review hard
+  fails if the root is missing or inside the repository.
+- Added local advisor bootstrap, review workspace/document/job/fact/state/
+  approval models, migration, serializers, APIs, and tests.
+- Added Postgres-backed worker command `process_review_queue` with transactional
+  claim, retry policy, local parsers, Bedrock fail-closed routing, structured
+  fact storage, and reviewed-state reconciliation.
+- Added sensitive identifier hash/redacted-display handling and minimally
+  redacted evidence quotes.
+- Added React review workflow: login, workspace creation, upload/status, active
+  jobs, facts, quick-fill edits, section approvals, readiness, retry, matches,
+  and link-or-create commit.
+- Updated Docker Compose with a `worker` service sharing Postgres and the secure
+  data-root mount.
+- Updated README, `.env.example`, `CLAUDE.md`, and agent memory for the new
+  secure-local workflow and safety rules.
+- Verification passed: `uv run ruff check .`, `uv run pytest`, `npm run build`.

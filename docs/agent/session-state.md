@@ -2,20 +2,25 @@
 
 **Last updated:** 2026-04-28
 **Branch:** `main`
-**Phase:** Phase 1 scaffold implemented; canon v2.3 now points to Phase A/B/C
-delivery
-**Status:** Scaffold is runnable locally; memory refreshed against
-`MP2.0_Working_Canon.md` v2.3
+**Phase:** Phase 1 scaffold plus secure-local real-data review tranche
+**Status:** Local thin slice supports authenticated upload/review to
+`engine_ready` and link-or-create commit
 
 ## Current Goal
 
-Use the existing scaffold as the base for the canon v2.3 build sequence:
+Use the existing scaffold as the base for the canon v2.3 build sequence while
+moving real-data intake through a secure local review gate:
 
 - DB-backed synthetic Sandra/Mike Chen persona
 - client list/detail in the advisor shell
 - generate-portfolio call through DRF into the pure Python engine stub
 - light audit events for core actions
 - smoke tests and CI
+- authenticated local advisor review workspace
+- browser multi-file upload into `MP20_SECURE_DATA_ROOT` outside the repo
+- Postgres-backed worker queue and parser/extraction pass
+- reviewed client state, missing-field checklist, section approval, matching,
+  and versioned commit to current household tables
 
 Canon v2.3 raises the next bar substantially:
 
@@ -26,23 +31,33 @@ Canon v2.3 raises the next bar substantially:
 
 ## Active Handoff
 
-Phase 1 scaffold has landed and the `$NaN` detail-card bug was fixed. Prior
-verification passed:
+Secure-local review tranche has landed in the working tree. Current verification
+passed:
 
 - `uv run ruff check .`
-- `uv run ruff format --check .`
 - `uv run pytest`
 - `npm run build`
-- `docker compose config`
-- `uv run python web/manage.py check`
-- `uv run python web/manage.py migrate --noinput`
-- `uv run python web/manage.py load_synthetic_personas`
 
-The local machine has Node 20, while the project targets Node 22. The frontend
-still built successfully locally; Docker Compose and CI target Node 22.
+Implemented pieces:
 
-Current `git status --short --branch` at the start of the canon review showed
-`main...origin/main` with no uncommitted files.
+- secure-root validation rejects missing or repo-local upload roots
+- `.env.example`, README, Docker Compose backend/worker env and mounts updated
+- local advisor bootstrap command added
+- review models/migration added for workspaces, documents, queue jobs, facts,
+  state versions, section approvals, readiness, and match candidates
+- upload API stores originals under secure root, sha256-dedupes per workspace,
+  and enqueues processing jobs
+- worker command claims queued jobs transactionally, retries twice after the
+  first attempt, parses local formats, routes real-derived extraction through
+  Bedrock, stores structured facts only, and reconciles reviewed state
+- sensitive identifiers are converted to hash plus redacted display; evidence
+  quotes redact account/SIN/SSN/card-like identifiers
+- review UI includes login, workspace creation, upload/status, active job list,
+  facts, quick-fill edits, section approvals, readiness, match candidates, retry,
+  and link-or-create commit
+
+This tranche should be committed locally after checks pass; do not push unless
+explicitly asked.
 
 ## Canon v2.3 Context To Carry Forward
 
@@ -53,12 +68,12 @@ Current `git status --short --branch` at the start of the canon review showed
   combined score.
 - The three-tab household/account/goal view is the central advisor UX. Every tab
   reconciles to the same total AUM and toggles fund vs asset-class look-through.
-- Extraction is no longer a distant placeholder for pilot planning. The five
-  layers, provenance, temporal `Fact` extraction, and Layer 5 advisor review are
-  load-bearing for Phase A/B.
-- Real client PII is in scope only after hard blockers are resolved: Lori/Amitha
-  authorization, Bedrock ca-central-1 enablement, data classification, encrypted
-  machine posture, pseudonymization, scrub-pass, and routing controls.
+- Extraction/review is now a first secure-local scaffold. It is not yet the full
+  five-layer canon system and still needs richer reconciliation, IS validation,
+  source-review UX, pseudonymization, and retention/disposal workflow.
+- Real client PII must only enter through the authenticated browser upload with
+  `MP20_SECURE_DATA_ROOT` outside the repo. Do not copy real contents into agent
+  memory, repo files, CI, or logs.
 - Pilot launch is gated by Phase B exit criteria, including real auth/RBAC,
   pilot disclaimer, feedback channel, kill-switch, compliance mapping, CMA admin
   view, and an end-to-end real tier-2 persona review with Lori.
@@ -69,7 +84,8 @@ Current `git status --short --branch` at the start of the canon review showed
 - Household risk remains 1-10 in code; canon uses 1-5 client/advisor language.
 - `Goal.target_amount` is required in code; canon says future-dollar targets are
   optional secondary inputs.
-- Extraction/LLM providers are stubs and do not enforce `data_origin` routing.
+- Extraction/LLM routing now enforces Bedrock env for real-derived facts and
+  keeps raw text transient, but pseudonymization and CI PII checks are pending.
 - Audit log is real but not append-only via DB trigger and does not capture full
   input/output snapshots.
 - Auth/RBAC is Phase 0 only; all permissions currently allow access.
@@ -78,10 +94,12 @@ Current `git status --short --branch` at the start of the canon review showed
 
 ## Next Recommended Work
 
-1. Convert engine schemas and output to the canon v2.3 per-link contract.
-2. Implement the five-layer extraction path on synthetic documents first.
-3. Add PII guardrail infrastructure before any real raw client files are copied.
-4. Build the three-tab household/account/goal UI around current Sandra/Mike data.
+1. Exercise the review workflow on the first household bundle through browser
+   upload only; do not paste real contents into memory docs.
+2. Convert engine schemas and output to the canon v2.3 per-link contract.
+3. Harden extraction/reconciliation into the canon five-layer flow with IS
+   validation and better source-review UX.
+4. Build the three-tab household/account/goal UI around current reviewed state.
 5. Add Phase B pilot gates: real auth/RBAC, disclaimer, kill-switch, feedback
    channel, richer audit records, and CMA admin boundary.
 

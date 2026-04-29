@@ -1,9 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, ArrowRight, BarChart3, Database, RefreshCw, ShieldCheck } from "lucide-react";
+import {
+  Activity,
+  ArrowRight,
+  BarChart3,
+  Database,
+  FileText,
+  LogIn,
+  LogOut,
+  RefreshCw,
+  ShieldCheck,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { fetchClient, fetchClients, generatePortfolio } from "./api";
+import { fetchClient, fetchClients, fetchSession, generatePortfolio, login, logout } from "./api";
 import { Button } from "./components/ui/button";
+import { ReviewShell } from "./ReviewShell";
 import type { Account, EngineOutput, Goal, HouseholdDetail, HouseholdSummary } from "./types";
 
 const currency = new Intl.NumberFormat("en-CA", {
@@ -19,7 +30,12 @@ const percent = new Intl.NumberFormat("en-CA", {
 
 function App() {
   const [selectedClientId, setSelectedClientId] = useState<string>("hh_sandra_mike_chen");
+  const [mode, setMode] = useState<"clients" | "review">("clients");
   const queryClient = useQueryClient();
+  const session = useQuery({
+    queryKey: ["session"],
+    queryFn: fetchSession,
+  });
   const clients = useQuery({
     queryKey: ["clients"],
     queryFn: fetchClients,
@@ -33,6 +49,13 @@ function App() {
     mutationFn: () => generatePortfolio(selectedClientId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["client", selectedClientId] });
+    },
+  });
+  const logoutMutation = useMutation({
+    mutationFn: logout,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["session"] });
+      setMode("clients");
     },
   });
 
@@ -54,9 +77,24 @@ function App() {
             </div>
             <div>
               <h1 className="text-lg font-semibold">MP2.0 Advisor</h1>
-              <p className="text-xs text-slate-500">Phase 1 local scaffold</p>
+              <p className="text-xs text-slate-500">Secure local scaffold</p>
             </div>
           </div>
+          <div className="mb-5 grid grid-cols-2 gap-2">
+            <ModeButton active={mode === "clients"} icon={<Database size={15} />} onClick={() => setMode("clients")}>
+              Clients
+            </ModeButton>
+            <ModeButton active={mode === "review"} icon={<FileText size={15} />} onClick={() => setMode("review")}>
+              Review
+            </ModeButton>
+          </div>
+          <SessionStatus
+            authenticated={Boolean(session.data?.authenticated)}
+            email={session.data?.user?.email}
+            isLoading={session.isLoading}
+            isLoggingOut={logoutMutation.isPending}
+            onLogout={() => logoutMutation.mutate()}
+          />
           <ClientList
             clients={clients.data ?? []}
             isLoading={clients.isLoading}
@@ -66,7 +104,22 @@ function App() {
         </aside>
 
         <section className="min-w-0 px-6 py-5">
-          {selectedClient.isLoading ? (
+          {mode === "review" ? (
+            session.isLoading ? (
+              <EmptyState label="Checking session" />
+            ) : session.data?.authenticated ? (
+              <ReviewShell
+                onOpenClient={(id) => {
+                  setSelectedClientId(id);
+                  setMode("clients");
+                  void queryClient.invalidateQueries({ queryKey: ["clients"] });
+                  void queryClient.invalidateQueries({ queryKey: ["client", id] });
+                }}
+              />
+            ) : (
+              <LoginPanel />
+            )
+          ) : selectedClient.isLoading ? (
             <EmptyState label="Loading client" />
           ) : selectedClient.error ? (
             <EmptyState label="Backend unavailable" />
@@ -83,6 +136,128 @@ function App() {
         </section>
       </div>
     </main>
+  );
+}
+
+function ModeButton({
+  active,
+  children,
+  icon,
+  onClick,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+  icon: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-md border px-3 text-sm font-semibold ${
+        active ? "border-spruce bg-mist text-ink" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+      }`}
+      onClick={onClick}
+      type="button"
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function SessionStatus({
+  authenticated,
+  email,
+  isLoading,
+  isLoggingOut,
+  onLogout,
+}: {
+  authenticated: boolean;
+  email?: string;
+  isLoading: boolean;
+  isLoggingOut: boolean;
+  onLogout: () => void;
+}) {
+  return (
+    <div className="mb-5 rounded-md border border-slate-200 bg-[#fbfaf5] px-3 py-3 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Session</div>
+          <div className="mt-1 truncate font-semibold">
+            {isLoading ? "Checking" : authenticated ? email : "Not signed in"}
+          </div>
+        </div>
+        {authenticated ? (
+          <button
+            aria-label="Sign out"
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:border-spruce"
+            disabled={isLoggingOut}
+            onClick={onLogout}
+            type="button"
+          >
+            <LogOut size={16} />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function LoginPanel() {
+  const queryClient = useQueryClient();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const mutation = useMutation({
+    mutationFn: () => login(email.trim(), password),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["session"] });
+    },
+  });
+
+  return (
+    <div className="mx-auto flex min-h-[70vh] max-w-lg items-center">
+      <section className="w-full rounded-md border border-slate-200 bg-white p-5 shadow-soft">
+        <div className="mb-5 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-spruce text-white">
+            <LogIn size={20} />
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold">Local Advisor Login</h2>
+            <p className="text-sm text-slate-500">Secure review workspace access</p>
+          </div>
+        </div>
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            mutation.mutate();
+          }}
+        >
+          <input
+            className="min-h-11 w-full rounded-md border border-slate-200 px-3 outline-none focus:border-spruce"
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="Email"
+            type="email"
+            value={email}
+          />
+          <input
+            className="min-h-11 w-full rounded-md border border-slate-200 px-3 outline-none focus:border-spruce"
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Password"
+            type="password"
+            value={password}
+          />
+          <Button className="w-full" disabled={!email.trim() || !password || mutation.isPending} type="submit">
+            <LogIn size={16} />
+            {mutation.isPending ? "Signing In" : "Sign In"}
+          </Button>
+          {mutation.error ? (
+            <div className="rounded-md bg-[#ffe0d2] px-3 py-2 text-sm text-[#7d3b20]">
+              {mutation.error.message}
+            </div>
+          ) : null}
+        </form>
+      </section>
+    </div>
   );
 }
 

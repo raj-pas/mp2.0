@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 BASE_DIR = Path(__file__).resolve().parents[2]
+REPO_ROOT = BASE_DIR
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "mp20-local-dev-only")
 DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
@@ -92,11 +93,17 @@ USE_TZ = True
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+MP20_SECURE_DATA_ROOT = os.getenv("MP20_SECURE_DATA_ROOT", "")
+AWS_REGION = os.getenv("AWS_REGION", "ca-central-1")
+BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "global.anthropic.claude-sonnet-4-6")
+
 CORS_ALLOWED_ORIGINS = [
     origin
     for origin in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",")
     if origin
 ]
+CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [

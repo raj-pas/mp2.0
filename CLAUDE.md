@@ -13,12 +13,17 @@ regulatory, and architecture intent: `MP2.0_Working_Canon.md`.
 
 ## Current Status
 
-The Phase 1 runnable scaffold is implemented on `main`:
+The Phase 1 runnable scaffold and first secure-local review workflow are
+implemented on `main`:
 
 - Django/DRF + Postgres backend
+- Postgres-backed ingestion worker queue
 - React/Vite advisor shell
 - pure Python engine stub
 - synthetic Sandra/Mike Chen persona
+- local advisor login and review workspace UI
+- secure outside-repo browser upload path
+- reviewed state, readiness checklist, matching, and link-or-create commit
 - light audit logging
 - repo-persistent agent memory
 
@@ -42,10 +47,13 @@ implementation backlog.
 - External systems stay behind adapters in `integrations/`.
 - AI can extract and style; it must not invent financial numbers.
 - Keep real client raw files out of git.
-- No real client PII enters any machine, repo folder, staging server, or LLM call
-  until the canon's REAL-PII BLOCKERS are resolved.
-- Real-derived personas route only to Bedrock in ca-central-1 under Purpose's AWS
-  account. Anthropic direct is synthetic-only.
+- Real uploads must enter only through the authenticated local browser workflow
+  with `MP20_SECURE_DATA_ROOT` set outside this repository.
+- Real-derived extraction routes through Bedrock in ca-central-1. Anthropic
+  direct is synthetic-only.
+- Do not copy real client contents into repo files, memory docs, CI logs, or
+  commit messages. Store only structured facts, run metadata, and minimally
+  redacted evidence quotes in the DB.
 - Audit logs are separate from observability logs. Writes exist now; immutability
   triggers and richer input/output snapshots are still pending.
 - Client-visible risk vocabulary uses cautious / conservative-balanced /
@@ -59,19 +67,25 @@ implementation backlog.
   fan chart data per link, tax-drag/CMA audit trace, and compliance ratings.
 - Risk is currently a 1-10 placeholder; canon locks a 5-point snap-to-grid scale
   mapped to optimizer percentiles 5/15/25/35/45.
-- Extraction layers are interface stubs. Canon v2.3 makes the five-layer
-  extraction/review flow load-bearing for Phase A/B.
+- Extraction has a first secure-local scaffold: upload, raw storage, queue,
+  local parsers, Bedrock routing, structured facts, reviewed state, readiness,
+  and commit. The full five-layer canon workflow still needs richer
+  reconciliation, IS validation, and source-review UX.
 - Auth is Phase 0 only. Phase B requires per-advisor accounts, password reset,
   MFA, session timeout, lockout, and real RBAC.
 - UI is a Phase 1 advisor shell. Canon requires the household/account/goal
   three-tab view, fund vs asset-class toggle, click-through goal-account
   assignment, current-vs-ideal allocation, and pilot disclaimer surfaces.
-- PII guardrails are incomplete: scrub-pass hook, data-origin routing,
-  pseudonymization storage, Bedrock enforcement, and CI PII checks are not built.
+- PII guardrails are partial: secure-root validation, Bedrock fail-closed routing,
+  transient raw text, redacted evidence quotes, and sensitive-ID hash/display
+  exist. Scrub-pass hooks, pseudonymization storage, CI PII checks, encryption
+  posture validation, and retention/disposal workflow are still pending.
 
 ## Build Commands
 
 ```bash
+cp .env.example .env
+# edit MP20_SECURE_DATA_ROOT to an outside-repo directory before upload/review
 docker compose up --build
 
 uv sync --all-groups
