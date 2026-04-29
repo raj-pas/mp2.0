@@ -3,7 +3,7 @@
 This file distills implementation decisions for coding sessions. The canon is
 authoritative when more detail is needed.
 
-## Locked for Phase 1
+## Locked for the Current Scaffold
 
 - Work directly on `main`.
 - Make local commits after checks pass; do not push unless explicitly asked.
@@ -16,6 +16,39 @@ authoritative when more detail is needed.
 - Translate web DB state into engine inputs at the web/engine boundary.
 - Add light real audit logging in Phase 1; defer immutability triggers.
 
+## Canon v2.3 Decisions to Implement Next
+
+- Delivery is Phase A/B/C: Som-demo-grade scaffold, pilot hardening with IS
+  validation, then controlled advisor pilot.
+- Phase A is not pilot-grade. Phase B exit criteria gate any advisor login.
+- Steadyhand remains v1 launch context; Sandra/Mike Chen remains the synthetic
+  backup persona.
+- Engine optimization unit is goal x account (`GoalAccountLink`), then
+  account-level and household-level rollups.
+- Recommended portfolio always comes from the efficient frontier. Whole-portfolio
+  funds such as Founders/Builders are execution collapse suggestions, not
+  separate optimizer shortcuts.
+- Risk scale is 5-point, snap-to-grid, mapped to optimizer percentiles:
+  cautious=5th, conservative-balanced=15th, balanced=25th,
+  balanced-growth=35th, growth-oriented=45th.
+- Advisor-visible risk exposes three components: household, goal, and combined.
+- Future-dollar targets are optional secondary inputs, not mandatory primary
+  flow requirements.
+- Tax drag is architecturally in scope with schema and versioning; zero drag is
+  an acceptable v1 default until real values are available.
+- External holdings are an optional household-risk dampener, not a full external
+  portfolio simulation in v1.
+- CMA assumptions and efficient-frontier visualization are admin-only.
+- The advisor UX centers on a three-tab household/account/goal view with fund vs
+  asset-class look-through and a click-through goal-account assignment workflow.
+- Current vs ideal allocation must be visible together on recommendation screens.
+- Reporting supports Tier 1/2/3 sophistication from the same deterministic
+  engine numbers. AI may style the narrative but cannot invent numbers.
+- Pre-recommendation overrides adjust inputs and rerun the engine; post-
+  recommendation overrides require an inline rationale note.
+- Real-derived personas require pseudonymization, Bedrock ca-central-1 routing,
+  and legal/IT authorization before any real PII enters the build environment.
+
 ## Architecture Defaults
 
 - Django + DRF backend.
@@ -25,6 +58,22 @@ authoritative when more detail is needed.
 - TanStack Query for frontend data fetching.
 - Ruff and pytest for Python checks.
 - Vite build/typecheck for frontend smoke checks.
+
+## Known Scaffold Mismatches
+
+- Engine output currently has `goal_blends`; canon v2.3 requires `LinkBlend`,
+  account rollups, fund-of-funds collapse suggestions, resolved risk per link,
+  fan chart data per link, compliance ratings, and richer audit trace.
+- Current risk code uses a 1-10 placeholder and can emit non-grid percentiles.
+- Current `Goal.target_amount` is required; canon treats target dollars as
+  optional unless volunteered.
+- Current UI surfaces low/medium/high in visible risk badges; canon reserves that
+  vocabulary for internal/compliance mapping.
+- Current extraction, LLM, Croesus, Conquest, custodian, and PDF integrations are
+  stubs only.
+- Current audit log has writes but not immutability trigger, browse UI, or full
+  input-to-output trace.
+- Current RBAC hook allows all access; Phase B needs real role enforcement.
 
 ## Deferred
 

@@ -6,6 +6,19 @@ contains the Phase 1 runnable scaffold: a Django/DRF backend, React/Vite advisor
 shell, pure Python engine stub, synthetic persona, and Claude-first project
 memory.
 
+## Current Status
+
+The scaffold is runnable and useful for local development, but the canon has
+advanced to v2.3. Next implementation should treat this repo as the base for:
+
+- Phase A: offsite scaffold and Som-demo-grade ingestion -> engine -> reporting
+  flow.
+- Phase B: pilot hardening and IS validation gates before advisor use.
+- Phase C: controlled Steadyhand advisor pilot.
+
+See [`CLAUDE.md`](CLAUDE.md) and [`docs/agent/session-state.md`](docs/agent/session-state.md)
+for the current implementation context and known scaffold gaps.
+
 ## Local Start
 
 Docker Compose is the canonical path:

@@ -36,3 +36,16 @@
   includes `goal_count = 3` and `total_assets = 1280000`.
 - Also moved the Docker backend virtualenv to `/opt/mp20-venv` so local `uv run`
   commands do not break the bind-mounted container runtime.
+
+## 2026-04-28 — Canon v2.3 Review and Memory Sync
+
+- Reviewed `MP2.0_Working_Canon.md` v2.3, `CLAUDE.md`, `docs/agent/*`, README,
+  engine, web, frontend, extraction, integration, Docker, CI, and persona files.
+- Synced agent memory to the Day-2 lock-ins: Phase A/B/C delivery, goal-account
+  optimization unit, 5-point risk mapping, three-tab advisor view, tax-drag
+  schema, CMA admin boundary, real-PII blockers, pilot gates, and override
+  patterns.
+- Recorded key scaffold drift for future sessions: engine still returns
+  goal-level Phase 1 output, extraction is stubbed, auth/RBAC is Phase 0, PII
+  controls are incomplete, audit is light, and the UI lacks the three-tab /
+  click-through recommendation workflow.
