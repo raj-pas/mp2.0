@@ -52,8 +52,8 @@ def reviewed_state_from_workspace(workspace: models.ReviewWorkspace) -> dict[str
     state["household"]["household_type"] = _value(
         current_facts, "household.household_type", "couple"
     )
-    state["household"]["household_risk_score"] = int(
-        _value(current_facts, "risk.household_score", 3) or 3
+    state["household"]["household_risk_score"] = _risk_score(
+        _value(current_facts, "risk.household_score", 3), default=3
     )
 
     people = _value(
@@ -415,6 +415,41 @@ def _number(value: Any) -> Decimal:
         return Decimal("0")
 
 
+def _int_or_default(value: Any, default: int) -> int:
+    try:
+        if value in {None, ""}:
+            return default
+        if isinstance(value, str):
+            match = re.search(r"-?\d+", value)
+            if match:
+                return int(match.group(0))
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _risk_score(value: Any, *, default: int) -> int:
+    if isinstance(value, str):
+        normalized = _normalize(value)
+        qualitative_scores = {
+            "very_low": 1,
+            "low": 2,
+            "cautious": 2,
+            "conservative": 2,
+            "medium": 3,
+            "moderate": 3,
+            "balanced": 3,
+            "medium_risk": 3,
+            "high": 4,
+            "growth": 4,
+            "growth_oriented": 4,
+            "very_high": 5,
+        }
+        if normalized in qualitative_scores:
+            return qualitative_scores[normalized]
+    return max(1, min(_int_or_default(value, default), 10))
+
+
 def _create_household_from_state(
     workspace: models.ReviewWorkspace, state: dict[str, Any], *, user
 ) -> models.Household:
@@ -424,7 +459,7 @@ def _create_household_from_state(
         owner=user if getattr(user, "is_authenticated", False) else workspace.owner,
         display_name=household.get("display_name") or workspace.label,
         household_type=household.get("household_type") or "couple",
-        household_risk_score=int(household.get("household_risk_score") or 3),
+        household_risk_score=_risk_score(household.get("household_risk_score"), default=3),
         notes="Created from reviewed real-data workspace.",
     )
 
@@ -433,8 +468,8 @@ def _merge_household_state(household: models.Household, state: dict[str, Any]) -
     household_state = state.get("household") or {}
     household.display_name = household_state.get("display_name") or household.display_name
     household.household_type = household_state.get("household_type") or household.household_type
-    household.household_risk_score = int(
-        household_state.get("household_risk_score") or household.household_risk_score
+    household.household_risk_score = _risk_score(
+        household_state.get("household_risk_score"), default=household.household_risk_score
     )
     household.save(
         update_fields=["display_name", "household_type", "household_risk_score", "updated_at"]
@@ -493,10 +528,10 @@ def _merge_household_state(household: models.Household, state: dict[str, Any]) -
             name=goal_state.get("name") or f"Reviewed goal {index}",
             target_amount=_number(goal_state.get("target_amount") or 1),
             target_date=_target_date(goal_state),
-            necessity_score=int(goal_state.get("necessity_score") or 3),
+            necessity_score=_int_or_default(goal_state.get("necessity_score"), 3),
             current_funded_amount=_number(goal_state.get("current_funded_amount")),
             contribution_plan=goal_state.get("contribution_plan") or {},
-            goal_risk_score=int(goal_state.get("goal_risk_score") or 3),
+            goal_risk_score=_risk_score(goal_state.get("goal_risk_score"), default=3),
             notes=goal_state.get("notes", ""),
         )
         goals_by_id[external_id] = goal
@@ -521,14 +556,14 @@ def _merge_household_state(household: models.Household, state: dict[str, Any]) -
 def _dob(person_state: dict[str, Any]) -> date:
     if dob := person_state.get("dob"):
         return date.fromisoformat(str(dob))
-    age = int(person_state.get("age") or 60)
+    age = _int_or_default(person_state.get("age"), 60)
     return (timezone.now() - timedelta(days=round(age * 365.25))).date()
 
 
 def _target_date(goal_state: dict[str, Any]) -> date:
     if target_date := goal_state.get("target_date"):
         return date.fromisoformat(str(target_date))
-    horizon = int(goal_state.get("time_horizon_years") or 5)
+    horizon = _int_or_default(goal_state.get("time_horizon_years"), 5)
     return (timezone.now() + timedelta(days=round(horizon * 365.25))).date()
 
 

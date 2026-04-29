@@ -70,6 +70,13 @@ Implemented pieces:
 - Committed review workspaces no longer offer their own linked household as a
   link candidate; commit is idempotent for the existing linked household and
   rejects relinking to a different household.
+- Docker Compose `.env` is now configured locally from the ike-agent AWS keys
+  with `MP20_SECURE_DATA_ROOT=/private/tmp/mp20-secure-data`; the stack runs
+  backend, frontend, Postgres, and worker. A real uploaded bundle was transferred
+  from the prior local SQLite run into Compose Postgres without printing raw
+  contents. The worker processed the queue: some documents reconciled and facts
+  were stored, while several documents failed Bedrock JSON extraction. A
+  qualitative risk-value reconciliation crash was fixed.
 
 This tranche has local commits only; do not push unless explicitly asked.
 

@@ -284,6 +284,32 @@ def test_indexed_extracted_facts_reconcile_to_reviewed_state() -> None:
 
 
 @pytest.mark.django_db
+def test_qualitative_risk_fact_reconciles_without_crashing() -> None:
+    user = _user()
+    workspace = models.ReviewWorkspace.objects.create(label="Qualitative risk", owner=user)
+    document = models.ReviewDocument.objects.create(
+        workspace=workspace,
+        original_filename="profile.txt",
+        extension="txt",
+        file_size=1,
+        sha256="qual-risk",
+        document_type="kyc",
+    )
+    models.ExtractedFact.objects.create(
+        workspace=workspace,
+        document=document,
+        field="risk.household_score",
+        value="Low",
+        extraction_run_id="test",
+    )
+
+    state = reviewed_state_from_workspace(workspace)
+
+    assert state["household"]["household_risk_score"] == 2
+    assert state["risk"]["household_score"] == 2
+
+
+@pytest.mark.django_db
 def test_match_candidates_use_name_and_member_signals() -> None:
     user = _user()
     household = models.Household.objects.create(

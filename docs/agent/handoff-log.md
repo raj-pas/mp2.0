@@ -121,3 +121,24 @@
   commit, and relink rejection.
 - Verification passed: `uv run ruff check .`, `uv run ruff format --check .`,
   `uv run pytest`, and `npm run build`.
+
+## 2026-04-29 — Docker Compose Worker Real-Bundle Run
+
+- Stopped the old local Django/Vite processes and created a gitignored `.env`
+  for Docker Compose using ike-agent AWS credentials without printing secrets.
+- Set the secure data root to `/private/tmp/mp20-secure-data`, matching the
+  previously uploaded files, and started the full Compose stack.
+- Transferred the queued review workspace metadata from the prior local SQLite
+  run into Compose Postgres via the secure data root so the worker could process
+  the already-uploaded bundle.
+- Read the Compose log stream through worker processing. The worker stored
+  structured facts for the successfully extracted documents; some documents
+  failed after retries because Bedrock output did not parse as valid JSON.
+- Fixed reconciliation for qualitative risk facts such as `Low`, which had been
+  crashing state reconciliation when coerced directly to `int`.
+- Final Compose state for that bundle: workspace is `review_ready`; successful
+  documents reconciled and failed documents remain visible for retry/manual
+  handling; `engine_ready` remains blocked by missing account values/holdings
+  marker, goal horizon, and advisor-confirmed goal-account mapping.
+- Verification passed: `uv run ruff check .`, `uv run ruff format --check .`,
+  `uv run pytest`, and `npm run build`.
