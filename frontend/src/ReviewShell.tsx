@@ -761,51 +761,60 @@ function MatchCommitPanel({
       onOpenClient(payload.household_id);
     },
   });
-  const likelyMatches = matches.length ? matches : fallbackMatches(workspace, clients);
+  const isLinked = Boolean(workspace.linked_household_id) || workspace.status === "committed";
+  const likelyMatches = isLinked
+    ? []
+    : (matches.length ? matches : fallbackMatches(workspace, clients)).filter(
+        (candidate) => candidate.household_id !== workspace.linked_household_id,
+      );
 
   return (
     <section className="rounded-md border border-slate-200 bg-white p-4 shadow-soft">
       <PanelTitle icon={<Link2 size={17} />} title="Link Or Create" />
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button onClick={onFindMatches} variant="secondary">
-          <RefreshCw size={16} />
-          Find Matches
-        </Button>
-        <Button
-          disabled={!readiness.engine_ready || commitMutation.isPending}
-          onClick={() => commitMutation.mutate(undefined)}
-        >
-          <Plus size={16} />
-          Create Household
-        </Button>
-      </div>
-      <div className="mt-4 space-y-2">
-        {likelyMatches.length ? (
-          likelyMatches.map((candidate) => (
-            <div className="rounded-md border border-slate-200 px-3 py-3" key={candidate.household_id}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="font-semibold">{candidate.display_name}</div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    {candidate.confidence}% confidence
-                    {candidate.reasons.length ? ` - ${candidate.reasons.join(", ")}` : ""}
+      {!isLinked ? (
+        <>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button onClick={onFindMatches} variant="secondary">
+              <RefreshCw size={16} />
+              Find Matches
+            </Button>
+            <Button
+              disabled={!readiness.engine_ready || commitMutation.isPending}
+              onClick={() => commitMutation.mutate(undefined)}
+            >
+              <Plus size={16} />
+              Create Household
+            </Button>
+          </div>
+          <div className="mt-4 space-y-2">
+            {likelyMatches.length ? (
+              likelyMatches.map((candidate) => (
+                <div className="rounded-md border border-slate-200 px-3 py-3" key={candidate.household_id}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold">{candidate.display_name}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {candidate.confidence}% confidence
+                        {candidate.reasons.length ? ` - ${candidate.reasons.join(", ")}` : ""}
+                      </div>
+                    </div>
+                    <Button
+                      disabled={!readiness.engine_ready || commitMutation.isPending}
+                      onClick={() => commitMutation.mutate(candidate.household_id)}
+                      variant="secondary"
+                    >
+                      <Link2 size={16} />
+                      Link
+                    </Button>
                   </div>
                 </div>
-                <Button
-                  disabled={!readiness.engine_ready || commitMutation.isPending}
-                  onClick={() => commitMutation.mutate(candidate.household_id)}
-                  variant="secondary"
-                >
-                  <Link2 size={16} />
-                  Link
-                </Button>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="rounded-md bg-mist px-3 py-3 text-sm text-slate-600">No likely matches loaded.</div>
-        )}
-      </div>
+              ))
+            ) : (
+              <div className="rounded-md bg-mist px-3 py-3 text-sm text-slate-600">No likely matches loaded.</div>
+            )}
+          </div>
+        </>
+      ) : null}
       {workspace.linked_household_id ? (
         <Button className="mt-4" onClick={() => onOpenClient(workspace.linked_household_id!)} variant="secondary">
           Open Linked Client
@@ -935,7 +944,11 @@ function formatBytes(bytes: number): string {
 function fallbackMatches(workspace: ReviewWorkspace, clients: HouseholdSummary[]): MatchCandidate[] {
   const displayName = stringValue(workspace.reviewed_state.household?.display_name, workspace.label);
   return clients
-    .filter((client) => client.display_name.toLowerCase() === displayName.toLowerCase())
+    .filter(
+      (client) =>
+        client.id !== workspace.linked_household_id &&
+        client.display_name.toLowerCase() === displayName.toLowerCase(),
+    )
     .map((client) => ({
       household_id: client.id,
       display_name: client.display_name,

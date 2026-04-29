@@ -105,3 +105,19 @@
 - Verification passed: `uv run ruff check .`, `uv run ruff format --check .`,
   `uv run pytest`, `npm run build`, and a Chrome-headless UI check confirming
   no client data before login and visible client/review UI after login.
+
+## 2026-04-29 — Review Self-Link Candidate Fixed
+
+- Fixed a committed-workspace UX/API regression where the already-linked
+  household could appear as a link candidate through backend matching or the
+  frontend fallback matcher.
+- Backend matching now returns no candidates for linked/committed workspaces,
+  commit clears stale match candidates, repeated commit is idempotent for the
+  linked household, and relinking a committed workspace to another household is
+  rejected.
+- Frontend link/create controls are hidden once the workspace is linked, and
+  fallback matches exclude the linked household.
+- Added regression tests for match scoring, self-link suppression, idempotent
+  commit, and relink rejection.
+- Verification passed: `uv run ruff check .`, `uv run ruff format --check .`,
+  `uv run pytest`, and `npm run build`.

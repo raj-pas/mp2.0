@@ -209,6 +209,13 @@ def commit_reviewed_state(
     user,
     household: models.Household | None = None,
 ) -> models.Household:
+    if workspace.status == models.ReviewWorkspace.Status.COMMITTED:
+        if not workspace.linked_household:
+            raise ValueError("Review workspace is committed but has no linked household.")
+        if household is not None and household.pk != workspace.linked_household_id:
+            raise ValueError("Review workspace is already committed to another household.")
+        return workspace.linked_household
+
     state = workspace.reviewed_state or reviewed_state_from_workspace(workspace)
     readiness = readiness_for_state(state)
     if not readiness.engine_ready:
@@ -222,7 +229,8 @@ def commit_reviewed_state(
     version.save(update_fields=["is_committed", "committed_household"])
     workspace.linked_household = household
     workspace.status = models.ReviewWorkspace.Status.COMMITTED
-    workspace.save(update_fields=["linked_household", "status", "updated_at"])
+    workspace.match_candidates = []
+    workspace.save(update_fields=["linked_household", "status", "match_candidates", "updated_at"])
     record_event(
         action="review_state_committed",
         entity_type="review_workspace",
@@ -234,6 +242,9 @@ def commit_reviewed_state(
 
 
 def match_candidates(workspace: models.ReviewWorkspace) -> list[dict[str, Any]]:
+    if workspace.status == models.ReviewWorkspace.Status.COMMITTED or workspace.linked_household_id:
+        return []
+
     state = workspace.reviewed_state or reviewed_state_from_workspace(workspace)
     display_name = (state.get("household") or {}).get("display_name", "")
     people = state.get("people") or []

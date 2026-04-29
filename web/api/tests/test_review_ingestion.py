@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,11 @@ from web.api.review_redaction import (
     sensitive_identifier_hash,
 )
 from web.api.review_security import secure_data_root
-from web.api.review_state import readiness_for_state, reviewed_state_from_workspace
+from web.api.review_state import (
+    match_candidates,
+    readiness_for_state,
+    reviewed_state_from_workspace,
+)
 from web.audit.models import AuditEvent
 
 
@@ -279,6 +284,76 @@ def test_indexed_extracted_facts_reconcile_to_reviewed_state() -> None:
 
 
 @pytest.mark.django_db
+def test_match_candidates_use_name_and_member_signals() -> None:
+    user = _user()
+    household = models.Household.objects.create(
+        external_id="ready_household",
+        owner=user,
+        display_name="Ready Household",
+        household_type="couple",
+        household_risk_score=3,
+    )
+    models.Person.objects.create(
+        external_id="ready_person",
+        household=household,
+        name="Ready Client",
+        dob=date(1964, 1, 1),
+    )
+    workspace = models.ReviewWorkspace.objects.create(
+        label="Ready review",
+        owner=user,
+        reviewed_state=_engine_ready_state(),
+    )
+
+    candidates = match_candidates(workspace)
+
+    assert candidates == [
+        {
+            "household_id": "ready_household",
+            "display_name": "Ready Household",
+            "confidence": 80,
+            "reasons": ["household name", "member name: Ready Client"],
+        }
+    ]
+
+
+@pytest.mark.django_db
+def test_committed_workspace_does_not_match_its_linked_household() -> None:
+    user = _user()
+    household = models.Household.objects.create(
+        external_id="linked_household",
+        owner=user,
+        display_name="Ready Household",
+        household_type="couple",
+        household_risk_score=3,
+    )
+    workspace = models.ReviewWorkspace.objects.create(
+        label="Ready review",
+        owner=user,
+        linked_household=household,
+        status=models.ReviewWorkspace.Status.COMMITTED,
+        reviewed_state=_engine_ready_state(),
+        match_candidates=[
+            {
+                "household_id": household.external_id,
+                "display_name": household.display_name,
+                "confidence": 60,
+                "reasons": ["household name"],
+            }
+        ],
+    )
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    response = client.get(reverse("review-workspace-matches", args=[workspace.external_id]))
+
+    assert response.status_code == 200
+    assert response.json()["candidates"] == []
+    workspace.refresh_from_db()
+    assert workspace.match_candidates == []
+
+
+@pytest.mark.django_db
 def test_commit_requires_engine_ready_and_creates_household(tmp_path, settings) -> None:
     settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
     user = _user()
@@ -295,6 +370,49 @@ def test_commit_requires_engine_ready_and_creates_household(tmp_path, settings) 
     household_id = response.json()["household_id"]
     assert models.Household.objects.filter(external_id=household_id).exists()
     assert AuditEvent.objects.filter(action="review_state_committed").exists()
+
+    second_response = client.post(
+        reverse("review-workspace-commit", args=[workspace.external_id]), {}
+    )
+
+    assert second_response.status_code == 200
+    assert second_response.json()["household_id"] == household_id
+    assert models.Household.objects.filter(external_id=household_id).count() == 1
+
+
+@pytest.mark.django_db
+def test_committed_workspace_cannot_relink_to_different_household(tmp_path, settings) -> None:
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(label="Ready review", owner=user)
+    workspace.reviewed_state = _engine_ready_state()
+    workspace.readiness = readiness_for_state(workspace.reviewed_state).__dict__
+    workspace.save()
+    first_response = client.post(
+        reverse("review-workspace-commit", args=[workspace.external_id]), {}
+    )
+    other_household = models.Household.objects.create(
+        external_id="other_ready_household",
+        owner=user,
+        display_name="Other Ready Household",
+        household_type="single",
+        household_risk_score=3,
+    )
+
+    second_response = client.post(
+        reverse("review-workspace-commit", args=[workspace.external_id]),
+        {"household_id": other_household.external_id},
+        format="json",
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 400
+    assert (
+        second_response.json()["detail"]
+        == "Review workspace is already committed to another household."
+    )
 
 
 def _user():

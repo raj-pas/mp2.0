@@ -67,6 +67,9 @@ Implemented pieces:
   committed households are scoped to the advisor who created them
 - Browser E2E uncovered and fixed session auth reporting, tolerant Bedrock JSON
   parsing, indexed fact reconciliation, and scalar sensitive-ID redaction.
+- Committed review workspaces no longer offer their own linked household as a
+  link candidate; commit is idempotent for the existing linked household and
+  rejects relinking to a different household.
 
 This tranche has local commits only; do not push unless explicitly asked.
 
