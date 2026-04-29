@@ -326,7 +326,22 @@ def test_readiness_requires_goal_account_mapping() -> None:
     readiness = readiness_for_state(state)
 
     assert not readiness.engine_ready
+    assert not readiness.construction_ready
     assert any(item["section"] == "goal_account_mapping" for item in readiness.missing)
+
+
+def test_construction_readiness_blocks_unsupported_account_type() -> None:
+    state = _engine_ready_state()
+    state["accounts"][0]["type"] = "SIF"
+
+    readiness = readiness_for_state(state)
+
+    assert readiness.engine_ready
+    assert not readiness.construction_ready
+    assert any(
+        "Unsupported engine account type" in item["label"]
+        for item in readiness.construction_missing
+    )
 
 
 @pytest.mark.django_db
@@ -371,6 +386,46 @@ def test_commit_requires_required_section_approvals() -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Required review sections are not approved."
+
+
+@pytest.mark.django_db
+def test_review_state_patch_rejects_legacy_household_risk_score() -> None:
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(
+        label="Risk review",
+        owner=user,
+        reviewed_state=_engine_ready_state(),
+    )
+
+    response = client.patch(
+        reverse("review-workspace-state", args=[workspace.external_id]),
+        {"state": {"risk": {"household_score": 6}}},
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "risk.household_score must be a 1-5 score" in response.json()["detail"]
+
+
+@pytest.mark.django_db
+def test_commit_requires_construction_ready() -> None:
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(label="Construction review", owner=user)
+    state = _engine_ready_state()
+    state["accounts"][0]["type"] = "SIF"
+    workspace.reviewed_state = state
+    workspace.readiness = readiness_for_state(state).__dict__
+    workspace.save()
+    _approve_required_sections(workspace, user)
+
+    response = client.post(reverse("review-workspace-commit", args=[workspace.external_id]), {})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Reviewed state is not construction-ready."
 
 
 @pytest.mark.django_db
@@ -513,6 +568,7 @@ def test_committed_workspace_does_not_match_its_linked_household() -> None:
 @pytest.mark.django_db
 def test_commit_requires_engine_ready_and_creates_household(tmp_path, settings) -> None:
     settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    call_command("seed_default_cma")
     user = _user()
     client = APIClient()
     client.force_authenticate(user=user)
@@ -528,6 +584,14 @@ def test_commit_requires_engine_ready_and_creates_household(tmp_path, settings) 
     household_id = response.json()["household_id"]
     assert models.Household.objects.filter(external_id=household_id).exists()
     assert AuditEvent.objects.filter(action="review_state_committed").exists()
+
+    generate_response = client.post(reverse("generate-portfolio", args=[household_id]), {})
+
+    assert generate_response.status_code == 200
+    assert models.PortfolioRun.objects.filter(
+        household__external_id=household_id,
+        status=models.PortfolioRun.Status.CURRENT,
+    ).exists()
 
     second_response = client.post(
         reverse("review-workspace-commit", args=[workspace.external_id]), {}

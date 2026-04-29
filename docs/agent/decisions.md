@@ -33,8 +33,11 @@ authoritative when more detail is needed.
 - Default DRF access is authenticated. Session/login endpoints opt out
   explicitly. Advisors use one shared team scope for clients and review
   workspaces; financial analysts cannot access real-client PII surfaces.
-- Commit requires `engine_ready` plus plain approved status on all required
-  review sections.
+- Commit requires `engine_ready`, `construction_ready`, and plain approved
+  status on all required review sections.
+- Household and goal risk use the same 1-5 contract. Legacy 1-10 household and
+  goal values are remapped with `ceil(old / 2)` during migration; new values
+  above 5 fail validation at the model/API/engine boundary.
 - `MP20_ENGINE_ENABLED=false` blocks portfolio generation while leaving intake
   and review available.
 - Failed documents do not block review. Manual retry queues another processing
@@ -97,10 +100,11 @@ authoritative when more detail is needed.
 
 - Fund-of-funds collapse suggestions, real tax-drag math, compliance ratings,
   and richer report-grade fan charts are still missing from the Fraser path.
-- Household risk still uses a 1-10 placeholder in intake/display; goal risk uses
-  the 1-5 optimizer mapping.
-- Current UI surfaces low/medium/high in visible risk badges; canon reserves that
-  vocabulary for internal/compliance mapping.
+- Household and goal risk now use the 1-5 optimizer mapping. Remaining work is
+  the documented household x goal composite weighting, not scale migration.
+- Visible household/goal risk score labels should stay numeric 1-5. Qualitative
+  low/medium/high vocabulary is reserved for source facts or compliance/internal
+  mapping and should not be used as the advisor-facing construction score.
 - Current extraction/review is a secure-local scaffold, not full canon Layer 1-5:
   richer source review, temporal reconciliation, IS validation, pseudonymization,
   retention/disposal, and CI PII checks are still needed.

@@ -26,7 +26,8 @@ implemented on `main`:
 - secure outside-repo browser upload path
 - advisor-grade reviewed sections with provenance snippets, conflict/unknown
   handling hooks, edit notes, readiness checklist, matching, and strict
-  link-or-create commit gating
+  `engine_ready + construction_ready + required approvals` link-or-create
+  commit gating
 - worker heartbeat/stale visibility, retry metadata, duplicate reconcile
   suppression, manual reconcile, and provider-safe OCR overflow metadata
 - immutable audit logging with sanitized workspace timeline events
@@ -35,6 +36,8 @@ implemented on `main`:
 - Default CMA seed fixture, analyst-only CMA Workbench draft/edit/publish/audit
   workflow, Chart.js efficient-frontier view, immutable `PortfolioRun` storage, run hashes,
   technical trace, advisor "why this recommendation" summary, and run history
+- household and goal risk are both on the canon 1-5 scale; legacy 1-10 values
+  are migrated and new values above 5 are rejected
 - `MP20_ENGINE_ENABLED` kill-switch for recommendation generation
 - repo-persistent agent memory
 
@@ -57,6 +60,9 @@ implementation backlog.
   The optimization unit is `GoalAccountLink`, then account and household rollups.
 - `PortfolioRun` is now the source of truth for generated recommendations;
   `Household.last_engine_output` is legacy/deprecated.
+- `engine_ready` means reviewed facts are sufficient; `construction_ready`
+  means committed household data can pass portfolio generation rules. Commit
+  requires both gates plus required section approvals.
 - External systems stay behind adapters in `integrations/`.
 - AI can extract and style; it must not invent financial numbers.
 - Keep real client raw files out of git.

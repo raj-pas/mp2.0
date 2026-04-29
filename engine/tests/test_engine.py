@@ -27,6 +27,7 @@ from engine.schemas import (
     RiskInput,
 )
 from engine.sleeves import STEADYHAND_PURE_SLEEVES
+from pydantic import ValidationError
 
 
 def test_default_frontier_fixture_matches_reference_math() -> None:
@@ -130,6 +131,11 @@ def test_optimize_returns_link_first_portfolio_run_payload() -> None:
     assert first.current_comparison.missing_holdings is False
     assert first.drift_flags == ["review_rebalance"]
     assert output.warnings == ["missing_holdings", "review_rebalance"]
+
+
+def test_engine_rejects_legacy_household_risk_scores() -> None:
+    with pytest.raises(ValidationError):
+        RiskInput(household_score=6, goals={"goal_retirement": 3})
 
 
 def test_optimize_flags_missing_current_holdings() -> None:
@@ -262,8 +268,8 @@ def _household() -> Household:
         members=[person],
         goals=[retirement, education],
         accounts=[rrsp, resp],
-        household_risk_score=6,
-        risk_input=RiskInput(household_score=6, goals={"goal_retirement": 3}),
+        household_risk_score=3,
+        risk_input=RiskInput(household_score=3, goals={"goal_retirement": 3}),
         created_at=datetime(2026, 4, 28, 12, 0, 0),
         updated_at=datetime(2026, 4, 28, 12, 0, 0),
     )

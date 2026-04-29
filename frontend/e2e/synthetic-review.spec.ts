@@ -66,7 +66,11 @@ test("synthetic review reaches approved commit path", async ({ page }, testInfo)
   await expect(page.getByText(/Required sections must be approved/i)).toBeHidden();
   await page.getByRole("button", { name: /Create Household/i }).click();
   await expect(page.getByText(workspaceLabel)).toBeVisible();
-  await expect(page.getByRole("button", { name: /Generate Portfolio/i })).toBeVisible();
+  await page.getByRole("button", { name: /Generate Portfolio/i }).click();
+  await expect(
+    page.getByRole("heading", { name: /Goal-Account Recommendations/i }),
+  ).toBeVisible();
+  await expect(page.getByText(/Run History/i)).toBeVisible();
 });
 
 async function clickAndWaitForStatePatch(page: Page, locator: Locator) {

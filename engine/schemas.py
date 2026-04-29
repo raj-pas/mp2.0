@@ -100,7 +100,7 @@ class Person(EngineModel):
 
 
 class RiskInput(EngineModel):
-    household_score: int = Field(ge=1, le=10)
+    household_score: int = Field(ge=1, le=5)
     goals: dict[str, int] = Field(default_factory=dict)
 
 
@@ -111,7 +111,7 @@ class Household(EngineModel):
     goals: list[Goal] = Field(default_factory=list)
     accounts: list[Account] = Field(default_factory=list)
     external_assets: list[dict] = Field(default_factory=list)
-    household_risk_score: int = Field(ge=1, le=10)
+    household_risk_score: int = Field(ge=1, le=5)
     risk_input: RiskInput
     created_at: datetime
     updated_at: datetime

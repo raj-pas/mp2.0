@@ -376,7 +376,9 @@ def _fact_extraction_prompt(*, document: models.ReviewDocument, text: str) -> st
         '"derivation_method":"extracted|inferred|defaulted","source_location":"...",'
         '"source_page":null,"evidence_quote":"short quote"}]}. '
         "Use fields like household.display_name, people, accounts, goals, "
-        "goal_account_links, risk.household_score. Do not invent missing values. "
+        "goal_account_links, risk.household_score. Risk scores must use the MP2.0 "
+        "1-5 scale when the document provides enough context; otherwise leave them "
+        "missing. Do not invent missing values. "
         "For account numbers, SIN, SSN, tax IDs, and similar identifiers, include only "
         "the field name and raw value in JSON; the application will hash and redact them.\n\n"
         f"Document type: {document.document_type}\nText:\n{text}"

@@ -378,7 +378,7 @@ function AdvisorWorkspace({
 
       <div className="grid grid-cols-4 gap-3 max-xl:grid-cols-2 max-sm:grid-cols-1">
         <Metric label="Total Assets" value={formatCurrency(client.total_assets)} />
-        <Metric label="Household Risk" value={`${client.household_risk_score}/10`} />
+        <Metric label="Household Risk" value={`${client.household_risk_score}/5`} />
         <Metric label="Goals" value={String(client.goals.length)} />
         <Metric label="Accounts" value={String(client.accounts.length)} />
       </div>

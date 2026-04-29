@@ -35,12 +35,26 @@ SOURCE_PRIORITY = {
     "unknown": 100,
 }
 
+ALLOWED_ENGINE_ACCOUNT_TYPES = {
+    "RRSP",
+    "TFSA",
+    "RESP",
+    "RDSP",
+    "FHSA",
+    "Non-Registered",
+    "LIRA",
+    "RRIF",
+    "Corporate",
+}
+
 
 @dataclass(frozen=True)
 class Readiness:
     engine_ready: bool
+    construction_ready: bool
     kyc_compliance_ready: bool
     missing: list[dict[str, str]]
+    construction_missing: list[dict[str, str]]
 
 
 def reviewed_state_from_workspace(workspace: models.ReviewWorkspace) -> dict[str, Any]:
@@ -217,13 +231,137 @@ def readiness_for_state(state: dict[str, Any]) -> Readiness:
     if not risk.get("household_score") and not household.get("household_risk_score"):
         missing.append(_missing("risk", "Household risk input"))
 
+    construction_missing = construction_blockers_for_state(state)
     engine_ready = not missing
+    construction_ready = engine_ready and not construction_missing
     kyc_ready = bool(people and accounts)
     return Readiness(
         engine_ready=engine_ready,
+        construction_ready=construction_ready,
         kyc_compliance_ready=kyc_ready,
         missing=missing,
+        construction_missing=construction_missing,
     )
+
+
+def construction_blockers_for_state(state: dict[str, Any]) -> list[dict[str, str]]:
+    blockers: list[dict[str, str]] = []
+    household = state.get("household") or {}
+    people = state.get("people") or []
+    accounts = state.get("accounts") or []
+    goals = state.get("goals") or []
+    risk = state.get("risk") or {}
+
+    household_risk = risk.get("household_score", household.get("household_risk_score"))
+    if (
+        household_risk is not None
+        and household_risk != ""
+        and not _risk_value_is_contract_score(household_risk)
+    ):
+        blockers.append(_missing("risk", "Household risk must be a 1-5 score"))
+    if len(people) > 2:
+        blockers.append(_missing("people", "Engine supports one or two household members"))
+
+    for account in accounts:
+        if not isinstance(account, dict):
+            continue
+        account_type = str(account.get("type") or "Non-Registered")
+        if account_type not in ALLOWED_ENGINE_ACCOUNT_TYPES:
+            blockers.append(
+                _missing("accounts", f"Unsupported engine account type: {account_type}")
+            )
+
+    for goal in goals:
+        if not isinstance(goal, dict):
+            continue
+        score = goal.get("goal_risk_score", 3)
+        if not _risk_value_is_contract_score(score):
+            blockers.append(_missing("goals", "Goal risk must be a 1-5 score"))
+
+    return blockers
+
+
+def validate_review_state_contract(state: dict[str, Any]) -> None:
+    errors: list[str] = []
+    household = state.get("household") or {}
+    risk = state.get("risk") or {}
+    for label, value in (
+        ("household.household_risk_score", household.get("household_risk_score")),
+        ("risk.household_score", risk.get("household_score")),
+    ):
+        if value is not None and value != "" and not _risk_value_is_contract_score(value):
+            errors.append(f"{label} must be a 1-5 score.")
+    for index, goal in enumerate(state.get("goals") or []):
+        if not isinstance(goal, dict):
+            continue
+        value = goal.get("goal_risk_score")
+        if value is not None and value != "" and not _risk_value_is_contract_score(value):
+            errors.append(f"goals[{index}].goal_risk_score must be a 1-5 score.")
+    if errors:
+        raise ValueError(" ".join(errors))
+
+
+def portfolio_generation_blockers_for_household(household: models.Household) -> list[str]:
+    blockers: list[str] = []
+    if household.household_risk_score < 1 or household.household_risk_score > 5:
+        blockers.append("Household risk must be a 1-5 score.")
+
+    accounts = list(household.accounts.all())
+    if not accounts:
+        blockers.append("At least one account is required before portfolio generation.")
+    goals = list(household.goals.prefetch_related("account_allocations").all())
+    if not goals:
+        blockers.append("At least one goal is required before portfolio generation.")
+
+    links_by_account: dict[str, list[models.GoalAccountLink]] = {
+        account.external_id: [] for account in accounts if account.is_held_at_purpose
+    }
+    for account in accounts:
+        if account.account_type not in ALLOWED_ENGINE_ACCOUNT_TYPES:
+            blockers.append(
+                f"Account {account.external_id} has unsupported type {account.account_type}."
+            )
+    for goal in goals:
+        if not goal.target_date:
+            blockers.append(f"Goal {goal.name} needs a target date or horizon.")
+        if goal.goal_risk_score < 1 or goal.goal_risk_score > 5:
+            blockers.append(f"Goal {goal.name} needs a 1-5 risk score.")
+        for link in goal.account_allocations.all():
+            if link.allocated_amount is None and link.allocated_pct is None:
+                blockers.append("Every goal-account link needs allocated dollars or percentage.")
+            if link.account.external_id in links_by_account:
+                links_by_account[link.account.external_id].append(link)
+
+    for account in accounts:
+        if not account.is_held_at_purpose:
+            continue
+        links = links_by_account.get(account.external_id, [])
+        if not links:
+            blockers.append(f"Purpose account {account.external_id} must be assigned to a goal.")
+            continue
+        if all(link.allocated_amount is not None for link in links):
+            allocated = sum(link.allocated_amount for link in links)
+            if abs(allocated - account.current_value) > Decimal("1.00"):
+                blockers.append(
+                    f"Purpose account {account.external_id} must be fully assigned to goals."
+                )
+        elif all(link.allocated_pct is not None for link in links):
+            allocated_pct = sum(link.allocated_pct for link in links)
+            if abs(allocated_pct - Decimal("1")) > Decimal("0.0001"):
+                blockers.append(
+                    f"Purpose account {account.external_id} goal percentages must sum to 100%."
+                )
+        else:
+            blockers.append(
+                "Do not mix dollar and percentage goal-account assignments within one account."
+            )
+
+    return blockers
+
+
+def portfolio_generation_blocker_for_household(household: models.Household) -> str:
+    blockers = portfolio_generation_blockers_for_household(household)
+    return blockers[0] if blockers else ""
 
 
 def _full_assignment_blockers(
@@ -315,11 +453,15 @@ def commit_reviewed_state(
     readiness = readiness_for_state(state)
     if not readiness.engine_ready:
         raise ValueError("Reviewed state is not engine-ready.")
+    if not readiness.construction_ready:
+        raise ValueError("Reviewed state is not construction-ready.")
     if not required_sections_approved(workspace):
         raise ValueError("Required review sections are not approved.")
 
     household = household or _create_household_from_state(workspace, state, user=user)
     _merge_household_state(household, state)
+    if blocker := portfolio_generation_blocker_for_household(household):
+        raise ValueError(f"Committed state is not construction-ready: {blocker}")
     version = create_state_version(workspace, user=user, state=state)
     version.is_committed = True
     version.committed_household = household
@@ -432,6 +574,7 @@ def _normalize_reviewed_relationships(state: dict[str, Any]) -> None:
 
     for index, goal in enumerate(state["goals"], start=1):
         goal.setdefault("id", _safe_external_id("review_goal", goal.get("name"), index))
+        goal.setdefault("goal_risk_score", 3)
 
     first_account_id = state["accounts"][0]["id"] if state["accounts"] else None
     first_goal_id = state["goals"][0]["id"] if state["goals"] else None
@@ -622,7 +765,20 @@ def _risk_score(value: Any, *, default: int) -> int:
         }
         if normalized in qualitative_scores:
             return qualitative_scores[normalized]
-    return max(1, min(_int_or_default(value, default), 10))
+    score = _int_or_default(value, default)
+    if score > 5:
+        score = ((score + 1) // 2) if score <= 10 else 5
+    return max(1, min(score, 5))
+
+
+def _risk_value_is_contract_score(value: Any) -> bool:
+    try:
+        number = Decimal(str(value))
+    except Exception:
+        return False
+    if number != number.to_integral_value():
+        return False
+    return Decimal("1") <= number <= Decimal("5")
 
 
 def _create_household_from_state(

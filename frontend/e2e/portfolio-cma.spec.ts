@@ -34,6 +34,9 @@ test("financial analyst can use the CMA Workbench", async ({ page }) => {
 
   await page.getByRole("button", { name: "CMA" }).click();
   await expect(page.getByRole("heading", { name: /CMA Workbench/i })).toBeVisible();
+  const apiBase = process.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+  const deniedClients = await page.request.get(`${apiBase}/api/clients/`);
+  expect(deniedClients.status()).toBe(403);
   await expect(page.getByText(/Active Snapshot/i)).toBeVisible();
   await expect(page.getByText(/Default CMA/i).first()).toBeVisible();
 
@@ -73,10 +76,10 @@ test("financial analyst can use the CMA Workbench", async ({ page }) => {
   await page.getByRole("button", { name: /Snapshots/i }).click();
   await page.getByLabel(/Publish note/i).fill("E2E analyst publish note.");
   await page.getByRole("button", { name: /^Publish$/i }).click();
-  await expect(page.getByText(/E2E analyst publish note/i)).toBeVisible();
+  await expect(page.getByText(/E2E analyst publish note/i).first()).toBeVisible();
 
   await page.getByRole("button", { name: /Audit/i }).click();
-  await expect(page.getByText(/E2E analyst publish note/i)).toBeVisible();
+  await expect(page.getByText(/E2E analyst publish note/i).first()).toBeVisible();
   const legacyRuntimeLabels = new RegExp(
     ["Fra" + "ser", "mp20_" + "scenario", "draft" + " draft"].join("|"),
     "i",

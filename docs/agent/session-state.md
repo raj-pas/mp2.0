@@ -2,11 +2,11 @@
 
 **Last updated:** 2026-04-29
 **Branch:** `main`
-**Phase:** Postgres foundation plus Default CMA PortfolioRun tranche
+**Phase:** Secure review plus portfolio-ready handoff tranche
 **Status:** Local thin slice supports authenticated team-scoped advisor review,
-secure-local upload/review to `engine_ready`, approval-gated commit, Default CMA
-link-first portfolio generation, immutable PortfolioRun history, and analyst
-CMA/frontier workflow.
+secure-local upload/review to `engine_ready`, `construction_ready` commit
+gating, Default CMA link-first portfolio generation, immutable PortfolioRun
+history, and analyst CMA/frontier workflow.
 
 ## Current Goal
 
@@ -26,7 +26,7 @@ portfolio recommendations through durable PortfolioRun records:
   and versioned commit to current household tables
 - advisor-grade editable review sections with provenance snippets, conflict and
   unknown handling hooks, approval notes, sanitized timeline, and strict
-  `engine_ready + approved sections` commit gate
+  `engine_ready + construction_ready + approved sections` commit gate
 - worker heartbeat/stale visibility, retry metadata, duplicate reconcile
   suppression, manual reconcile, OCR overflow metadata, and local artifact
   disposal/report command
@@ -43,15 +43,17 @@ Canon v2.3 still raises the next bar:
 
 ## Active Handoff
 
-Postgres foundation plus Default CMA PortfolioRun tranche has landed in the
-working tree. Current verification previously passed:
+Secure review plus portfolio-ready handoff changes are in the working tree.
+Current verification passed for this tranche:
 
 - `uv run ruff check .`
 - `uv run ruff format --check .`
-- `scripts/test-python-postgres.sh`
+- `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run pytest`
 - `npm run build`
-- Docker Compose browser E2E:
+- Docker Compose synthetic browser E2E:
   `PLAYWRIGHT_BASE_URL=http://localhost:5173 npm run e2e:synthetic`
+- Local secure-root real-bundle browser gate:
+  `npm run e2e:real -- --reporter=list --workers=1`
 
 Implemented pieces:
 
@@ -83,6 +85,15 @@ Implemented pieces:
 - Browser E2E now covers synthetic review commit, advisor generate/history, and
   analyst CMA Workbench workflow. Chart assertions are DOM-based; screenshots
   and Playwright reports are retained as artifacts on failure in CI.
+- Household and goal risk now use the same 1-5 contract. Legacy 1-10 household
+  values are remapped with `ceil(old / 2)` by Django data migration, new values
+  above 5 fail validation, and visible `/10` risk labels have been removed.
+- Review readiness now distinguishes `engine_ready` from `construction_ready`.
+  Review commit requires both readiness gates plus required section approvals;
+  portfolio generation still requires an explicit advisor click after commit.
+- Real-bundle E2E artifacts/logs must stay under `MP20_SECURE_DATA_ROOT`. The
+  local harness uses generic bundle numbers and filters empty directories; avoid
+  HTML report output for real runs.
 
 ## Canon v2.3 Context To Carry Forward
 
@@ -107,8 +118,8 @@ Implemented pieces:
 - Fund-of-funds collapse suggestions are still out of scope.
 - Real tax-drag math is still out of scope; v1 stores neutral/stub tax-drag
   metadata on CMA funds.
-- Household risk remains 1-10 in some intake/display surfaces; goal risk is now
-  1-5 for portfolio optimization.
+- Household and goal risk are both 1-5. The specific weighting for the future
+  household x goal composite is still open and should remain parameterized.
 - Extraction/LLM routing enforces Bedrock env for real-derived facts and keeps
   raw text transient, but pseudonymization and CI PII checks are pending.
 - Audit log is append-only and PortfolioRun stores input/output hashes plus

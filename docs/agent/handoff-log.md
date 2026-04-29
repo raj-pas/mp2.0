@@ -214,3 +214,30 @@
 - Added SciPy oracle checks, Hypothesis property tests, invalid matrix tests,
   and a committed synthetic validation pack under `docs/validation/`.
 - Added CI upload of Playwright report/test-results on browser E2E failure.
+
+## 2026-04-29 — Secure Review Portfolio-Ready Handoff Implemented
+
+- Added `construction_ready` beside `engine_ready`; review commit now requires
+  both readiness gates plus required section approvals, while portfolio
+  generation remains an explicit post-commit advisor action.
+- Migrated household and goal risk to the canon 1-5 contract. Legacy 1-10 values
+  are remapped with `ceil(old / 2)` during migration, API/model/engine
+  validation rejects new values above 5, and stale `/10` UI labeling was removed.
+- Reused portfolio generation blockers for both construction readiness and
+  post-commit generation so unsupported account types or missing construction
+  facts fail consistently before a PortfolioRun is created.
+- Removed the unused Quick Fill path from the review UI and extended the
+  synthetic browser flow to commit, open the client, explicitly generate a
+  portfolio, and check run history. The CMA Workbench E2E publish-note locator
+  was tightened to avoid ambiguous matches.
+- Tightened the real-bundle local Playwright harness so it filters empty bundle
+  directories, uses generic bundle-number labels, avoids broad text locators,
+  and keeps logs/screenshots/traces under `MP20_SECURE_DATA_ROOT`.
+- Added regression coverage for stale 1-10 risk values, construction-readiness
+  blocking, post-commit PortfolioRun creation, no `$NaN`, no self-link
+  candidates, and analyst PII denial.
+- Verification passed: `uv run ruff check .`,
+  `uv run ruff format --check .`,
+  `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run pytest`,
+  `npm run build`, Docker Compose `npm run e2e:synthetic`, and local
+  secure-root `npm run e2e:real -- --reporter=list --workers=1`.

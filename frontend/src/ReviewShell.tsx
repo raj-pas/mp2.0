@@ -272,11 +272,12 @@ function WorkspaceReview({
 
   return (
     <div className="min-w-0 space-y-5">
-      <div className="grid grid-cols-4 gap-3 max-xl:grid-cols-2 max-sm:grid-cols-1">
+      <div className="grid grid-cols-5 gap-3 max-xl:grid-cols-2 max-sm:grid-cols-1">
         <Metric label="Status" value={humanize(workspace.status)} />
         <Metric label="Documents" value={String(workspace.documents.length)} />
         <Metric label="Facts" value={String(facts.length)} />
         <Metric label="Engine Ready" value={readiness.engine_ready ? "Yes" : "No"} />
+        <Metric label="Construction" value={readiness.construction_ready ? "Yes" : "No"} />
       </div>
 
       <div className="grid grid-cols-[0.9fr_1.1fr] gap-5 max-2xl:grid-cols-1">
@@ -518,12 +519,20 @@ function ReadinessPanel({ readiness }: { readiness: Readiness }) {
           )}
           Readiness
         </div>
-        <StatusBadge status={readiness.engine_ready ? "engine_ready" : "needs_review"} />
+        <StatusBadge
+          status={readiness.engine_ready && readiness.construction_ready ? "engine_ready" : "needs_review"}
+        />
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+      <div className="mt-4 grid grid-cols-3 gap-3 max-sm:grid-cols-1">
         <div className="rounded-md bg-mist px-3 py-3">
           <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Engine</div>
           <div className="mt-1 text-lg font-semibold">{readiness.engine_ready ? "Ready" : "Incomplete"}</div>
+        </div>
+        <div className="rounded-md bg-mist px-3 py-3">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Construction</div>
+          <div className="mt-1 text-lg font-semibold">
+            {readiness.construction_ready ? "Ready" : "Incomplete"}
+          </div>
         </div>
         <div className="rounded-md bg-mist px-3 py-3">
           <div className="text-xs font-bold uppercase tracking-wider text-slate-500">KYC</div>
@@ -532,9 +541,9 @@ function ReadinessPanel({ readiness }: { readiness: Readiness }) {
           </div>
         </div>
       </div>
-      {readiness.missing.length ? (
+      {[...readiness.missing, ...readiness.construction_missing].length ? (
         <div className="mt-4 space-y-2">
-          {readiness.missing.map((item) => (
+          {[...readiness.missing, ...readiness.construction_missing].map((item) => (
             <div className="rounded-md border border-slate-200 px-3 py-2 text-sm" key={`${item.section}-${item.label}`}>
               <span className="font-semibold">{humanize(item.section)}</span>: {item.label}
             </div>
@@ -635,6 +644,8 @@ function AdvisorReviewPanel({
             <ReviewInput
               label="Risk score"
               type="number"
+              min={1}
+              max={5}
               value={String(numberValue(state.risk.household_score ?? state.household.household_risk_score, 3))}
               source={sources.get("risk.household_score")}
               onSave={(value, reason) =>
@@ -875,6 +886,8 @@ function AdvisorReviewPanel({
             <ReviewInput
               label="Household risk"
               type="number"
+              min={1}
+              max={5}
               value={String(numberValue(state.risk.household_score ?? state.household.household_risk_score, 3))}
               source={sources.get("risk.household_score")}
               onSave={(value, reason) =>
@@ -950,12 +963,16 @@ function ReviewInput({
   onSave,
   source,
   type = "text",
+  min,
+  max,
 }: {
   label: string;
   value: string;
   onSave: (value: string, reason?: string) => void;
   source?: Record<string, unknown>;
   type?: "text" | "number";
+  min?: number;
+  max?: number;
 }) {
   const [draft, setDraft] = useState(value);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
@@ -972,6 +989,8 @@ function ReviewInput({
           }
         }}
         onChange={(event) => setDraft(event.target.value)}
+        max={max}
+        min={min}
         type={type}
         value={draft}
       />
@@ -989,220 +1008,6 @@ function ReviewInput({
         </div>
       ) : null}
     </label>
-  );
-}
-
-function QuickFillPanel({ workspaceId, state }: { workspaceId: string; state: ReviewedClientState }) {
-  const queryClient = useQueryClient();
-  const [householdName, setHouseholdName] = useState(stringValue(state.household.display_name));
-  const [riskScore, setRiskScore] = useState(String(numberValue(state.risk.household_score ?? state.household.household_risk_score, 3)));
-  const [memberName, setMemberName] = useState("");
-  const [memberAge, setMemberAge] = useState("62");
-  const [accountType, setAccountType] = useState("RRSP");
-  const [accountValue, setAccountValue] = useState("");
-  const [goalName, setGoalName] = useState("Retirement");
-  const [goalHorizon, setGoalHorizon] = useState("5");
-  const mutation = useMutation({
-    mutationFn: (patch: Partial<ReviewedClientState>) => patchReviewState(workspaceId, patch),
-    onSuccess: (payload) => {
-      queryClient.setQueryData<ReviewWorkspace>(["review-workspace", workspaceId], (current) =>
-        current
-          ? { ...current, reviewed_state: payload.state, readiness: payload.readiness }
-          : current,
-      );
-      void queryClient.invalidateQueries({ queryKey: ["review-workspace", workspaceId] });
-      void queryClient.invalidateQueries({ queryKey: ["review-workspaces"] });
-    },
-  });
-
-  useEffect(() => {
-    setHouseholdName(stringValue(state.household.display_name));
-    setRiskScore(String(numberValue(state.risk.household_score ?? state.household.household_risk_score, 3)));
-  }, [state.household.display_name, state.household.household_risk_score, state.risk.household_score]);
-
-  const addMember = () => {
-    if (!memberName.trim()) {
-      return;
-    }
-    mutation.mutate({
-      people: [
-        ...state.people,
-        { id: safeId("person", memberName), name: memberName.trim(), age: Number(memberAge) || 62 },
-      ],
-    });
-    setMemberName("");
-  };
-  const addAccount = () => {
-    if (!accountValue.trim()) {
-      return;
-    }
-    const account = {
-      id: safeId("account", accountType),
-      type: accountType,
-      current_value: Number(accountValue) || 0,
-      missing_holdings_confirmed: true,
-    };
-    const placeholderIndex = state.accounts.findIndex(
-      (item) => numberValue(item.current_value) <= 0,
-    );
-    mutation.mutate({
-      accounts:
-        placeholderIndex >= 0
-          ? replaceAt(state.accounts, placeholderIndex, account)
-          : [...state.accounts, account],
-    });
-    setAccountValue("");
-  };
-  const addGoal = () => {
-    if (!goalName.trim()) {
-      return;
-    }
-    const goal = {
-      id: safeId("goal", goalName),
-      name: goalName.trim(),
-      time_horizon_years: Number(goalHorizon) || 5,
-    };
-    const placeholderIndex = state.goals.findIndex(
-      (item) => !stringValue(item.name) || numberValue(item.time_horizon_years) <= 0,
-    );
-    mutation.mutate({
-      goals:
-        placeholderIndex >= 0 ? replaceAt(state.goals, placeholderIndex, goal) : [...state.goals, goal],
-    });
-    setGoalName("Retirement");
-  };
-  const confirmMapping = () => {
-    const goal = state.goals[0];
-    const account =
-      state.accounts.find((item) => numberValue(item.current_value) > 0) ?? state.accounts[0];
-    if (!goal || !account) {
-      return;
-    }
-    mutation.mutate({
-      goal_account_links: [
-        ...state.goal_account_links,
-        {
-          goal_id: stringValue(goal.id),
-          account_id: stringValue(account.id),
-          allocated_amount: numberValue(account.current_value),
-        },
-      ],
-    });
-  };
-
-  return (
-    <section className="rounded-md border border-slate-200 bg-white p-4 shadow-soft">
-      <PanelTitle icon={<Plus size={17} />} title="Quick Fill" />
-      <div className="mt-4 grid grid-cols-2 gap-3 max-lg:grid-cols-1">
-        <label className="space-y-1 text-sm">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Household</span>
-          <input
-            className="min-h-10 w-full rounded-md border border-slate-200 px-3"
-            onChange={(event) => setHouseholdName(event.target.value)}
-            value={householdName}
-          />
-        </label>
-        <label className="space-y-1 text-sm">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Risk Score</span>
-          <input
-            className="min-h-10 w-full rounded-md border border-slate-200 px-3"
-            max={10}
-            min={1}
-            onChange={(event) => setRiskScore(event.target.value)}
-            type="number"
-            value={riskScore}
-          />
-        </label>
-        <Button
-          className="col-span-2 max-lg:col-span-1"
-          disabled={mutation.isPending}
-          onClick={() =>
-            mutation.mutate({
-              household: {
-                ...state.household,
-                display_name: householdName.trim(),
-                household_type: stringValue(state.household.household_type, "couple"),
-                household_risk_score: Number(riskScore) || 3,
-              },
-              risk: { ...state.risk, household_score: Number(riskScore) || 3 },
-            })
-          }
-          variant="secondary"
-        >
-          <CheckCircle2 size={16} />
-          Save Basics
-        </Button>
-      </div>
-
-      <div className="mt-4 grid grid-cols-[1fr_82px_auto] gap-2 max-md:grid-cols-1">
-        <input
-          className="min-h-10 rounded-md border border-slate-200 px-3 text-sm"
-          onChange={(event) => setMemberName(event.target.value)}
-          placeholder="Member name"
-          value={memberName}
-        />
-        <input
-          className="min-h-10 rounded-md border border-slate-200 px-3 text-sm"
-          onChange={(event) => setMemberAge(event.target.value)}
-          placeholder="Age"
-          type="number"
-          value={memberAge}
-        />
-        <Button disabled={mutation.isPending || !memberName.trim()} onClick={addMember} variant="secondary">
-          <Plus size={16} />
-          Member
-        </Button>
-      </div>
-
-      <div className="mt-3 grid grid-cols-[120px_1fr_auto] gap-2 max-md:grid-cols-1">
-        <input
-          className="min-h-10 rounded-md border border-slate-200 px-3 text-sm"
-          onChange={(event) => setAccountType(event.target.value)}
-          value={accountType}
-        />
-        <input
-          className="min-h-10 rounded-md border border-slate-200 px-3 text-sm"
-          onChange={(event) => setAccountValue(event.target.value)}
-          placeholder="Account value"
-          type="number"
-          value={accountValue}
-        />
-        <Button disabled={mutation.isPending || !accountValue.trim()} onClick={addAccount} variant="secondary">
-          <Plus size={16} />
-          Account
-        </Button>
-      </div>
-
-      <div className="mt-3 grid grid-cols-[1fr_90px_auto] gap-2 max-md:grid-cols-1">
-        <input
-          className="min-h-10 rounded-md border border-slate-200 px-3 text-sm"
-          onChange={(event) => setGoalName(event.target.value)}
-          value={goalName}
-        />
-        <input
-          className="min-h-10 rounded-md border border-slate-200 px-3 text-sm"
-          onChange={(event) => setGoalHorizon(event.target.value)}
-          type="number"
-          value={goalHorizon}
-        />
-        <Button disabled={mutation.isPending || !goalName.trim()} onClick={addGoal} variant="secondary">
-          <Plus size={16} />
-          Goal
-        </Button>
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button
-          disabled={mutation.isPending || !state.accounts.length || !state.goals.length}
-          onClick={confirmMapping}
-          variant="secondary"
-        >
-          <Link2 size={16} />
-          Confirm Mapping
-        </Button>
-        {mutation.error ? <ErrorLine message={mutation.error.message} /> : null}
-      </div>
-    </section>
   );
 }
 
@@ -1342,6 +1147,7 @@ function MatchCommitPanel({
   const isLinked = Boolean(workspace.linked_household_id) || workspace.status === "committed";
   const approvals = new Map(workspace.section_approvals.map((approval) => [approval.section, approval.status]));
   const requiredApproved = requiredSections.every((section) => approvals.get(section) === "approved");
+  const canCommit = readiness.engine_ready && readiness.construction_ready && requiredApproved;
   const likelyMatches = isLinked
     ? []
     : (matches.length ? matches : fallbackMatches(workspace, clients)).filter(
@@ -1359,7 +1165,7 @@ function MatchCommitPanel({
               Find Matches
             </Button>
             <Button
-              disabled={!readiness.engine_ready || !requiredApproved || commitMutation.isPending}
+              disabled={!canCommit || commitMutation.isPending}
               onClick={() => commitMutation.mutate(undefined)}
             >
               <Plus size={16} />
@@ -1369,6 +1175,11 @@ function MatchCommitPanel({
           {!requiredApproved ? (
             <div className="mt-3 rounded-md bg-[#fff1c7] px-3 py-2 text-sm text-[#775b0b]">
               Required sections must be approved before commit.
+            </div>
+          ) : null}
+          {requiredApproved && (!readiness.engine_ready || !readiness.construction_ready) ? (
+            <div className="mt-3 rounded-md bg-[#fff1c7] px-3 py-2 text-sm text-[#775b0b]">
+              Engine and construction readiness must both pass before commit.
             </div>
           ) : null}
           <div className="mt-4 space-y-2">
@@ -1384,7 +1195,7 @@ function MatchCommitPanel({
                       </div>
                     </div>
                     <Button
-                      disabled={!readiness.engine_ready || !requiredApproved || commitMutation.isPending}
+                      disabled={!canCommit || commitMutation.isPending}
                       onClick={() => commitMutation.mutate(candidate.household_id)}
                       variant="secondary"
                     >
@@ -1474,8 +1285,10 @@ function normalizeState(state: Partial<ReviewedClientState>): ReviewedClientStat
 function normalizeReadiness(primary?: Partial<Readiness>, fallback?: Partial<Readiness>): Readiness {
   return {
     engine_ready: Boolean(primary?.engine_ready ?? fallback?.engine_ready),
+    construction_ready: Boolean(primary?.construction_ready ?? fallback?.construction_ready),
     kyc_compliance_ready: Boolean(primary?.kyc_compliance_ready ?? fallback?.kyc_compliance_ready),
     missing: primary?.missing ?? fallback?.missing ?? [],
+    construction_missing: primary?.construction_missing ?? fallback?.construction_missing ?? [],
   };
 }
 
@@ -1567,6 +1380,9 @@ function sectionBlockers(state: ReviewedClientState, readiness: Readiness, secti
   const missing = readiness.missing
     .filter((item) => item.section === section)
     .map((item) => item.label);
+  const construction = readiness.construction_missing
+    .filter((item) => item.section === section)
+    .map((item) => item.label);
   const conflicts = state.conflicts
     .filter((conflict) => !conflict.resolved && sectionForField(stringValue(conflict.field)) === section)
     .map((conflict) => `Conflict: ${stringValue(conflict.field)}`);
@@ -1578,7 +1394,7 @@ function sectionBlockers(state: ReviewedClientState, readiness: Readiness, secti
       return Boolean(unknown.required) && (unknown.section === section || sectionForField(stringValue(unknown.field)) === section);
     })
     .map((unknown) => (typeof unknown === "string" ? unknown : stringValue(unknown.label ?? unknown.field, "Unknown")));
-  return [...missing, ...conflicts, ...unknowns];
+  return [...missing, ...construction, ...conflicts, ...unknowns];
 }
 
 function fallbackMatches(workspace: ReviewWorkspace, clients: HouseholdSummary[]): MatchCandidate[] {

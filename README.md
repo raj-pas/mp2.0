@@ -26,8 +26,11 @@ thin slice now supports:
   goal-account mapping, and risk, with provenance snippets and edit/approval
   notes for overrides
 - worker heartbeat/stale visibility, duplicate reconcile suppression, manual
-  reconcile, sanitized workspace timeline, strict approval-gated commit, and a
+  reconcile, sanitized workspace timeline,
+  `engine_ready + construction_ready + approvals` commit gating, and a
   portfolio engine kill-switch
+- household and goal risk on the canon 1-5 scale, with legacy 1-10 values
+  migrated and rejected going forward
 - Default CMA seed data, efficient frontier math, goal-account-link
   optimization, immutable PortfolioRun history, advisor explainability, and
   analyst-only CMA Workbench draft/edit/publish/audit workflow
@@ -143,15 +146,15 @@ PLAYWRIGHT_BASE_URL=http://localhost:5173 npm run e2e:synthetic
 ```
 
 CI runs the Python checks, frontend build, and a Docker Compose browser E2E that
-covers synthetic review commit, advisor portfolio generation/history, and
-financial analyst CMA Workbench/frontier workflow. For a local real-bundle browser
-regression, keep all artifacts under the secure root:
+covers synthetic review commit, explicit advisor portfolio generation/history,
+and financial analyst CMA Workbench/frontier workflow. For a local real-bundle
+browser regression, keep all artifacts under the secure root:
 
 ```bash
 export MP20_REAL_BUNDLE_ROOT="/path/outside/repo/to/client-bundles"
 export PLAYWRIGHT_OUTPUT_DIR="$MP20_SECURE_DATA_ROOT/e2e-artifacts"
 cd frontend
-npm run e2e:real
+npm run e2e:real -- --reporter=list --workers=1
 ```
 
 ## Session Protocol

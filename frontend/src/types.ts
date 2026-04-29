@@ -253,8 +253,13 @@ export type SessionPayload = {
 
 export type Readiness = {
   engine_ready: boolean;
+  construction_ready: boolean;
   kyc_compliance_ready: boolean;
   missing: Array<{
+    section: string;
+    label: string;
+  }>;
+  construction_missing: Array<{
     section: string;
     label: string;
   }>;

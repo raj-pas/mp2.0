@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -23,7 +24,10 @@ class Household(models.Model):
     household_type = models.CharField(
         max_length=20, choices=[("single", "Single"), ("couple", "Couple")]
     )
-    household_risk_score = models.PositiveSmallIntegerField(default=5)
+    household_risk_score = models.PositiveSmallIntegerField(
+        default=3,
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+    )
     external_assets = models.JSONField(default=list, blank=True)
     notes = models.TextField(blank=True)
     last_engine_output = models.JSONField(default=dict, blank=True)
@@ -32,6 +36,13 @@ class Household(models.Model):
 
     class Meta:
         ordering = ["display_name"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(household_risk_score__gte=1)
+                & models.Q(household_risk_score__lte=5),
+                name="household_risk_score_1_5",
+            )
+        ]
 
     def __str__(self) -> str:
         return self.display_name
@@ -117,12 +128,21 @@ class Goal(models.Model):
     necessity_score = models.PositiveSmallIntegerField(default=3)
     current_funded_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     contribution_plan = models.JSONField(default=dict, blank=True)
-    goal_risk_score = models.PositiveSmallIntegerField(default=3)
+    goal_risk_score = models.PositiveSmallIntegerField(
+        default=3,
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+    )
     status = models.CharField(max_length=40, default="watch")
     notes = models.TextField(blank=True)
 
     class Meta:
         ordering = ["target_date"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(goal_risk_score__gte=1) & models.Q(goal_risk_score__lte=5),
+                name="goal_risk_score_1_5",
+            )
+        ]
 
     def __str__(self) -> str:
         return self.name

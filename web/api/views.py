@@ -53,8 +53,11 @@ from web.api.review_state import (
     commit_reviewed_state,
     create_state_version,
     match_candidates,
+    portfolio_generation_blocker_for_household,
+    readiness_for_state,
     reviewed_state_from_workspace,
     section_blockers,
+    validate_review_state_contract,
 )
 from web.api.serializers import (
     CMASnapshotSerializer,
@@ -172,7 +175,7 @@ class GeneratePortfolioView(APIView):
                 },
                 status=409,
             )
-        readiness_error = _portfolio_generation_blocker(household)
+        readiness_error = portfolio_generation_blocker_for_household(household)
         if readiness_error:
             return Response({"detail": readiness_error}, status=400)
 
@@ -669,7 +672,13 @@ class ReviewWorkspaceStateView(APIView):
             workspace.reviewed_state = reviewed_state_from_workspace(workspace)
             workspace.readiness = workspace.reviewed_state["readiness"]
             workspace.save(update_fields=["reviewed_state", "readiness", "updated_at"])
-        return Response({"state": workspace.reviewed_state, "readiness": workspace.readiness})
+        readiness = readiness_for_state(workspace.reviewed_state).__dict__
+        return Response(
+            {
+                "state": {**workspace.reviewed_state, "readiness": readiness},
+                "readiness": readiness,
+            }
+        )
 
     def patch(self, request, workspace_id: str):  # noqa: ANN001
         if not can_access_real_pii(request.user):
@@ -685,6 +694,10 @@ class ReviewWorkspaceStateView(APIView):
             )
             previous_state = locked_workspace.reviewed_state or {}
             state = apply_state_patch(previous_state, patch)
+            try:
+                validate_review_state_contract(state)
+            except ValueError as exc:
+                return Response({"detail": str(exc)}, status=400)
             version = create_state_version(locked_workspace, user=request.user, state=state)
         record_event(
             action="review_state_edited",
@@ -885,48 +898,6 @@ def _actor(request) -> str:  # noqa: ANN001
     if getattr(request, "user", None) and request.user.is_authenticated:
         return request.user.get_username()
     return "phase_one_admin"
-
-
-def _portfolio_generation_blocker(household: models.Household) -> str:
-    accounts = list(household.accounts.all())
-    if not accounts:
-        return "At least one account is required before portfolio generation."
-    goals = list(household.goals.prefetch_related("account_allocations").all())
-    if not goals:
-        return "At least one goal is required before portfolio generation."
-
-    links_by_account: dict[str, list[models.GoalAccountLink]] = {
-        account.external_id: [] for account in accounts if account.is_held_at_purpose
-    }
-    for goal in goals:
-        if not goal.target_date:
-            return f"Goal {goal.name} needs a target date or horizon."
-        if goal.goal_risk_score < 1 or goal.goal_risk_score > 5:
-            return f"Goal {goal.name} needs a 1-5 risk score."
-        for link in goal.account_allocations.all():
-            if link.allocated_amount is None and link.allocated_pct is None:
-                return "Every goal-account link needs allocated dollars or percentage."
-            if link.account.external_id in links_by_account:
-                links_by_account[link.account.external_id].append(link)
-
-    for account in accounts:
-        if not account.is_held_at_purpose:
-            continue
-        links = links_by_account.get(account.external_id, [])
-        if not links:
-            return f"Purpose account {account.external_id} must be assigned to a goal."
-        if all(link.allocated_amount is not None for link in links):
-            allocated = sum(link.allocated_amount for link in links)
-            if abs(allocated - account.current_value) > Decimal("1.00"):
-                return f"Purpose account {account.external_id} must be fully assigned to goals."
-        elif all(link.allocated_pct is not None for link in links):
-            allocated_pct = sum(link.allocated_pct for link in links)
-            if abs(allocated_pct - Decimal("1")) > Decimal("0.0001"):
-                return f"Purpose account {account.external_id} goal percentages must sum to 100%."
-        else:
-            return "Do not mix dollar and percentage goal-account assignments within one account."
-
-    return ""
 
 
 @transaction.atomic

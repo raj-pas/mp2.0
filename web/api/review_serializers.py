@@ -6,6 +6,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from web.api import models
+from web.api.review_state import readiness_for_state
 from web.audit.models import AuditEvent
 
 
@@ -135,6 +136,8 @@ class SectionApprovalSerializer(serializers.ModelSerializer):
 class ReviewWorkspaceSerializer(serializers.ModelSerializer):
     owner_email = serializers.SerializerMethodField()
     linked_household_id = serializers.SerializerMethodField()
+    reviewed_state = serializers.SerializerMethodField()
+    readiness = serializers.SerializerMethodField()
     documents = ReviewDocumentSerializer(many=True, read_only=True)
     processing_jobs = ProcessingJobSerializer(many=True, read_only=True)
     section_approvals = SectionApprovalSerializer(many=True, read_only=True)
@@ -168,6 +171,18 @@ class ReviewWorkspaceSerializer(serializers.ModelSerializer):
 
     def get_linked_household_id(self, obj: models.ReviewWorkspace) -> str | None:
         return obj.linked_household.external_id if obj.linked_household else None
+
+    def get_reviewed_state(self, obj: models.ReviewWorkspace) -> dict:
+        state = obj.reviewed_state or {}
+        if not state:
+            return state
+        readiness = readiness_for_state(state).__dict__
+        return {**state, "readiness": readiness}
+
+    def get_readiness(self, obj: models.ReviewWorkspace) -> dict:
+        if obj.reviewed_state:
+            return readiness_for_state(obj.reviewed_state).__dict__
+        return obj.readiness or {}
 
     def get_worker_health(self, obj: models.ReviewWorkspace) -> dict:
         heartbeat = models.WorkerHeartbeat.objects.first()
@@ -210,6 +225,7 @@ class ReviewWorkspaceSerializer(serializers.ModelSerializer):
 
 class ReviewWorkspaceListSerializer(serializers.ModelSerializer):
     document_count = serializers.SerializerMethodField()
+    readiness = serializers.SerializerMethodField()
 
     class Meta:
         model = models.ReviewWorkspace
@@ -227,6 +243,11 @@ class ReviewWorkspaceListSerializer(serializers.ModelSerializer):
 
     def get_document_count(self, obj: models.ReviewWorkspace) -> int:
         return obj.documents.count()
+
+    def get_readiness(self, obj: models.ReviewWorkspace) -> dict:
+        if obj.reviewed_state:
+            return readiness_for_state(obj.reviewed_state).__dict__
+        return obj.readiness or {}
 
 
 SENSITIVE_METADATA_KEYS = {
