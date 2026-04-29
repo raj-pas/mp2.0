@@ -21,7 +21,7 @@ implemented on `main`:
 - React/Vite advisor shell
 - pure Python engine stub
 - synthetic Sandra/Mike Chen persona
-- local advisor login and review workspace UI
+- local advisor login, authenticated client access, and review workspace UI
 - secure outside-repo browser upload path
 - reviewed state, readiness checklist, matching, and link-or-create commit
 - light audit logging
@@ -71,8 +71,9 @@ implementation backlog.
   local parsers, Bedrock routing, structured facts, reviewed state, readiness,
   and commit. The full five-layer canon workflow still needs richer
   reconciliation, IS validation, and source-review UX.
-- Auth is Phase 0 only. Phase B requires per-advisor accounts, password reset,
-  MFA, session timeout, lockout, and real RBAC.
+- Auth is still early but no longer open by default: client/review APIs require
+  login, and real committed households are advisor-owned. Phase B still requires
+  production-grade roles, password reset, MFA, session timeout, and lockout.
 - UI is a Phase 1 advisor shell. Canon requires the household/account/goal
   three-tab view, fund vs asset-class toggle, click-through goal-account
   assignment, current-vs-ideal allocation, and pilot disclaimer surfaces.

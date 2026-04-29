@@ -27,6 +27,9 @@ authoritative when more detail is needed.
 - Sensitive identifiers are stored as hash plus redacted display, not plaintext.
 - Household uniqueness for review commits is internal generated ID; matching is
   advisory and commit must be link-or-create.
+- Default DRF access is authenticated. Session/login endpoints opt out
+  explicitly; review workspaces are owner-scoped; real committed households are
+  advisor-owned while shared synthetic demo households may remain ownerless.
 - Failed documents do not block review. Manual retry queues another processing
   job.
 
@@ -88,7 +91,9 @@ authoritative when more detail is needed.
   retention/disposal, and CI PII checks are still needed.
 - Current audit log has writes but not immutability trigger, browse UI, or full
   input-to-output trace.
-- Current RBAC hook allows all access; Phase B needs real role enforcement.
+- Current RBAC is authenticated-by-default with early household ownership
+  scoping, but Phase B still needs real role enforcement, MFA/session policy,
+  lockout, password reset, and admin-only CMA boundaries.
 
 ## Deferred
 

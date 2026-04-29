@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from web.api import models
@@ -213,7 +214,7 @@ def commit_reviewed_state(
     if not readiness.engine_ready:
         raise ValueError("Reviewed state is not engine-ready.")
 
-    household = household or _create_household_from_state(workspace, state)
+    household = household or _create_household_from_state(workspace, state, user=user)
     _merge_household_state(household, state)
     version = create_state_version(workspace, user=user, state=state)
     version.is_committed = True
@@ -237,7 +238,15 @@ def match_candidates(workspace: models.ReviewWorkspace) -> list[dict[str, Any]]:
     display_name = (state.get("household") or {}).get("display_name", "")
     people = state.get("people") or []
     candidates: list[dict[str, Any]] = []
-    for household in models.Household.objects.prefetch_related("members", "accounts").all():
+    households = models.Household.objects.none()
+    if getattr(workspace.owner, "is_authenticated", False):
+        households = models.Household.objects.filter(owner=workspace.owner)
+    elif workspace.owner_id:
+        households = models.Household.objects.filter(owner_id=workspace.owner_id)
+    else:
+        households = models.Household.objects.filter(Q(owner__isnull=True))
+
+    for household in households.prefetch_related("members", "accounts"):
         reasons: list[str] = []
         score = 0
         if display_name and _normalize(display_name) == _normalize(household.display_name):
@@ -396,11 +405,12 @@ def _number(value: Any) -> Decimal:
 
 
 def _create_household_from_state(
-    workspace: models.ReviewWorkspace, state: dict[str, Any]
+    workspace: models.ReviewWorkspace, state: dict[str, Any], *, user
 ) -> models.Household:
     household = state.get("household") or {}
     return models.Household.objects.create(
         external_id=f"review_{workspace.external_id}",
+        owner=user if getattr(user, "is_authenticated", False) else workspace.owner,
         display_name=household.get("display_name") or workspace.label,
         household_type=household.get("household_type") or "couple",
         household_risk_score=int(household.get("household_risk_score") or 3),

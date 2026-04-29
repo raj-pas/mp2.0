@@ -3,8 +3,8 @@
 **Last updated:** 2026-04-28
 **Branch:** `main`
 **Phase:** Phase 1 scaffold plus secure-local real-data review tranche
-**Status:** Local thin slice supports authenticated upload/review to
-`engine_ready` and link-or-create commit
+**Status:** Local thin slice supports authenticated client/review access,
+secure-local upload/review to `engine_ready`, and link-or-create commit
 
 ## Current Goal
 
@@ -12,8 +12,9 @@ Use the existing scaffold as the base for the canon v2.3 build sequence while
 moving real-data intake through a secure local review gate:
 
 - DB-backed synthetic Sandra/Mike Chen persona
-- client list/detail in the advisor shell
-- generate-portfolio call through DRF into the pure Python engine stub
+- authenticated client list/detail in the advisor shell
+- authenticated generate-portfolio call through DRF into the pure Python engine
+  stub
 - light audit events for core actions
 - smoke tests and CI
 - authenticated local advisor review workspace
@@ -41,6 +42,9 @@ passed:
   credentials: login -> workspace -> browser upload -> worker/Bedrock extraction
   -> facts -> engine_ready -> section approval -> match -> create household ->
   client detail.
+- Auth boundary hardening: unauthenticated client/review APIs are denied, the
+  frontend no longer fetches or renders client data before login, households can
+  be advisor-owned, and reviewed-state commits create owner-scoped households.
 
 Implemented pieces:
 
@@ -59,6 +63,8 @@ Implemented pieces:
 - review UI includes login, workspace creation, upload/status, active job list,
   facts, quick-fill edits, section approvals, readiness, match candidates, retry,
   and link-or-create commit
+- shared synthetic households remain visible to authenticated users; real
+  committed households are scoped to the advisor who created them
 - Browser E2E uncovered and fixed session auth reporting, tolerant Bedrock JSON
   parsing, indexed fact reconciliation, and scalar sensitive-ID redaction.
 
@@ -93,7 +99,9 @@ This tranche has local commits only; do not push unless explicitly asked.
   keeps raw text transient, but pseudonymization and CI PII checks are pending.
 - Audit log is real but not append-only via DB trigger and does not capture full
   input/output snapshots.
-- Auth/RBAC is Phase 0 only; all permissions currently allow access.
+- Auth/RBAC is still early: endpoints now require login by default and real
+  committed households are advisor-scoped, but Phase B still needs real roles,
+  MFA, session timeout, lockout, password reset, and admin boundaries.
 - Frontend lacks the three-tab pivot, click-through assignment, current-vs-ideal
   allocation, fan chart, and pilot-mode disclaimer.
 
@@ -105,8 +113,8 @@ This tranche has local commits only; do not push unless explicitly asked.
 3. Harden extraction/reconciliation into the canon five-layer flow with IS
    validation and better source-review UX.
 4. Build the three-tab household/account/goal UI around current reviewed state.
-5. Add Phase B pilot gates: real auth/RBAC, disclaimer, kill-switch, feedback
-   channel, richer audit records, and CMA admin boundary.
+5. Add Phase B pilot gates: real auth roles, MFA/session policy, disclaimer,
+   kill-switch, feedback channel, richer audit records, and CMA admin boundary.
 
 ## Notes for Parallel Sessions
 

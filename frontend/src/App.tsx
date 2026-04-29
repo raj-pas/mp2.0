@@ -36,14 +36,16 @@ function App() {
     queryKey: ["session"],
     queryFn: fetchSession,
   });
+  const isAuthenticated = Boolean(session.data?.authenticated);
   const clients = useQuery({
     queryKey: ["clients"],
     queryFn: fetchClients,
+    enabled: isAuthenticated,
   });
   const selectedClient = useQuery({
     queryKey: ["client", selectedClientId],
     queryFn: () => fetchClient(selectedClientId),
-    enabled: Boolean(selectedClientId),
+    enabled: Boolean(selectedClientId) && isAuthenticated,
   });
   const portfolioMutation = useMutation({
     mutationFn: () => generatePortfolio(selectedClientId),
@@ -55,6 +57,8 @@ function App() {
     mutationFn: logout,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["session"] });
+      void queryClient.removeQueries({ queryKey: ["clients"] });
+      void queryClient.removeQueries({ queryKey: ["client"] });
       setMode("clients");
     },
   });
@@ -96,8 +100,9 @@ function App() {
             onLogout={() => logoutMutation.mutate()}
           />
           <ClientList
-            clients={clients.data ?? []}
-            isLoading={clients.isLoading}
+            authenticated={isAuthenticated}
+            clients={isAuthenticated ? (clients.data ?? []) : []}
+            isLoading={isAuthenticated && clients.isLoading}
             selectedClientId={selectedClientId}
             onSelect={setSelectedClientId}
           />
@@ -107,7 +112,7 @@ function App() {
           {mode === "review" ? (
             session.isLoading ? (
               <EmptyState label="Checking session" />
-            ) : session.data?.authenticated ? (
+            ) : isAuthenticated ? (
               <ReviewShell
                 onOpenClient={(id) => {
                   setSelectedClientId(id);
@@ -119,6 +124,10 @@ function App() {
             ) : (
               <LoginPanel />
             )
+          ) : session.isLoading ? (
+            <EmptyState label="Checking session" />
+          ) : !isAuthenticated ? (
+            <LoginPanel />
           ) : selectedClient.isLoading ? (
             <EmptyState label="Loading client" />
           ) : selectedClient.error ? (
@@ -210,6 +219,7 @@ function LoginPanel() {
     mutationFn: () => login(email.trim(), password),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["session"] });
+      void queryClient.invalidateQueries({ queryKey: ["clients"] });
     },
   });
 
@@ -262,11 +272,13 @@ function LoginPanel() {
 }
 
 function ClientList({
+  authenticated,
   clients,
   isLoading,
   selectedClientId,
   onSelect,
 }: {
+  authenticated: boolean;
   clients: HouseholdSummary[];
   isLoading: boolean;
   selectedClientId: string;
@@ -279,9 +291,11 @@ function ClientList({
         <Database size={16} className="text-slate-400" />
       </div>
       <div className="space-y-2">
-        {isLoading ? (
+        {!authenticated ? (
+          <div className="rounded-md bg-mist px-3 py-3 text-sm text-slate-600">Sign in to view clients.</div>
+        ) : isLoading ? (
           <div className="rounded-md bg-mist px-3 py-3 text-sm text-slate-600">Loading</div>
-        ) : (
+        ) : clients.length ? (
           clients.map((client) => (
             <button
               className={`w-full rounded-md border px-3 py-3 text-left transition ${
@@ -303,6 +317,8 @@ function ClientList({
               </div>
             </button>
           ))
+        ) : (
+          <div className="rounded-md bg-mist px-3 py-3 text-sm text-slate-600">No clients</div>
         )}
       </div>
     </div>

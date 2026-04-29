@@ -86,3 +86,22 @@
   hashed/redacted.
 - Verification after fixes passed: `uv run ruff check .`, `uv run ruff format
   --check .`, `uv run pytest`, and `npm run build`.
+
+## 2026-04-28 — Client/Auth Boundary Hardened
+
+- Tightened the default DRF permission hook from allow-all to authenticated-by-
+  default. Login/session remain explicit public endpoints.
+- Added explicit login requirements for client list, client detail, and
+  generate-portfolio APIs.
+- Added nullable `Household.owner`; shared synthetic households can remain
+  ownerless, while reviewed-state commits create advisor-owned households.
+- Scoped client list/detail/generate access to shared synthetic plus the
+  authenticated advisor's households; commit link targets must be owned by the
+  current advisor.
+- Updated the frontend so client queries and visible client data are gated by
+  session auth.
+- Added regression tests for unauthenticated denial, household visibility
+  scoping, owner-scoped commits, and cross-advisor link rejection.
+- Verification passed: `uv run ruff check .`, `uv run ruff format --check .`,
+  `uv run pytest`, `npm run build`, and a Chrome-headless UI check confirming
+  no client data before login and visible client/review UI after login.

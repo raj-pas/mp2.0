@@ -12,6 +12,13 @@ def uuid_string() -> str:
 
 class Household(models.Model):
     external_id = models.CharField(max_length=120, unique=True)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="households",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+    )
     display_name = models.CharField(max_length=255)
     household_type = models.CharField(
         max_length=20, choices=[("single", "Single"), ("couple", "Couple")]

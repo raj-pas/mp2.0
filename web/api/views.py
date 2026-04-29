@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django.contrib.auth import authenticate, login, logout
+from django.db.models import Q
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -78,15 +79,19 @@ class SessionView(APIView):
 
 
 class ClientListView(APIView):
+    permission_classes = [IsAuthenticated]
+
     def get(self, request):  # noqa: ANN001
-        households = models.Household.objects.prefetch_related("goals", "accounts")
+        households = _households_visible_to_user(request.user).prefetch_related("goals", "accounts")
         record_event(action="client_list_viewed", entity_type="household", actor=_actor(request))
         return Response(HouseholdListSerializer(households, many=True).data)
 
 
 class ClientDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, household_id: str):  # noqa: ANN001
-        household = get_object_or_404(_household_queryset(), external_id=household_id)
+        household = get_object_or_404(_household_queryset(request.user), external_id=household_id)
         record_event(
             action="client_detail_viewed",
             entity_type="household",
@@ -97,8 +102,10 @@ class ClientDetailView(APIView):
 
 
 class GeneratePortfolioView(APIView):
+    permission_classes = [IsAuthenticated]
+
     def post(self, request, household_id: str):  # noqa: ANN001
-        household = get_object_or_404(_household_queryset(), external_id=household_id)
+        household = get_object_or_404(_household_queryset(request.user), external_id=household_id)
         engine_input = to_engine_household(household)
         output = optimize(engine_input, STEADYHAND_PURE_SLEEVES)
         payload = output.model_dump(mode="json")
@@ -318,7 +325,9 @@ class ReviewWorkspaceCommitView(APIView):
         workspace = _workspace_for_user(workspace_id, request.user)
         household = None
         if household_id := request.data.get("household_id"):
-            household = get_object_or_404(models.Household, external_id=household_id)
+            household = get_object_or_404(
+                _households_owned_by_user(request.user), external_id=household_id
+            )
         try:
             committed = commit_reviewed_state(workspace, user=request.user, household=household)
         except ValueError as exc:
@@ -333,8 +342,20 @@ class ReviewWorkspaceCommitView(APIView):
         )
 
 
-def _household_queryset():
-    return models.Household.objects.prefetch_related(
+def _households_visible_to_user(user):
+    if not getattr(user, "is_authenticated", False):
+        return models.Household.objects.none()
+    return models.Household.objects.filter(Q(owner=user) | Q(owner__isnull=True))
+
+
+def _households_owned_by_user(user):
+    if not getattr(user, "is_authenticated", False):
+        return models.Household.objects.none()
+    return models.Household.objects.filter(owner=user)
+
+
+def _household_queryset(user):
+    return _households_visible_to_user(user).prefetch_related(
         "members",
         "goals__account_allocations__account",
         "accounts__holdings",
