@@ -43,7 +43,11 @@ test("financial analyst can use the CMA Workbench", async ({ page }) => {
   await expect(page.getByText(/volatility must be between/i)).toBeVisible();
   await page.locator('input[type="number"]').nth(1).fill("0.13312");
   await page.locator('input[type="number"]').first().fill("0.0712");
-  await page.getByLabel(/SH Small Cap Equity eligible/i).uncheck();
+  const smallCapEligible = page.getByLabel(/SH Small Cap Equity eligible/i);
+  await smallCapEligible.uncheck();
+  await expect(smallCapEligible).not.toBeChecked();
+  await smallCapEligible.check();
+  await expect(smallCapEligible).toBeChecked();
   await page.getByRole("button", { name: /Save Draft/i }).click();
   await expect(page.getByRole("button", { name: /Save Draft/i })).toBeEnabled();
 
@@ -56,6 +60,15 @@ test("financial analyst can use the CMA Workbench", async ({ page }) => {
   await expect(page.getByText(/efficient points/i)).toBeVisible();
   await expect(page.getByLabel(/Efficient frontier chart/i)).toBeVisible();
   await expect(page.getByText(/SH Small Cap Equity/i)).toBeVisible();
+
+  await page.getByRole("button", { name: /Assumptions/i }).click();
+  await page.locator('input[type="number"]').first().fill("0.0731");
+  await page.getByRole("button", { name: /Save Draft/i }).click();
+  await expect(page.getByRole("button", { name: /Save Draft/i })).toBeEnabled();
+  await page.getByRole("button", { name: /Correlations/i }).click();
+  await page.getByLabel(/SH Equity to SH Income correlation/i).first().fill("0.613");
+  await page.getByRole("button", { name: /Save Draft/i }).click();
+  await expect(page.getByRole("button", { name: /Save Draft/i })).toBeEnabled();
 
   await page.getByRole("button", { name: /Snapshots/i }).click();
   await page.getByLabel(/Publish note/i).fill("E2E analyst publish note.");
