@@ -1107,3 +1107,155 @@ verified live, not just configured.
 - `npx playwright test e2e/foundation.spec.ts` — **5/5 in 6.5s**
 
 Foundation is solid. Ready for R4.
+
+## 2026-04-30 — Phase R4 goal allocation + RiskSlider override flow COMPLETE
+
+**Branch:** `feature/ux-rebuild` (commit pending)
+**Status:** ✅ All R4 gates green; override save round-trips live; 7/7 e2e
+
+### Scope landed
+
+- `frontend/src/lib/preview.ts` — typed hooks for every R1 preview
+  endpoint plus the override mutation + history list:
+  `useRiskProfilePreview`, `useGoalScorePreview`, `useSleeveMix`,
+  `useProjection`, `useProjectionPaths`, `useProbability`,
+  `useOptimizerOutput`, `useMoves`, `useOverrideHistory`,
+  `useCreateOverride`. Wire shapes match the canonical contracts
+  captured in the deeper-smoke handoff entry; the `GoalRiskOverride`
+  list shape (`created_by`, no `goal_id`) was corrected from a
+  pre-build assumption (`created_by_email`, `goal_id`).
+- `frontend/src/components/ui/RiskSlider.tsx` — interactive 5-band
+  picker. Locked decision #6 surface (canon 1-5 + descriptor only,
+  never Goal_50/0-50). Override draft state shows the warning banner
+  + zod-validated rationale textarea (min 10 chars, both client and
+  server enforce). `react-hook-form` + `zod` per locked decision #29.
+  Permission gate (`canEdit`) shows `RiskSliderLocked` for analysts
+  with a `Lock` icon + tooltip. Save → `useCreateOverride` mutation
+  → invalidates household + override-history queries.
+- `frontend/src/charts/FanChart.tsx` — Chart.js line fan with two
+  band fills (P10–P90 outer, P25–P75 inner) + dotted P50 median +
+  amber dashed target line. Tier label chip in the corner;
+  probability-at-target badge in the lower-left when target +
+  pre-computed probability are passed. The hover-debounced
+  per-year probability fetch the plan describes is queued for a
+  follow-up commit (locked decision #18 latency budget; the static
+  badge already conveys the headline number). Registers
+  `LineController` + `Filler` + `LinearScale` + `CategoryScale` +
+  tooltip plugin (Chart.js v4 requires explicit registration).
+- `frontend/src/charts/RiskBandTrack.tsx` — already shipped in R3
+  as the read-only meter. R4 reuses it inside the RiskSlider and
+  the goal hero KPI tile (with optional `baselineScore` for the
+  ghost tick when an override is active).
+- `frontend/src/goal/GoalAllocationSection.tsx` — current vs ideal
+  vs Δ table. Pulls ideal from `/api/preview/sleeve-mix/`
+  (canon score → fund pcts) and aggregates current from goal-leg
+  shares of each linked account's holdings. Both sides flow
+  through `canonizeFundId()` so the four-way fund-id chaos
+  (engine `SH-Sav` vs CMA `sh_savings` vs persona `income_fund`
+  vs lowercase) is normalized before comparison.
+- `frontend/src/goal/OptimizerOutputWidget.tsx` — improvement %
+  + effective-score + ideal/current P-percentile values.
+- `frontend/src/goal/MovesPanel.tsx` — buys + sells split into
+  two columns; uses `fundColor()` + `fundDisplayName()` so the
+  legacy persona fund names map to canon Steadyhand display.
+- `frontend/src/goal/GoalProjectionsSection.tsx` — wraps FanChart
+  with side panel of P50/P90/P10 from `/api/preview/projection/`.
+  Calls `/api/preview/probability/` once with goal target +
+  horizon for the badge.
+- `frontend/src/routes/GoalRoute.tsx` — full rewrite. Hero KPI
+  strip (target / funded / horizon / canon descriptor with
+  RiskBandTrack ghost), then RiskSlider, then GoalAllocationSection,
+  then 2-column row(OptimizerOutputWidget, MovesPanel), then
+  GoalProjectionsSection, then linked-accounts list. Resolves
+  effective score = latest override (if any) ?? system score from
+  `goal.goal_risk_score`.
+- `frontend/src/ctx-panel/GoalContext.tsx` — projections tab now
+  hosts the override history list (locked decision #37 audit
+  immutability — read-only display of every prior override with
+  rationale + actor + timestamp).
+- `frontend/src/i18n/en.json` — added `risk_slider.*` (~30 keys),
+  `fan_chart.*` (~12), `goal_allocation.*` (8), `optimizer_output.*`
+  (6), `moves.*` (8). All user-visible strings flow through `t()`.
+- `frontend/e2e/foundation.spec.ts` — extended with two R4 tests:
+  (1) goal page renders RiskSlider radiogroup + Allocation table
+  + Optimizer output + Moves + Projection fan; (2) advisor selects
+  a different band → override banner appears → fills rationale →
+  saves → ctx-panel projections tab shows the new history row with
+  the rationale text.
+
+### Side-fix: optimizer frontier Pareto filter
+
+Hypothesis property test
+`engine/tests/test_optimizer_validation.py::test_generated_valid_frontiers_keep_core_invariants`
+surfaced a falsifying example during the R4 gate run:
+`returns=[0.0625, 0.01, 0.01]`, `volatilities=[0.25, 0.125, 0.03125]`,
+`rho=0.0`. The optimizer's `frontier.efficient` slice was including
+dominated points (same/higher return at lower vol). Added
+`_pareto_filter()` to `engine/frontier.py` that drops any candidate
+dominated by another within a 1e-9 numerical tolerance. Pre-existing
+edge case (R3 commit fails the same way); not R4-introduced. Drift
+item #12 marked resolved.
+
+### Locked decisions honored in R4
+
+- #2 server roundtrip — every panel reads from `/api/preview/*`
+  via TanStack Query; no client-side math duplication.
+- #6 Goal_50 hidden — RiskSlider surface is canon 1-5 + descriptor
+  only; the goal-score `derivation.anchor` field IS exposed as an
+  advisor-transparent intermediate via the methodology-overlay
+  context (R8), but the slider itself never displays it as a
+  primary readout. Override POST payload is canon 1-5 + descriptor +
+  rationale.
+- #14 vocab CI — green; UI strings honor re-goaling discipline.
+- #18 latency budget — staleTime 5min stays in effect; debounce
+  helper available for slider drag in R5.
+- #21 maximalist UX state — Skeleton + Sonner toasts + ConfirmDialog
+  pattern continued; ConfirmDialog still pending for hard-destructive
+  ops in R6.
+- #28a i18n CI — every string flows through `t()`; no decorative
+  unicode glyphs (Lucide icons throughout).
+- #29 react-hook-form + zod — RiskSlider override form uses both
+  for the rationale capture, verified via the e2e save flow.
+- #30 Postgres concurrency — verified live during the deeper smoke;
+  R4 frontend triggers the same `select_for_update()` path on every
+  override save.
+- #31a per-route ErrorBoundary — RouteFrame still wraps GoalRoute
+  with `scope="goal"`; broken FanChart leaves the rest of the
+  console working (verified during the Chart.js fixes earlier).
+- #32 URL state + localStorage — selection in URL params,
+  `mp20_last_client_id` survives across goal navigation.
+- #37 audit emission — verified live (R3 deeper smoke + R4 e2e):
+  POST override creates exactly one `goal_risk_override_created`
+  AuditEvent with rationale + descriptor + previous/new score in
+  metadata.
+
+### R4 gate verification
+
+- `uv run ruff check / ruff format --check` — clean
+- `uv run mypy <R0 modules>` — Success: no issues found in 6 files
+- `uv run pytest` — **313 passed in 32.46s** (after Pareto filter)
+- `python web/manage.py makemigrations --check --dry-run` — No changes
+- `bash scripts/check-vocab.sh` — vocab CI: OK
+- `npm run typecheck / lint / format / build` — clean
+- `npm run e2e:synthetic` (foundation.spec.ts) — **7/7 in 6.6s**
+- Bundle: 728 kB JS / 18 kB CSS (gzip 230 kB / 4.45 kB) — Chart.js
+  controllers + react-hook-form + zod + lucide additions; bundle
+  budget deferred to R10 polish per locked decision #25.
+
+### Known scope-trims for R4 (deferred follow-ups)
+
+1. **Goal-score endpoint not yet wired in RiskSlider derivation
+   panel.** The household-level anchor (Q1-Q4 → T/C → anchor 0-50)
+   isn't exposed by `HouseholdDetailSerializer`. The slider saves
+   overrides correctly without it; locked decision #19 fixture
+   regeneration in R7 unblocks the live derivation breakdown.
+2. **Hover-debounced probability fetch** on the FanChart is queued.
+   The static probability-at-target badge ships now; per-year hover
+   wiring to `/api/preview/probability/` follows.
+3. **Plan-baseline + what-if dual overlay** (locked decision plan
+   description) — the FanChart accepts a single set of paths today.
+   When R5 wizard ships, planners will compute both a plan-baseline
+   set and a what-if set; FanChart will accept two and stack them.
+4. **Goal-allocation Compare toggle** (Current/Ideal/Compare) —
+   shipped as a single 3-column table for now; the toggle that
+   collapses to one view at a time is R10 polish.

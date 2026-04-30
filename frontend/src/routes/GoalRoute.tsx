@@ -1,3 +1,16 @@
+/**
+ * Goal page — hero KPIs + interactive RiskSlider + allocation +
+ * optimizer output + rebalance moves + lognormal projection fan.
+ *
+ * Phase R4 ships every reading surface for the goal. The override
+ * flow is canon-1-5 only (locked decision #6); save fires an
+ * AuditEvent (locked decision #37) verified live during the deeper
+ * smoke. The RiskSlider derivation breakdown is intentionally
+ * disabled for R4 because the household-level anchor (Q1-Q4 → T/C
+ * → anchor) is not yet exposed by `HouseholdDetailSerializer`;
+ * locked decision #19 fixture regeneration in R7 unblocks it. The
+ * slider still saves overrides correctly without the breakdown.
+ */
 import { ChevronLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -5,7 +18,14 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useRememberedClientId } from "../chrome/ClientPicker";
 import { RiskBandTrack } from "../charts/RiskBandTrack";
 import { Skeleton } from "../components/ui/skeleton";
+import { RiskSlider } from "../components/ui/RiskSlider";
+import { GoalAllocationSection } from "../goal/GoalAllocationSection";
+import { GoalProjectionsSection } from "../goal/GoalProjectionsSection";
+import { MovesPanel } from "../goal/MovesPanel";
+import { OptimizerOutputWidget } from "../goal/OptimizerOutputWidget";
+import { isAdvisorRole, useSession } from "../lib/auth";
 import { type Goal, findGoal, useHousehold } from "../lib/household";
+import { useOverrideHistory } from "../lib/preview";
 import { formatCad } from "../lib/format";
 import { descriptorFor, isCanonRisk } from "../lib/risk";
 
@@ -15,6 +35,8 @@ export function GoalRoute() {
   const { goalId } = useParams<{ goalId: string }>();
   const [rememberedId] = useRememberedClientId();
   const householdQuery = useHousehold(rememberedId);
+  const session = useSession();
+  const overridesQuery = useOverrideHistory(goalId ?? null);
 
   if (rememberedId === null) {
     return (
@@ -37,7 +59,7 @@ export function GoalRoute() {
 
   const goal =
     goalId !== undefined && householdQuery.data ? findGoal(householdQuery.data, goalId) : null;
-  if (goal === null) {
+  if (goal === null || householdQuery.data === undefined) {
     return (
       <main className="flex flex-1 items-center justify-center bg-paper">
         <p role="alert" className="font-mono text-[10px] uppercase tracking-widest text-danger">
@@ -47,14 +69,26 @@ export function GoalRoute() {
     );
   }
 
+  const household = householdQuery.data;
   const horizonYears = computeHorizonYears(goal.target_date);
   const horizonText =
     horizonYears === null
       ? t("routes.goal.horizon_unset")
       : t("routes.goal.horizon_years", { count: horizonYears });
-  const tierText = tierForNecessity(goal.necessity_score, t);
-  const goalScore = isCanonRisk(goal.goal_risk_score) ? goal.goal_risk_score : null;
-  const descriptor = descriptorFor(goal.goal_risk_score, t);
+  const tier = tierForNecessity(goal.necessity_score);
+  const tierText = tier !== null ? t(`routes.goal.tier_${tier}`) : null;
+  const systemScore = isCanonRisk(goal.goal_risk_score) ? goal.goal_risk_score : null;
+
+  const overrides = overridesQuery.data ?? [];
+  const latestOverride = overrides.length > 0 ? (overrides[0] ?? null) : null;
+  const effectiveScore =
+    (latestOverride !== null && isCanonRisk(latestOverride.score_1_5)
+      ? latestOverride.score_1_5
+      : null) ?? systemScore;
+
+  const descriptor = descriptorFor(effectiveScore, t);
+  const role = session.data?.authenticated ? session.data.user.role : "";
+  const canEdit = isAdvisorRole(role);
 
   return (
     <main className="flex flex-1 flex-col gap-3 overflow-y-auto bg-paper p-5">
@@ -95,27 +129,58 @@ export function GoalRoute() {
           value={descriptor ?? t("routes.goal.kpi_risk_unset")}
           extra={
             <div className="mt-2 max-w-[200px]">
-              <RiskBandTrack score={goalScore} size="sm" />
+              <RiskBandTrack
+                score={effectiveScore}
+                baselineScore={
+                  systemScore !== null && systemScore !== effectiveScore ? systemScore : null
+                }
+                size="sm"
+              />
             </div>
           }
         />
       </section>
 
-      <section className="grid grid-cols-2 gap-3">
-        <div className="border border-hairline-2 bg-paper p-4 shadow-sm">
-          <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted">
-            {t("routes.goal.linked_accounts_title")}
-          </h3>
-          <LinkedAccounts goal={goal} />
-        </div>
-        <div className="border border-hairline-2 bg-paper p-4 shadow-sm">
-          <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted">
-            {t("routes.goal.blended_view_title")}
-          </h3>
-          <p className="text-[12px] leading-relaxed text-muted">
-            {t("routes.goal.advanced_panels_pending")}
-          </p>
-        </div>
+      {systemScore !== null && effectiveScore !== null && goalId !== undefined && (
+        <RiskSlider
+          goalId={goalId}
+          systemScore={systemScore}
+          effectiveScore={effectiveScore}
+          isOverridden={latestOverride !== null}
+          canEdit={canEdit}
+          tier={tier}
+          sizeShare={
+            household.total_assets > 0 && goal.target_amount !== null
+              ? Number(goal.target_amount) / household.total_assets
+              : null
+          }
+        />
+      )}
+
+      {effectiveScore !== null && (
+        <GoalAllocationSection goal={goal} household={household} effectiveScore={effectiveScore} />
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <OptimizerOutputWidget householdId={household.id} goalId={goal.id} />
+        <MovesPanel householdId={household.id} goalId={goal.id} />
+      </div>
+
+      {effectiveScore !== null && horizonYears !== null && tier !== null && (
+        <GoalProjectionsSection
+          goal={goal}
+          effectiveScore={effectiveScore}
+          startValue={Number(goal.current_funded_amount || 0)}
+          horizonYears={horizonYears}
+          tier={tier}
+        />
+      )}
+
+      <section className="border border-hairline-2 bg-paper p-4 shadow-sm">
+        <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted">
+          {t("routes.goal.linked_accounts_title")}
+        </h3>
+        <LinkedAccounts goal={goal} />
       </section>
     </main>
   );
@@ -180,10 +245,10 @@ function computeHorizonYears(targetDate: string | null): number | null {
   return Math.max(0, years);
 }
 
-function tierForNecessity(necessity: number | null, t: (key: string) => string): string | null {
-  if (necessity === null) return t("routes.goal.tier_unsure");
-  if (necessity >= 4) return t("routes.goal.tier_need");
-  if (necessity === 3) return t("routes.goal.tier_want");
-  if (necessity >= 1) return t("routes.goal.tier_wish");
+function tierForNecessity(necessity: number | null): "need" | "want" | "wish" | "unsure" | null {
+  if (necessity === null) return "unsure";
+  if (necessity >= 4) return "need";
+  if (necessity === 3) return "want";
+  if (necessity >= 1) return "wish";
   return null;
 }

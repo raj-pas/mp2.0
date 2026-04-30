@@ -151,6 +151,35 @@ authoritative when more detail is needed.
   (μ × 0.85, σ × 1.15 for external) which is implemented in
   `engine/projections.py`. Awaits team-confirmed dampener formula.
 
+## R4 (UI/UX rewrite, 2026-04-30)
+
+- Goal allocation surfaces shipped: hero KPI strip + interactive
+  RiskSlider with 5-band override flow (canon 1-5 only; locked
+  decision #6) + GoalAllocationSection (current vs ideal vs Δ) +
+  OptimizerOutputWidget + MovesPanel + GoalProjectionsSection
+  (FanChart + side panel).
+- `frontend/src/lib/preview.ts` exports typed query hooks for every
+  R1 endpoint (riskProfile/goalScore/sleeveMix/projection/
+  projectionPaths/probability/optimizerOutput/moves) plus
+  `useOverrideHistory` + `useCreateOverride`. Wire shapes match
+  the canonical contracts captured live during the deeper smoke.
+- `RiskSlider` saves overrides via POST `/api/goals/{id}/override/`;
+  rationale captured via react-hook-form + zod (locked decision #29);
+  permission gate via `canEdit`; analyst sees `RiskSliderLocked`
+  with a Lock icon + tooltip.
+- `FanChart` registers Chart.js v4 line + filler + axis controllers;
+  P10–P90 + P25–P75 fills + dotted P50 + amber dashed target line.
+  Static probability-at-target badge; hover-debounced per-year
+  probability fetch is a follow-up.
+- Side-fix: Hypothesis surfaced a pre-existing optimizer frontier
+  Pareto-violation edge case during the R4 gate run. Fixed in
+  `engine/frontier.py` with `_pareto_filter()` that drops
+  dominated points (1e-9 tolerance). 313 pytest passing. Drift
+  item #12 marked resolved.
+- e2e foundation spec extended with two R4 tests covering the
+  goal-page reading surface and the override save → history
+  round-trip flow. 7/7 e2e in 6.6s.
+
 ## R3 (UI/UX rewrite, 2026-04-30)
 
 - Three-view stage shipped: HouseholdRoute (AUM split strip +

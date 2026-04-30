@@ -130,11 +130,44 @@ def compute_frontier(
 
     min_variance_index = min(range(len(points)), key=lambda index: points[index].variance)
     return Frontier(
-        efficient=points[min_variance_index:],
+        efficient=_pareto_filter(points[min_variance_index:]),
         inefficient=points[: min_variance_index + 1],
         minimum_variance=points[min_variance_index],
         all_points=points,
     )
+
+
+def _pareto_filter(candidates: list[FrontierPoint]) -> list[FrontierPoint]:
+    """Drop dominated points (same-or-higher return at lower vol).
+
+    The candidate set is the slice of computed points from
+    ``minimum_variance_index`` onwards; numerical noise around equal-
+    return regions (degenerate subsets, near-singular covariance) can
+    leave a dominated point in the slice. The Pareto filter restores
+    the frontier's monotonic invariant: for every kept point there is
+    no other kept point with ≥ return AND < volatility (within a
+    1e-9 numerical tolerance).
+    """
+
+    EPSILON = 1e-9
+    survivors: list[FrontierPoint] = []
+    for i, p in enumerate(candidates):
+        dominated = False
+        for j, q in enumerate(candidates):
+            if i == j:
+                continue
+            return_no_worse = q.expected_return >= p.expected_return - EPSILON
+            vol_strictly_better = q.volatility < p.volatility - EPSILON
+            return_strictly_better = q.expected_return > p.expected_return + EPSILON
+            vol_no_worse = q.volatility <= p.volatility + EPSILON
+            if (return_no_worse and vol_strictly_better) or (
+                return_strictly_better and vol_no_worse
+            ):
+                dominated = True
+                break
+        if not dominated:
+            survivors.append(p)
+    return survivors
 
 
 def solve_subset(

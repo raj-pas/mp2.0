@@ -7,6 +7,7 @@ import { RiskBandTrack } from "../charts/RiskBandTrack";
 import { Skeleton } from "../components/ui/skeleton";
 import { findGoal, useHousehold } from "../lib/household";
 import { formatCad } from "../lib/format";
+import { useOverrideHistory } from "../lib/preview";
 import { descriptorFor, isCanonRisk } from "../lib/risk";
 
 export function GoalContext() {
@@ -82,11 +83,53 @@ export function GoalContext() {
       </Tabs.Content>
 
       <Tabs.Content value="projections" className="flex-1 overflow-y-auto p-3.5">
-        <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
-          {t("ctx.deferred.projections_r4")}
-        </p>
+        <CtxSection label={t("risk_slider.history_title")}>
+          <OverrideHistoryList goalId={goalId ?? null} />
+        </CtxSection>
       </Tabs.Content>
     </>
+  );
+}
+
+function OverrideHistoryList({ goalId }: { goalId: string | null }) {
+  const { t } = useTranslation();
+  const overrides = useOverrideHistory(goalId);
+  if (overrides.isPending) return <Skeleton className="h-12 w-full" />;
+  if (overrides.isError) {
+    return (
+      <p role="alert" className="font-mono text-[10px] uppercase tracking-widest text-danger">
+        {t("errors.preview_failed")}
+      </p>
+    );
+  }
+  const rows = overrides.data ?? [];
+  if (rows.length === 0) {
+    return (
+      <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
+        {t("risk_slider.history_empty")}
+      </p>
+    );
+  }
+  return (
+    <ul className="flex flex-col divide-y divide-hairline">
+      {rows.map((row) => (
+        <li key={row.id} className="flex flex-col gap-0.5 py-2">
+          <span className="font-mono text-[11px] uppercase tracking-wider text-ink">
+            {t("risk_slider.history_score", {
+              descriptor: row.descriptor,
+              score: row.score_1_5,
+            })}
+          </span>
+          <span className="font-mono text-[9px] uppercase tracking-widest text-muted">
+            {t("risk_slider.history_meta", {
+              actor: row.created_by,
+              timestamp: new Date(row.created_at).toLocaleString(),
+            })}
+          </span>
+          <span className="font-sans text-[11px] italic text-muted">{row.rationale}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

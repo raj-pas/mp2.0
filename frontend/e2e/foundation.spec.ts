@@ -1,17 +1,18 @@
 /**
- * R2 + R3 foundation smoke spec.
+ * R2 + R3 + R4 foundation smoke spec.
  *
- * Verifies the v36 rewrite shell up through the three-view stage:
+ * Verifies the v36 rewrite shell up through the goal allocation stage:
  *   - login → topbar visible (brand + picker + report + methodology)
  *   - role-based routing (advisor lands at /, analyst at /cma)
  *   - context panel renders alongside the household stage
  *   - methodology nav works
  *   - advisor: pick a client → AUM strip + treemap render
  *   - advisor: navigate / → /account/:id → /goal/:id surfaces render
+ *   - advisor: goal page shows RiskSlider + Allocation + Optimizer +
+ *     Moves + ProjectionsFan; override save round-trips through the
+ *     audit log
  *
  * Subsequent phases extend this spec (R5 wizard, R7 doc-drop, R9 CMA).
- * The legacy `synthetic-review.spec.ts` / `portfolio-cma.spec.ts` specs
- * targeted the old shell deleted in R0 and are rebuilt at R7 / R9.
  */
 import { expect, test, type Page } from "@playwright/test";
 
@@ -105,5 +106,68 @@ test.describe("R3 three-view stage", () => {
       // ctx-panel overview). Either one being visible is sufficient.
       await expect(page.getByRole("meter").first()).toBeVisible();
     }
+  });
+});
+
+test.describe("R4 goal allocation + override", () => {
+  test("advisor sees RiskSlider + allocation + optimizer + moves on goal", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+
+    // Pick the synthetic Sandra/Mike Chen client (has known goals).
+    await page.getByRole("button", { name: /select client/i }).click();
+    const sandraOption = page.getByRole("option", { name: /Sandra/i });
+    await expect(sandraOption).toBeVisible();
+    await sandraOption.click();
+
+    // Navigate directly to the retirement goal — synthetic persona has it.
+    await page.goto("/goal/goal_retirement_income");
+
+    // RiskSlider radiogroup
+    await expect(page.getByRole("radiogroup", { name: /Risk bands/i })).toBeVisible();
+
+    // GoalAllocationSection table headers
+    await expect(page.getByRole("columnheader", { name: /Current/i })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: /Ideal/i })).toBeVisible();
+
+    // Optimizer output widget (one of the headings); use a regex for
+    // the "Improvement at P5" / "P15" / "P25" pattern from the API.
+    await expect(page.getByText(/Improvement at P/i)).toBeVisible();
+
+    // Moves section heading
+    await expect(page.getByText(/Express as moves/i)).toBeVisible();
+
+    // ProjectionsFan should mount within the latency budget; the SVG
+    // canvas is wrapped in a role="img" with the projection aria-label.
+    await expect(
+      page.getByRole("img", { name: /projection fan/i }),
+    ).toBeVisible({ timeout: 10000 });
+  });
+
+  test("advisor saves a goal-risk override and sees it in history", async ({ page }) => {
+    await loginAdvisor(page);
+    await page.getByRole("button", { name: /select client/i }).click();
+    await page.getByRole("option", { name: /Sandra/i }).click();
+    await page.goto("/goal/goal_retirement_income");
+
+    // Pick a band different from system score (system on Sandra's
+    // retirement goal is "Balanced" = 3; choose "Cautious" = band 1).
+    const cautiousBand = page.getByRole("radio", { name: /Cautious \(1 \/ 5\)/ });
+    await expect(cautiousBand).toBeVisible();
+    await cautiousBand.click();
+
+    // Override banner appears.
+    await expect(page.getByText(/Override active/i)).toBeVisible();
+
+    // Rationale textarea + save button.
+    const stamp = Date.now();
+    const rationale = `R4 e2e override smoke ${stamp}`;
+    await page.getByLabel(/Rationale/i).fill(rationale);
+    await page.getByRole("button", { name: /Save override/i }).click();
+
+    // Override history shows in ctx-panel projections tab.
+    await page.getByRole("tab", { name: /Projections/i }).click();
+    await expect(page.getByText(rationale)).toBeVisible({ timeout: 10000 });
   });
 });
