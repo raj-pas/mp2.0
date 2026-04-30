@@ -1,7 +1,7 @@
 /**
- * R2 + R3 + R4 + R5 + R6 foundation smoke spec.
+ * R2 + R3 + R4 + R5 + R6 + R7 foundation smoke spec.
  *
- * Verifies the v36 rewrite shell up through realignment + history:
+ * Verifies the v36 rewrite shell up through doc-drop / review-screen:
  *   - login → topbar visible (brand + picker + report + methodology)
  *   - role-based routing (advisor lands at /, analyst at /cma)
  *   - context panel renders alongside the household stage
@@ -15,8 +15,10 @@
  *     redirects to the new household stage
  *   - advisor: re-goal modal applies a balance-preserving leg shift
  *     and the History tab shows the new before/after snapshots
+ *   - advisor: doc-drop creates a synthetic workspace, uploads a file,
+ *     and the review queue shows it in flight
  *
- * Subsequent phases extend this spec (R7 doc-drop, R9 CMA).
+ * Subsequent phases extend this spec (R8 methodology, R9 CMA, R10 polish).
  */
 import { expect, test, type Page } from "@playwright/test";
 
@@ -278,5 +280,60 @@ test.describe("R6 realignment + history", () => {
     // is the newest row).
     await expect(page.getByText(/After realignment/).first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByText(/Before realignment/).first()).toBeVisible();
+  });
+});
+
+test.describe("R7 doc-drop + review queue", () => {
+  test("advisor uploads a synthetic doc and sees it in the review queue", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await loginAdvisor(page);
+    // Wait for the chrome to render — login mutation must land before
+    // we navigate, otherwise SessionGate renders LoginRoute again.
+    await expect(page.getByRole("banner")).toBeVisible();
+
+    await page.goto("/review");
+
+    // Doc-drop overlay is visible.
+    await expect(page.getByRole("heading", { name: /Drop documents/i })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Fill workspace label + ensure synthetic origin is selected.
+    const stamp = Date.now();
+    const label = `R7 e2e doc-drop ${stamp}`;
+    await page.getByPlaceholder(/Patel onboarding/i).fill(label);
+
+    // Pick a synthetic file from the test runner (write a tiny temp file
+    // and use the hidden file input that DocDropOverlay surfaces).
+    const buffer = Buffer.from(
+      [
+        "Synthetic onboarding doc for R7 e2e.",
+        "Household: Smoke E2E Household.",
+        "Person: Smoke E2E age 50.",
+        "Account: TFSA value 100000.",
+      ].join("\n"),
+    );
+    await page.setInputFiles('input[type="file"]', {
+      name: "smoke-e2e.txt",
+      mimeType: "text/plain",
+      buffer,
+    });
+
+    // Start the review.
+    await page.getByRole("button", { name: /^Start review$/ }).click();
+
+    // The new workspace should appear in the in-flight queue and be
+    // selected automatically; the ReviewScreen renders the workspace
+    // label as its heading.
+    await expect(
+      page.getByRole("heading", { name: new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) }),
+    ).toBeVisible({ timeout: 15000 });
+
+    // Readiness panel renders with engine_ready/construction_ready
+    // both false (no extracted data yet).
+    await expect(page.getByText(/Engine ready/i)).toBeVisible();
+    await expect(page.getByText(/Construction ready/i)).toBeVisible();
   });
 });

@@ -151,6 +151,39 @@ authoritative when more detail is needed.
   (μ × 0.85, σ × 1.15 for external) which is implemented in
   `engine/projections.py`. Awaits team-confirmed dampener formula.
 
+## R7 (UI/UX rewrite, 2026-04-30)
+
+- Doc-drop + review-screen shipped at `/review` (canon §6.7 primary
+  onboarding entry per locked decision #7). DocDropOverlay
+  (multi-file dropzone + workspace label + data-origin selector),
+  ReviewScreen (processing panel + readiness chips + section-
+  approval list + commit gate), ReviewRoute (host with in-flight
+  queue).
+- `frontend/src/lib/review.ts` exports typed hooks for the 11
+  R1 review endpoints + `useReviewWorkspace` with optional 3s
+  polling while ProcessingJobs are queued/running. Wire shapes
+  match the canonical contracts captured during the pre-R7 smoke.
+- Three real bugs caught + fixed during R7 build:
+  - DocDropOverlay two-mutation closure race (workspace id was
+    stale at upload time); fixed by changing useUploadDocuments
+    to take the workspace id per-call.
+  - Readiness wire-shape drift (fresh workspaces return
+    `readiness: {}`, type expected full shape); fixed by making
+    Readiness fields optional + defensive `?? false`/`?? []`
+    accessors.
+  - Hidden file input wasn't interactable by Playwright
+    (`hidden` class = display:none); switched to `sr-only`.
+- Real-PII discipline (canon §11.8.3): workspace timeline
+  serializer's sanitized projection drives the audit-visible
+  event list; raw text never persists in the UI.
+- Source-priority hierarchy (canon §11.4): cross-class mismatches
+  resolve silently to higher-priority source server-side; the
+  `state.conflicts[]` field surfaces same-class disagreements
+  for the conflict UI (R10 polish layers in cards).
+- Vocab CI green — UI strings honor canon §6.7 + §11.4.
+- e2e foundation spec extended: doc-drop synthetic flow → workspace
+  appears in queue → review screen renders. 10/10 e2e in 9.1s.
+
 ## R6 (UI/UX rewrite, 2026-04-30)
 
 - Realignment + Compare + History shipped. RealignModal (per-account

@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-04-30
 **Branch:** `feature/ux-rebuild` (cut from `main` for the v36 UI/UX rewrite per locked decision #9)
-**Phase:** R6 — Realignment + Compare + History **COMPLETE** (RealignModal + CompareScreen + HouseholdHistoryTab; canon §6.3a vocab discipline; 9/9 e2e)
+**Phase:** R7 — Doc-drop + Review-screen **COMPLETE** (DocDropOverlay + ReviewScreen + ReviewRoute; 11 review endpoints wired with typed hooks; canon §6.7/§11.4/§11.8.3 discipline; 10/10 e2e)
 **Status:** R0 lands the substrate for the v36 advisor console rewrite. Five new pure
 engine modules with 216 parity tests; engine purity AST-enforced; new R0 modules pass
 mypy strict. Backend ships drf-spectacular OpenAPI, django-csp 4.x security headers,
@@ -19,7 +19,7 @@ phase-by-phase rebuild.
 
 ## Current Goal
 
-Phases R0 + R1 + R2 + R3 + R4 + R5 + R6 of the v36 UI/UX rewrite are complete on
+Phases R0 + R1 + R2 + R3 + R4 + R5 + R6 + R7 of the v36 UI/UX rewrite are complete on
 `feature/ux-rebuild`. The approved migration plan at
 `~/.claude/plans/i-want-you-to-rosy-mccarthy.md` (39 locked decisions
 across 9 rounds) governs the rewrite. R0 laid the foundation (engine

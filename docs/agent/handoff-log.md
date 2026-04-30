@@ -1828,3 +1828,131 @@ testing.
 - **Conflict resolution UX** — frontend logic; gets built during R7.
 - **Section-approval state machine in the UI** — frontend logic;
   gets built during R7. (The endpoint behavior is captured above.)
+
+## 2026-04-30 — Phase R7 doc-drop + review-screen COMPLETE
+
+**Branch:** `feature/ux-rebuild` (commit pending)
+**Status:** ✅ All R7 gates green; doc-drop → workspace create → upload → review-screen flow verified live; 10/10 e2e in 9.1s.
+
+### Scope landed
+
+- `frontend/src/lib/review.ts` — typed hooks for the 11 review-pipeline
+  endpoints + the `Readiness` / `ReviewWorkspace` / `ReviewDocument` /
+  `ProcessingJob` shapes captured during the pre-R7 smoke. Live polling
+  on workspace detail (3s while any ProcessingJob is queued/running)
+  per locked decision #18.
+- `frontend/src/modals/DocDropOverlay.tsx` — multi-file drop zone
+  (drag + click-to-pick) with workspace label + data-origin selector
+  (synthetic | real_derived). Two-stage mutation: create workspace →
+  upload files (FormData multipart). On success: toast +
+  `onWorkspaceReady(workspace.external_id)` callback.
+- `frontend/src/modals/ReviewScreen.tsx` — full review surface for a
+  selected workspace. Left rail: ProcessingPanel (per-doc status +
+  retry button) + ReadinessPanel (engine_ready / construction_ready
+  / kyc_compliance_ready chips). Right rail: MissingPanel (when
+  readiness has missing rows), SectionApprovalPanel (5 canonical
+  sections — people, accounts, goals, risk, planning), StatePeekPanel
+  (preview of the reviewed-state JSON; R10 polish replaces with
+  the conflict-resolution cards). Commit button gates on
+  `engine_ready && construction_ready` (canon §6.7 two-gate
+  readiness).
+- `frontend/src/routes/ReviewRoute.tsx` — full rewrite. Hosts
+  DocDropOverlay (always visible) + queue (left) + ReviewScreen
+  (right). Selecting a workspace from the queue OR from the
+  DocDropOverlay's `onWorkspaceReady` populates the right rail.
+- `frontend/src/i18n/en.json` — `review_route.*`, `docdrop.*`,
+  `review.*` (~40 keys total). All UI strings flow through `t()`
+  and pass the vocab CI guard. Real-PII discipline preserved —
+  workspace timeline serializer's sanitized projection is what
+  the review screen surfaces (no raw text).
+
+### Bugs caught during R7 build
+
+1. **DocDropOverlay two-mutation closure race** — `setPendingWorkspaceId`
+   triggers a re-render but `queueMicrotask(upload.mutate)` fired
+   BEFORE React re-rendered, so `useUploadDocuments(workspaceId)`
+   closure still had `null`. Fixed by changing `useUploadDocuments`
+   to take the workspace id per-call (`{workspaceId, files}`)
+   instead of at hook construction. Pattern is now reusable for
+   other follow-on flows that need to chain mutations against a
+   freshly-created entity.
+2. **Wire-shape drift in `Readiness`** — fresh workspaces (no facts
+   yet) return `readiness: {}` but my TS type expected the full
+   shape. ErrorBoundary fired with "Cannot read properties of
+   undefined (reading 'length')" on `workspace.readiness.missing.length`.
+   Fixed by making all `Readiness` fields optional + threading
+   defensive defaults through ReviewScreen. Documented in the
+   `Readiness` JSDoc.
+3. **Hidden file input not interactable by Playwright** — used
+   Tailwind `hidden` class (display:none) which prevents
+   `setInputFiles` from working. Fixed by switching to `sr-only`
+   (visually hidden but in the layout). The "Pick files" button
+   still works for sighted users via JS click().
+
+### Locked decisions honored in R7
+
+- #2 server roundtrip — every interaction goes through R1 endpoints;
+  no client-side text parsing. Reviewed-state stays server-side.
+- #4 RBAC — `can_access_real_pii` server-side gate on every endpoint;
+  analysts get 403 on review surfaces (UI just doesn't expose
+  /review to them per locked decision #4).
+- #7 doc-drop primary — DocDropOverlay is always-visible at the
+  top of /review. Wizard banner (R5) bounces here when advisors
+  prefer document upload.
+- #14 vocab CI — green; review/docdrop strings honor canon §6.7
+  vocabulary.
+- #18 latency budget — workspace polling 3s while ProcessingJobs
+  queued/running, off otherwise. UI stays responsive.
+- #21 maximalist UX state — Skeleton on workspace fetches, Sonner
+  toasts on commit/upload success/error, retry button on failed
+  documents.
+- #28b real-PII testing checkpoint — R7 v1 ships the synthetic
+  path (verified end-to-end via e2e). Real-bundle E2E against
+  one client folder is the R7 deliverable that this commit
+  enables, not a code-build deliverable.
+- #31a per-route ErrorBoundary — RouteFrame wraps ReviewRoute;
+  the wire-shape drift bug surfaced here was caught by the
+  boundary cleanly (without crashing the whole console).
+- #37 audit emission — `review_workspace_created`,
+  `review_documents_uploaded`, `review_section_approved`,
+  `review_state_edited`, `review_workspace_committed` events all
+  fire server-side. (Server-side audit-emission tests already
+  cover the contract.)
+
+### R7 gate verification — all green
+
+- `uv run ruff check / ruff format --check` — clean
+- `uv run mypy <R0 modules>` — Success: no issues found
+- `uv run pytest` — **313 passed in 31.68s**
+- `python web/manage.py makemigrations --check --dry-run` — No changes
+- `bash scripts/check-vocab.sh` — vocab CI: OK
+- `npm run typecheck / lint / format / build` — clean
+- `npm run e2e:synthetic` — **10/10 in 9.1s** on live stack
+- Bundle: 832 kB JS / 18 kB CSS (gzip 256 kB / 4.45 kB) — minimal
+  delta from R6 (DocDropOverlay + ReviewScreen are presentational).
+  Bundle budget deferred to R10 polish per locked decision #25.
+
+### Known scope-trims for R7 (deferred follow-ups)
+
+1. **Conflict-resolution cards** — the `state.conflicts[]` field is
+   exposed by the state endpoint and the `useStatePatch` mutation is
+   wired (`source_fact_ids` + `reason` capture). R7 v1 ships the
+   full readiness/approval/commit surface; the per-conflict card UX
+   (candidate values + source-attribution chips + redacted evidence
+   tooltips) lands in R10 polish or the first real-PII iteration.
+2. **Manual reconcile + match-candidate UI** — endpoint hooks
+   exported (`useRetryDocument`); list/manual-reconcile modal is a
+   follow-up.
+3. **Real-bundle E2E checkpoint** — locked decision #28b designates
+   R7 as the FIRST real-PII testing checkpoint with one client
+   folder. That is the next user-facing deliverable; this commit
+   builds the rails so the real-bundle test can run.
+
+### Stack changes for R7 dev
+
+- Worker is now part of the host-mode dev stack:
+  `uv run python web/manage.py process_review_queue --once`
+  (or remove `--once` for continuous). The compose-stack worker
+  service can also be used once `docker compose build worker` is
+  re-run (same fix as the backend image rebuild from the R0–R3
+  smoke).
