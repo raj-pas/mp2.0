@@ -1731,3 +1731,100 @@ flow + history-tab restore round-trip verified live; 9/9 e2e in 10.7s.
 4. **Snapshot row date grouping**: history rows are flat
    newest-first; grouping by day or by trigger_type is R10
    polish.
+
+## 2026-04-30 — Pre-R7 review pipeline smoke
+
+**Status:** ✅ Worker mechanism confirmed; canonical wire shapes captured for the 6 load-bearing review endpoints; Bedrock + secure-root gates source-confirmed.
+
+R7 has the broadest scope of any phase — replaces the legacy
+`ReviewShell` (deleted in R0) with the v36 doc-drop + review-screen
+pattern, hitting 11 review endpoints + worker queue + Bedrock + secure
+root + section-approval gates. Pre-R7 smoke captures contracts so R7
+build doesn't burn time on infrastructure or wire-shape drift.
+
+### Worker mechanism confirmed
+
+`uv run python web/manage.py process_review_queue --once` can be
+started on host (mirroring R0/R1/R3 host-mode dev pattern). Worker
+picked up an existing job and exited cleanly. The host-mode dev
+stack is now: Postgres in Docker, Django + Vite + Worker on host.
+
+Note: the dev DB has 32 stale queued jobs from prior real-bundle
+e2e runs (referenced files no longer exist in secure root). These
+do NOT block R7 build — they fail individually as the worker
+attempts each one. R7 e2e will create fresh workspaces and route
+its own jobs ahead of the stale tail. (The agent did NOT bulk-
+modify the stale jobs because their state belongs to other
+sessions; user can clear them with `dispose_review_artifacts` if
+desired.)
+
+### Review-workspace endpoint contracts captured
+
+| Endpoint | Request | Response |
+|---|---|---|
+| `GET /api/review-workspaces/` | — | array of `ReviewWorkspaceListSerializer` |
+| `POST /api/review-workspaces/` | `{label, data_origin?: "real_derived"\|"synthetic"}` | full `ReviewWorkspaceSerializer` |
+| `GET /api/review-workspaces/{id}/` | — | full `ReviewWorkspaceSerializer` |
+| `POST /api/review-workspaces/{id}/upload/` | multipart `files[]` (FormData) | `{uploaded[], duplicates[], ignored[]}` — fires `review_documents_uploaded` AuditEvent and queues a `process_document` ProcessingJob per file |
+| `GET /api/review-workspaces/{id}/facts/` | — | array of facts (empty until worker processes) |
+| `GET /api/review-workspaces/{id}/state/` | — | `{state: {risk, goals, people, accounts, planning, unknowns, conflicts, household, readiness, ...}, readiness: {engine_ready, construction_ready, kyc_compliance_ready, missing[], construction_missing[]}}` |
+| `POST /api/review-workspaces/{id}/approve-section/` | `{section, status, notes?, data?}` — section in `ENGINE_REQUIRED_SECTIONS`; status from `SectionApproval.Status`; notes required for `APPROVED_WITH_UNKNOWNS` / `NOT_READY` | full `ReviewWorkspaceSerializer`; fires `review_section_approved` AuditEvent. 400 with `{detail, blockers}` if approving with blockers. |
+| `GET /api/review-workspaces/{id}/matches/` | — | `{candidates: [...]}` |
+| `POST /api/review-workspaces/{id}/commit/` | `{household_id?}` — optional link to existing | `{household_id, workspace}`. 400 with `{detail, readiness}` on failure. |
+| `POST /api/review-workspaces/{id}/manual-reconcile/` | — | enqueues a manual reconcile job |
+| `POST /api/review-workspaces/{id}/documents/{doc_id}/retry/` | — | retries a failed processing job |
+
+`ReviewWorkspaceSerializer` top keys: `id, external_id, label,
+owner_email, status, data_origin, linked_household_id, reviewed_state,
+readiness, match_candidates, documents, processing_jobs,
+section_approvals, worker_health, timeline, created_at, updated_at`.
+
+`documents[]` keys: `id, original_filename, content_type, extension,
+file_size, sha256, status, document_type, ocr_overflow,
+processing_metadata, retry_eligible, failure_code, failure_reason,
+failure_stage, created_at, updated_at`.
+
+`processing_jobs[]` keys: `id, document_id, job_type, status,
+attempts, max_attempts, last_error, metadata, locked_at, started_at,
+completed_at, is_stale, retry_eligible, created_at, updated_at`.
+
+### Bedrock routing source-confirmed (synthetic-safe)
+
+`extraction/pipeline.py:34` gates Bedrock on `if data_origin ==
+"real_derived"`. Synthetic workspaces NEVER call Bedrock; they walk
+the same pipeline but skip the LLM step. R7 build can iterate on
+the doc-drop UI against synthetic uploads without any AWS
+credentials risk.
+
+### Secure-root fail-closed source-confirmed
+
+`web/api/review_security.py::secure_data_root()` raises
+`ImproperlyConfigured` when:
+- `MP20_SECURE_DATA_ROOT` is empty
+- The configured path equals the repo root or is the repo's parent
+
+The upload view (line 816 in `views.py`) only calls
+`assert_real_upload_backend_ready()` for `REAL_DERIVED` workspaces;
+synthetic uploads bypass the gate. The fail-closed path is already
+exercised by:
+- `web/api/tests/test_auth_boundaries.py` (proper secure-root setup)
+- `web/api/tests/test_review_ingestion.py` (in-repo path rejection)
+
+313 pytest passing → fail-closed path is green.
+
+### No code fixes needed for R7 build itself
+
+All wire shapes are clear. R7 zod schemas can mirror the contracts
+above. Worker process startup is documented (host or compose).
+Bedrock + secure-root gates are correctly walled off for synthetic
+testing.
+
+### R7 deliverables that this smoke does NOT cover (intentional)
+
+- **Real-PII end-to-end** — locked decision #28b designates R7 as
+  the FIRST real-PII testing checkpoint with one client folder
+  from `/Users/saranyaraj/Documents/MP2.0_Clients/`. That's the
+  R7 deliverable, not the pre-smoke.
+- **Conflict resolution UX** — frontend logic; gets built during R7.
+- **Section-approval state machine in the UI** — frontend logic;
+  gets built during R7. (The endpoint behavior is captured above.)
