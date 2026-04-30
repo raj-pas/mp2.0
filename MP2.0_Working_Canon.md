@@ -1,7 +1,7 @@
-# MP2.0 — Working Canon (v2.7)
+# MP2.0 — Working Canon (v2.8)
 
-**Merged seed + engineering + real-PII + MVP/pilot + Day 2 design + production-grade reframe + Day 3 lock-ins + internal consistency pass**
-**Compiled:** April 30, 2026, internal-review pass after Day-3 afternoon
+**Merged seed + engineering + real-PII + MVP/pilot + Day 2 design + production-grade reframe + Day 3 lock-ins + internal consistency pass + 2026-04-30 authorization-basis clarification**
+**Compiled:** April 30, 2026, post-clarification pass
 **Owners:** Fraser Stark (project lead) | Saranyaraj Rajendran (engineering lead)
 **Mission-Aligned Team:** Fraser Stark, Nafal Butt, Lori Norman, Saranyaraj Rajendran
 **Executive Sponsor:** Som Seif, CEO Purpose Investments
@@ -1454,17 +1454,22 @@ Original Croesus exports contain real client PII. The repository is structured o
 
 This section governs the operational use of real Steadyhand client PII in the MP2.0 build. **Lori + Amitha (Purpose legal) must review and approve this section before any real client file is copied onto a team machine.** Operating outside this section is a compliance failure, not a process slip.
 
-#### 11.8.1 Authorization basis **[OPEN — must be resolved retrospectively if not in writing]**
+#### 11.8.1 Authorization basis **[LOCKED for limited-beta scope — 2026-04-30]**
 
-Real client documents are flowing through the system as of 2026-04-29. Bedrock real-bundle runs in Compose have processed real Steadyhand client material. **The authorization basis for this must be confirmed in writing if it is not already.**
+As of 2026-04-30, real Steadyhand client PII is **authorized for limited-beta, local-production-like operation** under the §11.8.3 defense-in-depth regime. Current authorized scope:
 
-Required:
+- Two roles in the running system: `advisor` and `financial_analyst` (Django groups defined in `web/api/access.py`)
+- Current local-production-like deployment (the running secure-local pipeline, not a broader staged or production deployment)
+- Limited-beta user population
 
-1. **Confirm the consent / authorization basis** under which Steadyhand can use real client documents for internal product development. Most likely covered under existing client agreements that permit internal use for service improvement, but this needs explicit confirmation in writing from Amitha.
-2. **Document the scope** — which clients, which document types, for what purpose, for how long. Narrow is better than broad.
-3. **Retain the authorization record** in a known location (project shared drive) with version, date, and signatories. Referenced by ID in the audit log.
+**Broader rollout** beyond this scope (more advisors, broader user population, staging/production deployment, sharing of real-derived outputs outside the team) requires Lori + Amitha review. Working revisit date: 2026-05-21.
 
-If this confirmation has not happened, **stop adding new real-client material until it has.** Existing material continues to flow under the implicit "internal use for service improvement" basis, which is defensible but not as defensible as written authorization. The retrospective is the same conversation as the prospective; have it now.
+For audit and operational hygiene, the team still maintains:
+
+1. **A documented authorization record** in a known location (project shared drive) with version, date, and signatories. Referenced by ID in the audit log when broader-rollout sign-offs land.
+2. **A documented scope** — which clients, which document types, for what purpose, for how long. Narrow is better than broad; the limited-beta scope above is the current operating envelope.
+
+The defense-in-depth regime in §11.8.3 is what makes limited-beta operation defensible. Pre-LLM pseudonymization remains retired; if Amitha later requires it for broader rollout, that is a Phase B re-engineering project, not a runtime toggle.
 
 #### 11.8.2 Data minimization
 
@@ -1944,7 +1949,7 @@ The full open-questions table below has 68 entries spanning multiple horizons. T
 
 | Priority | Item | Why now | Owner | Refers to |
 |--:|---|---|---|---|
-| 1 | **Written authorization basis from Lori + Amitha** for real-PII use in product development | Real PII has been flowing under implicit basis since Day 2; retrospective written confirmation is now the single most important Phase B exit blocker. Without this, no broader pilot expansion. | Lori + Amitha | #24, Part 11.8.1 |
+| 1 | **Written authorization basis from Lori + Amitha** for real-PII use in product development | **RESOLVED for limited-beta scope (2026-04-30).** Real PII is authorized for limited-beta, local-production-like operation (two roles, current deployment) under §11.8.3 defense-in-depth. Broader rollout requires Lori + Amitha review; revisit 2026-05-21. | Lori + Amitha | #24, Part 11.8.1 |
 | 2 | **Bedrock ca-central-1 enablement formally confirmed** with Purpose IT | Real-derived extraction is already routing through Bedrock ca-central-1 in the running implementation; formal IT confirmation that this is sanctioned org policy is still owed. Same Phase B exit blocker. | Saranyaraj + Purpose IT | #25, Part 14 item 3 |
 | 3 | **Correlation matrix integrated** into the optimization engine | Blocking dependency for math validation (Part 4.7.4). Without correlations, the engine output cannot be pressure-tested against Fraser's reference model, and no engine-driven pilot recommendations are defensible. | Saranyaraj | #56, Part 5.4 |
 | 4 | **Engine output contract migrated** from goal-level to per-link (`LinkBlend`, account roll-ups, fund-of-funds collapse, fan chart per link) | Current scaffold returns goal-level placeholders; canon Part 12.1 requires per-link first. Phase B exit blocker; upstream of UI work on the three-tab view. | Saranyaraj | #47, Part 12.1 |
@@ -1981,7 +1986,7 @@ The numbered references (#NN) point into the 68-item table that follows. As item
 | 21 | Reconciliation strategy beyond most-recent-wins | Team | OPEN — post-MVP refinement |
 | 22 | Frontend-comfortable person assignment for parallel build | Team | RESOLVED — small team, partial-parallel pairing on big interfaces (see Part 13.4) |
 | 23 | Lori's backup for file-pipeline operational dependency | Lori + team | OPEN — name before broader pilot expansion |
-| 24 | Authorization basis for real-client-PII use in product development — written confirmation from Amitha | Lori + Amitha | OPEN — REAL-PII BLOCKER. Real PII has been flowing under implicit basis since Day 2; **retrospective written confirmation needed before Phase C pilot launch**. |
+| 24 | Authorization basis for real-client-PII use in product development — written confirmation from Amitha | Lori + Amitha | **RESOLVED for limited-beta scope (2026-04-30).** Real PII is authorized for limited-beta operation (two roles, current local-production-like deployment) under §11.8.3 defense-in-depth. Broader rollout requires Lori + Amitha review; revisit 2026-05-21. |
 | 25 | Bedrock ca-central-1 enablement on Purpose's AWS account | Saranyaraj + Purpose IT | PARTIALLY RESOLVED — implementation has been routing real-derived extraction through Bedrock; formal IT confirmation that this is sanctioned org policy is still required. |
 | 26 | Per-persona pseudonym mapping storage mechanism | Raj | RETIRED — boundary pseudonymization regime not implemented; superseded by defense-in-depth in Part 11.8.3 |
 | 27 | Quasi-identifier handling — leave in or strip | Lori + Raj | OPEN — current implementation leaves quasi-identifiers in structured facts; access control limits exposure. Strip-or-leave decision is part of the Amitha review (Q24). |
@@ -2169,6 +2174,8 @@ Source documents available in the project:
 ## PART 18 — DOCUMENT VERSIONING
 
 This file should be revised whenever a material decision changes. Track changes inline; archive prior versions.
+
+- **v2.8 (Apr 30, 2026)** — **Authorization-basis clarification.** Saranyaraj clarified on 2026-04-30 that real Steadyhand client PII is authorized for limited-beta, local-production-like operation (current scope: two roles — `advisor` and `financial_analyst` per `web/api/access.py` — and the current local-production-like deployment); use is not blocked. Surgical updates to §11.8.1 (replaced the "OPEN — must be resolved retrospectively" framing and the "stop adding new real-client material" hard-stop with an explicit "LOCKED for limited-beta scope" lock and a documented operating envelope), §15.0 priority #1 (status updated to "RESOLVED for limited-beta scope; broader rollout requires Lori + Amitha review; revisit 2026-05-21"), and §15.1 OQ#24 (same status update). The §11.8.3 defense-in-depth regime stands unchanged as the operational privacy floor; boundary pseudonymization stays retired (former Q26). Other places that reference the authorization basis in supporting context (Part 1.6, §11.8 preamble, §11.8.7, §13.0.1, §13.3, Part 14 items 8–9) are intentionally left as-is — they remain accurate as supporting context and rewriting them risks new internal inconsistencies for marginal gain. Working revisit date: 2026-05-21.
 
 - **v2.7 (Apr 30, 2026)** — **Internal consistency pass.** No new external session input; this revision is a self-review against v2.6 finding and fixing internal inconsistencies that the rapid v2.5 → v2.6 cadence had introduced. **Sleeves → funds rename completed cleanly:** the v2.6 rename had left ~20 leftover references that contradicted the new vocabulary. Surgical fixes to Part 1 TOC entry, Part 1.3 Harness IC reference, Part 3 customer journey Stage 3 row, Part 4.1 efficient frontier core math, Part 4.3b fund-of-funds collapse rule, Part 4.4 cash building-block header, Part 4.6 v2+ gaps, Part 6.4 Account schema comment, Part 9.4.6 audit-log line, Part 12.1 engine I/O contract prose (code identifiers `Sleeve` Pydantic class and `sleeves.py` deliberately kept under their legacy names per a new explanatory note in Part 10 — code identifiers don't need to track product vocabulary changes; the canon now says so), Part 12.2 schema list, Part 12.4 cache invalidation, Part 13.2 Day 1 morning + Day 2 morning build sequence, open questions #4 / #5 / #15 / #17. **Strategic glossary reconciled with engineering glossary:** the strategic glossary at 16.1 still defined "Sleeve fund / Atom / Blend / Blend ratios / Macro Insight Layer / Paint mixing / Whole-portfolio fund" using sleeve vocabulary, while the engineering glossary at 16.2 had already been updated — the two glossaries were actively contradicting each other (the most serious internal inconsistency). The strategic glossary now uses building-block-fund vocabulary throughout; the engineering glossary's redundant "Building-block fund" entry was simplified to a cross-reference. **Phase 0 / hardcoded-admin residue cleared:** v2.4 had retired Phase 0 entirely, but the Day 1 morning build sequence still said "Auth Phase 1 (single hardcoded admin)" and the compression-risks list still flagged "Auth Phase 0 → Phase 1 transition skipped" as a risk. Both fixed. **Pseudonymization residue cleared from Day 3 (Wednesday) Som demo close-out:** v2.4 retired boundary pseudonymization in favor of defense-in-depth, but the demo close-out line still said "real-client example, pseudonymized." Replaced with the actual Part 11.8.7 audience-composition rule. **Authorization-basis and Bedrock compression-risk items updated** to reflect post-Day-2 reality (real PII has been flowing since Day 2 evening; retrospective written confirmation needed) rather than the pre-offsite framing. **Added one structural improvement: Part 15.0 "Top priorities right now"** — a 7-item shortlist surfacing the highest-leverage items from the 68-question table (written authorization basis #24, Bedrock formal confirmation #25, correlation matrix integration #56, engine output contract migration #47, CAT/Resource API specs #51-52, default goal regulator wording #61, 3-month roadmap #64). The shortlist rotates as items resolve; the full table is preserved unchanged at 15.1 for audit-trail continuity.
 

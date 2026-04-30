@@ -4,21 +4,34 @@ This file is the agent-facing planning subset of Part 15 in
 `MP2.0_Working_Canon.md` v2.3. The canon remains authoritative if this summary
 falls behind.
 
-## Phase B / Real-PII Blockers
+## Real-PII Authorization Status
 
-Secure-local browser upload now exists for controlled local review, but these
-remain blockers for any broader pilot, staging deployment, or sharing of
-real-derived outputs.
+**Resolved for limited-beta scope (revisit 2026-05-21):** as of 2026-04-30,
+real Steadyhand client PII is **authorized for limited-beta, local-production-like
+operation** under the canon §11.8.3 defense-in-depth regime. Current scope:
+two roles (`advisor`, `financial_analyst` per `web/api/access.py:8-9`) and the
+current local-production-like deployment. Broader rollout (more advisors,
+broader user population, staging/production deployment) requires Lori + Amitha
+review; revisit 2026-05-21.
+
+| Item | Status |
+| --- | --- |
+| Authorization basis for real-PII use (Q24) | **RESOLVED for limited-beta scope.** Broader rollout requires Lori + Amitha review. |
+| Bedrock ca-central-1 enablement (Q25) | **In active operational use;** formal Purpose IT sign-off owed but not gating limited-beta operation. |
+| Defense-in-depth privacy regime (canon §11.8.3) | **In operation;** formal Amitha review pending broader rollout. |
+| Pre-LLM pseudonymization (former Q26) | **RETIRED** by canon §11.8.3 substitution. Not reintroduced unless Amitha specifically requires. |
+
+## Phase B / Real-PII Items Still Pending
+
+These remain on the radar as loose ends or as gates for broader rollout, but
+none gate limited-beta operation under the current scope.
 
 | Question | Owner | Phase Impact |
 | --- | --- | --- |
-| Written authorization basis for using real Steadyhand client documents in product development | Lori + Amitha | REAL-PII BLOCKER before any real file is copied |
-| Bedrock ca-central-1 enablement on Purpose AWS account | Saranyaraj + Purpose IT | REAL-PII BLOCKER before real-derived extraction |
-| Purpose data-classification tier for client PII | Purpose IT | REAL-PII BLOCKER; validates or tightens storage/logging defaults |
-| Defense-in-depth privacy sign-off in lieu of boundary pseudonymization | Lori + Amitha + Purpose IT | Canon-locked implementation path; formal sign-off still needed before pilot expansion |
+| Purpose data-classification tier for client PII | Purpose IT | Validates or tightens storage/logging defaults; revisit at broader rollout |
 | Real-PII retention/disposal trigger | Team | Local version-bump disposal/report command exists; legal/IT policy trigger still open |
-| Som/IS demo audience handling for quasi-identifiers | Lori | Confirm before any real-derived persona is shown |
-| Lori backup for the Croesus/file-drop data path | Lori + team | Needed before offsite kickoff / Phase A execution |
+| Som/IS demo audience handling for quasi-identifiers | Lori | Confirm before any real-derived persona is shown to a non-advisor audience |
+| Lori backup for the Croesus/file-drop data path | Lori + team | Operational continuity; needed before broader rollout |
 
 ## Engine / Portfolio Questions
 
@@ -78,3 +91,20 @@ real-derived outputs.
 | Federation pattern and future OIDC provider choices | Purpose IT + Raj | Auth Phase 2+ |
 | Logging/observability destination and audit query requirements | Purpose IT | Production readiness |
 | CI/CD approval path into ECR/ECS | Purpose IT | Production readiness |
+
+## Code Drift vs Canon
+
+Observations from the 2026-04-30 codebase walk where current code differs from
+canon spec or canon-expected behavior. None are critical-path; tracked here so
+a future implementation session can address.
+
+| # | Item | File / location | Disposition |
+| --- | --- | --- | --- |
+| 1 | `integrations/llm/` directory orphaned — `client.py` raises `NotImplementedError`, providers are stubs; working Bedrock client lives at `extraction/llm.py` | `integrations/llm/{client,anthropic_provider,bedrock_provider}.py` | Delete or rewire as thin re-exports. Confirm with Saranyaraj before either. |
+| 2 | Fund-vs-asset-class look-through toggle missing in UI (canon §8.7) — `fund_type` exists in payload, no UI control | `frontend/src/App.tsx` | Phase B work item. |
+| 3 | Engine universe placeholder CMA values | `engine/sleeves.py:1-5` (`assumptions_source="illustrative_phase_1_placeholder"`) | Tied to canon Q15 (CMA source); upstream of Phase C pilot recommendations. |
+| 4 | `engine/compliance.py` Phase-1 stub maps `equity_weight ≤ 0.25 + vol ≤ 0.06 → "low"` else medium/high (hardcoded) | `engine/compliance.py` | Tied to canon Q3 (compliance risk-rating thresholds); Phase B exit blocker. |
+| 5 | `integrations/croesus/client.py` returns mock 40/60 holdings | `integrations/croesus/client.py:4-22` | Canon-aligned for now (canon §9.4.3 file-drop in MVP); replace when canon Q9 advances. |
+| 6 | `integrations/{conquest,custodian,pdf_render}/` are empty `__init__.py` | `integrations/{conquest,custodian,pdf_render}/` | Canon Part 10 placeholders; not blocking. |
+| 7 | `tax_drag_version="neutral_tax_drag.v1"` stub on CMASnapshot | `engine/schemas.py:179` | Canon §4.5 says zero drags acceptable for v1; canon-aligned. |
+| 8 | Engine boundary purity has no CI grep-check | engine/* | Verified clean by hand 2026-04-30; worth-adding CI check (Phase B). |
