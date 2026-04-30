@@ -1,9 +1,16 @@
-import { ArcElement, Chart as ChartJS, type ChartOptions, Legend, Tooltip } from "chart.js";
+import {
+  ArcElement,
+  Chart as ChartJS,
+  type ChartOptions,
+  DoughnutController,
+  Legend,
+  Tooltip,
+} from "chart.js";
 import { useEffect, useMemo, useRef } from "react";
 
 import { formatPct } from "../lib/format";
 
-ChartJS.register(ArcElement, Tooltip, Legend);
+ChartJS.register(DoughnutController, ArcElement, Tooltip, Legend);
 
 export type RingDatum = {
   label: string;
@@ -36,6 +43,11 @@ export function RingChart({ data, ariaLabel, centerLabel, centerValue }: RingCha
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas === null) return;
+    // React StrictMode double-mounts effects in dev; Chart.js keeps an
+    // internal registry per canvas. If a previous Chart instance is
+    // still registered we MUST destroy it before constructing a new
+    // one or Chart.js throws "Canvas is already in use".
+    ChartJS.getChart(canvas)?.destroy();
     const options: ChartOptions<"doughnut"> = {
       responsive: true,
       maintainAspectRatio: false,

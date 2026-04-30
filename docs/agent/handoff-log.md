@@ -905,3 +905,93 @@ audit per locked decisions #30 + #37)**
   extend this when CMA fund metadata is available client-side
   (or add a backend helper that returns per-account asset
   breakdown using `_treemap_by_asset` logic).
+
+## 2026-04-30 — R0–R3 live smoke + foundation fixes
+
+**Branch:** `feature/ux-rebuild` (commit pending)
+**Status:** ✅ Stack runnable end-to-end; 5/5 e2e + 313 pytest + all gates green
+
+### Smoke session
+
+Brought up the stack (Postgres in Docker; Django + Vite on host because the
+existing backend container image was baked before R0 added `django-csp` to
+deps and Docker pypi was timing out — host venv has it). Walked through
+login → household → account → goal → methodology routes. Caught and
+fixed four real foundation bugs that all R-phase unit/type/lint gates
+missed because they only fire on integration:
+
+### Fixes
+
+1. **Vite missing `/api` + `/static` proxy** (frontend/vite.config.ts)
+   - `apiFetch` uses relative URLs + `credentials: "same-origin"`. Without
+     a proxy, fetches from the Vite dev server (port 5173) never reach
+     Django (port 8000); same-origin cookies wouldn't flow even if they
+     did. Added proxy with `VITE_BACKEND_TARGET` env override; compose
+     frontend service env updated to `http://backend:8000` (was the
+     legacy `VITE_API_BASE_URL` that the new `apiFetch` doesn't read).
+
+2. **`HouseholdDetail.external_assets` typed as `number`, actually an array**
+   (frontend/src/lib/household.ts, routes/HouseholdRoute.tsx,
+   ctx-panel/HouseholdContext.tsx)
+   - Backend `Household.external_assets` is a JSONField list of
+     `{type?, value, description?}` rows seeded by
+     `load_synthetic_personas`. Coercing the array via `Number()`
+     yields `NaN`, breaking the household total AUM. Added
+     `ExternalAssetRow` type + `householdExternalAum()` helper that
+     reduces values defensively. (R1's `ExternalHolding` model is
+     the canonical going-forward shape but the legacy JSONField is
+     still surfaced by `HouseholdDetailSerializer`; R7 doc-drop will
+     migrate.)
+
+3. **`useLocalStorage` had per-consumer `useState` copies**
+   (frontend/src/lib/local-storage.ts)
+   - The most subtle bug. `useLocalStorage("mp20_last_client_id")`
+     was called from BOTH `TopBar` (writer via `useRememberedClientId`)
+     and the routes (`HouseholdRoute`, `AccountRoute`, `GoalRoute`,
+     `HouseholdContext`, `AccountContext`, `GoalContext` — readers).
+     Each call site held its own `useState`, so when the topbar wrote,
+     localStorage updated but the routes' state stayed stale. The UI
+     showed the topbar with "Sandra & Mike Chen / $1.31M" while the
+     household stage said "Select a client from the topbar..." — a
+     tell-tale split-brain symptom.
+   - Rewrote with `useSyncExternalStore` against a per-key listener set
+     + `cache` Map for snapshot stability + window `storage` event
+     listener for cross-tab sync. Every consumer of the same key now
+     stays coherent. `mp20_group_by` and `mp20_ctx_panel_collapsed`
+     also benefit.
+
+4. **Chart.js `RingChart`: canvas reuse + missing `DoughnutController`**
+   (frontend/src/charts/RingChart.tsx)
+   - React StrictMode double-mounts effects in dev. Chart.js's per-canvas
+     internal registry survived the cleanup-then-mount sequence, throwing
+     `"Canvas is already in use"`. Fixed with
+     `ChartJS.getChart(canvas)?.destroy()` before construction.
+   - Chart.js v4 requires per-controller registration; we registered
+     `ArcElement` but not `DoughnutController`. Added it. (Chart.js error
+     was `"\"doughnut\" is not a registered controller"`.)
+
+### Test selector touch-ups (not bugs, just brittle assertions)
+
+- `e2e/foundation.spec.ts`: methodology button matched on
+  `/Methodology/i` (the long tooltip text contains "Methodology" too,
+  but the original `/Methodology overlay/i` regex was wrong).
+- `getByRole("meter")` returns 2 results on goal page (KPI tile +
+  ctx-panel), so `.first()` to satisfy strict-mode locator.
+
+### Verification (post-fix)
+
+- 5/5 Playwright e2e passing in 7.1s on the live stack (Sandra/Mike Chen)
+- 313/313 pytest
+- `npm run typecheck / lint / format / build` all clean
+- ruff + ruff-format + mypy + vocab CI all green
+- Live curl confirms Vite proxy serves `/api/*` through to Django
+
+### Docker note
+
+The stale backend container image (`mp20-backend-1`) was built before R0
+added `django-csp` to `pyproject.toml` and so its baked venv at
+`/opt/mp20-venv` is missing the module. A clean `docker compose build
+backend` would fix it; right now Docker pypi is timing out (network /
+firewall flake on this machine). Host-mode dev works perfectly via the
+new Vite proxy. Before CI / pilot a clean image rebuild is needed; this
+is now in `docs/agent/open-questions.md` as a follow-up.

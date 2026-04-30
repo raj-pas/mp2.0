@@ -84,6 +84,19 @@ export type PortfolioRun = {
   output?: Record<string, unknown>;
 };
 
+/**
+ * Legacy JSONField list seeded by `load_synthetic_personas` and
+ * historical commits. Each row is `{type?, value, description?}`.
+ * R1 introduced the canonical `ExternalHolding` model + endpoints,
+ * but the household-detail serializer still surfaces the legacy
+ * list for backward compatibility. R7 doc-drop will migrate.
+ */
+export type ExternalAssetRow = {
+  type?: string;
+  value: number;
+  description?: string;
+};
+
 export type HouseholdDetail = {
   id: string;
   display_name: string;
@@ -91,7 +104,7 @@ export type HouseholdDetail = {
   household_risk_score: number | null;
   goal_count: number;
   total_assets: number;
-  external_assets: number;
+  external_assets: ExternalAssetRow[];
   notes: string;
   members: Member[];
   goals: Goal[];
@@ -128,6 +141,14 @@ export function findAccount(
 
 export function householdInternalAum(household: HouseholdDetail): number {
   return household.accounts.reduce((sum, acc) => sum + Number(acc.current_value || 0), 0);
+}
+
+export function householdExternalAum(household: HouseholdDetail): number {
+  if (!Array.isArray(household.external_assets)) return 0;
+  return household.external_assets.reduce(
+    (sum, row) => sum + (Number.isFinite(Number(row.value)) ? Number(row.value) : 0),
+    0,
+  );
 }
 
 export function findLinkRecommendation(

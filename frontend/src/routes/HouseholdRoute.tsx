@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useRememberedClientId } from "../chrome/ClientPicker";
 import { type GroupByMode } from "../chrome/ModeToggle";
 import { Skeleton } from "../components/ui/skeleton";
-import { useHousehold, householdInternalAum } from "../lib/household";
+import { householdExternalAum, householdInternalAum, useHousehold } from "../lib/household";
 import { useLocalStorage } from "../lib/local-storage";
 import { formatCad, formatCadCompact, formatPct } from "../lib/format";
 import { descriptorFor } from "../lib/risk";
@@ -46,7 +46,7 @@ export function HouseholdRoute() {
 
   const household = householdQuery.data;
   const internalAum = householdInternalAum(household);
-  const externalAum = Number(household.external_assets || 0);
+  const externalAum = householdExternalAum(household);
   const totalAum = internalAum + externalAum;
   const internalPct = totalAum > 0 ? internalAum / totalAum : 0;
   const externalPct = totalAum > 0 ? externalAum / totalAum : 0;

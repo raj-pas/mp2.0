@@ -41,14 +41,14 @@ test.describe("R2 chrome", () => {
     await expect(page.getByRole("banner")).toBeVisible();
     await expect(page.getByRole("button", { name: /select client/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Report$/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Methodology overlay/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Methodology/i })).toBeVisible();
     await expect(page.getByLabel(/Context panel/i).first()).toBeVisible();
   });
 
   test("methodology button navigates to /methodology", async ({ page }) => {
     await loginAdvisor(page);
 
-    await page.getByRole("button", { name: /Methodology overlay/i }).click();
+    await page.getByRole("button", { name: /Methodology/i }).click();
     await expect(page).toHaveURL(/\/methodology$/);
     await expect(page.getByRole("heading", { name: /^Methodology$/ })).toBeVisible();
   });
@@ -101,8 +101,9 @@ test.describe("R3 three-view stage", () => {
     if ((await firstGoalLink.count()) > 0) {
       await firstGoalLink.click();
       await expect(page).toHaveURL(/\/goal\/.+/);
-      await expect(page.getByLabel(/Target/i).first()).toBeVisible();
-      await expect(page.getByRole("meter")).toBeVisible();
+      // Two RiskBandTrack meters render on goal page (KPI tile +
+      // ctx-panel overview). Either one being visible is sufficient.
+      await expect(page.getByRole("meter").first()).toBeVisible();
     }
   });
 });

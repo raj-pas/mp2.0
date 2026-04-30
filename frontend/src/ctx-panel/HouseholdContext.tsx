@@ -3,7 +3,13 @@ import { useTranslation } from "react-i18next";
 
 import { Skeleton } from "../components/ui/skeleton";
 import { useRememberedClientId } from "../chrome/ClientPicker";
-import { type Account, type Holding, householdInternalAum, useHousehold } from "../lib/household";
+import {
+  type Account,
+  type Holding,
+  householdExternalAum,
+  householdInternalAum,
+  useHousehold,
+} from "../lib/household";
 import { formatCad, formatPct } from "../lib/format";
 import { descriptorFor } from "../lib/risk";
 
@@ -35,7 +41,7 @@ export function HouseholdContext({ tab }: HouseholdContextProps) {
   }
   const household = householdQuery.data;
   const internalAum = householdInternalAum(household);
-  const totalAum = internalAum + Number(household.external_assets || 0);
+  const totalAum = internalAum + householdExternalAum(household);
   const descriptor = descriptorFor(household.household_risk_score, t);
 
   return (
