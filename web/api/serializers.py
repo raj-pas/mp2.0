@@ -47,17 +47,19 @@ class AccountSerializer(serializers.ModelSerializer):
             "contribution_room",
             "is_held_at_purpose",
             "missing_holdings_confirmed",
+            "cash_state",
             "holdings",
         ]
 
 
 class GoalAccountLinkSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source="external_id")
     goal_id = serializers.CharField(source="goal.external_id")
     account_id = serializers.CharField(source="account.external_id")
 
     class Meta:
         model = models.GoalAccountLink
-        fields = ["goal_id", "account_id", "allocated_amount", "allocated_pct"]
+        fields = ["id", "goal_id", "account_id", "allocated_amount", "allocated_pct"]
 
 
 class GoalSerializer(serializers.ModelSerializer):
@@ -151,6 +153,7 @@ class PortfolioRunLinkSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.PortfolioRunLinkRecommendation
         fields = [
+            "link_external_id",
             "goal_external_id",
             "account_external_id",
             "allocated_amount",
@@ -158,12 +161,23 @@ class PortfolioRunLinkSerializer(serializers.ModelSerializer):
             "expected_return",
             "volatility",
             "allocations",
+            "current_comparison",
+            "explanation",
+            "warnings",
         ]
+
+
+class PortfolioRunEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.PortfolioRunEvent
+        fields = ["event_type", "actor", "reason_code", "note", "metadata", "created_at"]
 
 
 class PortfolioRunSummarySerializer(serializers.ModelSerializer):
     cma_snapshot_id = serializers.CharField(source="cma_snapshot.external_id")
     generated_by_email = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    warnings = serializers.SerializerMethodField()
 
     class Meta:
         model = models.PortfolioRun
@@ -171,12 +185,17 @@ class PortfolioRunSummarySerializer(serializers.ModelSerializer):
             "id",
             "external_id",
             "status",
-            "stale_reason",
+            "as_of_date",
             "cma_snapshot_id",
             "engine_version",
             "advisor_summary",
             "input_hash",
             "output_hash",
+            "cma_hash",
+            "reviewed_state_hash",
+            "approval_snapshot_hash",
+            "run_signature",
+            "warnings",
             "generated_by_email",
             "created_at",
         ]
@@ -184,9 +203,16 @@ class PortfolioRunSummarySerializer(serializers.ModelSerializer):
     def get_generated_by_email(self, obj: models.PortfolioRun) -> str:
         return obj.generated_by.email if obj.generated_by else "system"
 
+    def get_status(self, obj: models.PortfolioRun) -> str:
+        return _portfolio_run_status(obj)
+
+    def get_warnings(self, obj: models.PortfolioRun) -> list[str]:
+        return list((obj.output or {}).get("warnings") or [])
+
 
 class PortfolioRunSerializer(PortfolioRunSummarySerializer):
     link_recommendation_rows = PortfolioRunLinkSerializer(many=True)
+    events = PortfolioRunEventSerializer(many=True)
 
     class Meta(PortfolioRunSummarySerializer.Meta):
         fields = [
@@ -194,7 +220,26 @@ class PortfolioRunSerializer(PortfolioRunSummarySerializer):
             "output",
             "technical_trace",
             "link_recommendation_rows",
+            "events",
         ]
+
+
+def _portfolio_run_status(obj: models.PortfolioRun) -> str:
+    event_types = set(obj.events.values_list("event_type", flat=True))
+    if models.PortfolioRunEvent.EventType.ADVISOR_DECLINED in event_types:
+        return "declined"
+    if models.PortfolioRunEvent.EventType.HASH_MISMATCH in event_types:
+        return "hash_mismatch"
+    if {
+        models.PortfolioRunEvent.EventType.INVALIDATED_BY_CMA,
+        models.PortfolioRunEvent.EventType.INVALIDATED_BY_HOUSEHOLD_CHANGE,
+    } & event_types:
+        return "invalidated"
+    newer_run_exists = models.PortfolioRun.objects.filter(
+        household=obj.household,
+        created_at__gt=obj.created_at,
+    ).exists()
+    return "superseded" if newer_run_exists else "current"
 
 
 class PlanningVersionSerializer(serializers.ModelSerializer):
@@ -226,7 +271,9 @@ class CMAFundAssumptionSerializer(serializers.ModelSerializer):
             "optimizer_eligible",
             "is_whole_portfolio",
             "display_order",
+            "aliases",
             "asset_class_weights",
+            "geography_weights",
             "tax_drag",
         ]
 

@@ -2,13 +2,13 @@
 
 Status: internal validation evidence only.
 
-Source: Default CMA assumptions (5y returns and standard deviations)
+Source: Default CMA assumptions v2 (5y returns, standard deviations, aliases, and exposure metadata)
 
 ## Frontier Summary
 
 - Efficient points: 71
 - Funds: 8
-- Assumptions hash: `95a932abeaa6ad9eaf6948b1be18c15e1b1d1aa80a2829e2881e7843087cab53`
+- Assumptions hash: `6d2dd2db3712391f38234f02f1cf05908be510db5927f84043570297b39ce9cc`
 
 ## Risk Score Selected Points
 

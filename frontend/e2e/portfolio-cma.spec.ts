@@ -18,7 +18,11 @@ test("advisor can generate a portfolio run and view run history", async ({ page 
   ).toBeVisible();
   await expect(page.getByText(/Why this recommendation/i)).toBeVisible();
   await expect(page.getByText(/Run History/i)).toBeVisible();
-  await expect(page.getByText(/default_cma_link_frontier_v1/i).first()).toBeVisible();
+  await expect(page.getByText(/default_cma_link_frontier_v2/i).first()).toBeVisible();
+  await page.getByRole("button", { name: /^Account$/i }).click();
+  await expect(page.getByRole("heading", { name: /Funded Goals/i })).toBeVisible();
+  await page.getByRole("button", { name: /^Goal$/i }).click();
+  await expect(page.getByRole("button", { name: /By Account/i })).toBeVisible();
   await expect(page.getByRole("button", { name: "CMA" })).toHaveCount(0);
 });
 

@@ -167,6 +167,13 @@ class GeneratePortfolioView(APIView):
             status=models.CMASnapshot.Status.ACTIVE
         ).first()
         if cma_snapshot is None:
+            _record_portfolio_event(
+                event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
+                household=household,
+                actor=_actor(request),
+                reason_code="no_active_cma",
+                metadata={"household_id": household.external_id},
+            )
             return Response(
                 {
                     "detail": (
@@ -175,37 +182,162 @@ class GeneratePortfolioView(APIView):
                 },
                 status=409,
             )
+        try:
+            _validate_cma_snapshot(cma_snapshot)
+        except ValueError as exc:
+            _record_portfolio_event(
+                event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
+                household=household,
+                actor=_actor(request),
+                reason_code="invalid_cma_universe",
+                metadata={"household_id": household.external_id, "detail": str(exc)},
+            )
+            return Response({"detail": f"Invalid active CMA universe: {exc}"}, status=409)
         readiness_error = portfolio_generation_blocker_for_household(household)
         if readiness_error:
+            _record_portfolio_event(
+                event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
+                household=household,
+                actor=_actor(request),
+                reason_code="reviewed_state_not_ready",
+                metadata={"household_id": household.external_id, "detail": readiness_error},
+            )
             return Response({"detail": readiness_error}, status=400)
 
         input_snapshot = committed_construction_snapshot(household)
         input_hash = _hash_json(input_snapshot)
-        engine_input = to_engine_household(household)
-        output = optimize(engine_input, to_engine_cma(cma_snapshot))
-        payload = output.model_dump(mode="json")
-        output_hash = _hash_json(payload)
+        cma_hash = _cma_input_hash(cma_snapshot)
+        try:
+            reviewed_state_hash, approval_snapshot_hash, provenance_warnings = (
+                _portfolio_provenance_hashes(household)
+            )
+        except ValueError as exc:
+            _record_portfolio_event(
+                event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
+                household=household,
+                actor=_actor(request),
+                reason_code="missing_real_derived_provenance",
+                metadata={"household_id": household.external_id, "detail": str(exc)},
+            )
+            return Response({"detail": str(exc)}, status=400)
+        as_of_date = timezone.localdate()
+        run_signature = _hash_json(
+            {
+                "schema_version": "engine_output.link_first.v2",
+                "input_hash": input_hash,
+                "cma_hash": cma_hash,
+                "reviewed_state_hash": reviewed_state_hash,
+                "approval_snapshot_hash": approval_snapshot_hash,
+                "as_of_date": as_of_date.isoformat(),
+            }
+        )
+        try:
+            reusable = _reusable_current_run(household, run_signature)
+        except ValueError as exc:
+            _record_portfolio_event(
+                event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
+                household=household,
+                actor=_actor(request),
+                reason_code="ambiguous_current_lifecycle",
+                metadata={"household_id": household.external_id, "detail": str(exc)},
+            )
+            return Response({"detail": str(exc)}, status=409)
+        if reusable is not None:
+            verification = _portfolio_run_verification(
+                reusable,
+                input_hash=input_hash,
+                output_hash=None,
+                cma_hash=cma_hash,
+                run_signature=run_signature,
+            )
+            if verification["ok"]:
+                _record_portfolio_event(
+                    event_type=models.PortfolioRunEvent.EventType.REUSED,
+                    portfolio_run=reusable,
+                    household=household,
+                    actor=_actor(request),
+                    metadata=verification,
+                )
+                record_event(
+                    action="portfolio_run_reused",
+                    entity_type="portfolio_run",
+                    entity_id=reusable.external_id,
+                    actor=_actor(request),
+                    metadata={
+                        "household_id": household.external_id,
+                        "run_signature": run_signature,
+                        "input_hash": input_hash,
+                        "output_hash": reusable.output_hash,
+                    },
+                )
+                return Response(PortfolioRunSerializer(reusable).data)
+            _record_portfolio_event(
+                event_type=models.PortfolioRunEvent.EventType.HASH_MISMATCH,
+                portfolio_run=reusable,
+                household=household,
+                actor=_actor(request),
+                reason_code="stored_run_hash_mismatch",
+                metadata=verification,
+            )
 
-        models.PortfolioRun.objects.filter(
-            household=household, status=models.PortfolioRun.Status.CURRENT
-        ).update(status=models.PortfolioRun.Status.STALE, stale_reason="superseded_by_new_run")
+        engine_input = to_engine_household(household)
+        output = optimize(engine_input, to_engine_cma(cma_snapshot), as_of_date=as_of_date)
+        payload = output.model_dump(mode="json")
+        payload["run_manifest"] = {
+            **payload.get("run_manifest", {}),
+            "input_hash": input_hash,
+            "cma_hash": cma_hash,
+            "reviewed_state_hash": reviewed_state_hash,
+            "approval_snapshot_hash": approval_snapshot_hash,
+            "run_signature": run_signature,
+            "provenance_warnings": provenance_warnings,
+        }
+        try:
+            _validate_v2_manifest(payload["run_manifest"])
+        except ValueError as exc:
+            _record_portfolio_event(
+                event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
+                household=household,
+                actor=_actor(request),
+                reason_code="missing_v2_manifest_inputs",
+                metadata={"household_id": household.external_id, "detail": str(exc)},
+            )
+            return Response({"detail": str(exc)}, status=409)
+        payload["warnings"] = sorted(set(payload.get("warnings") or []).union(provenance_warnings))
+        output_hash = _hash_json(payload)
+        regenerated_after_decline = _latest_reusable_run_was_declined(household)
         run = models.PortfolioRun.objects.create(
             household=household,
             cma_snapshot=cma_snapshot,
             generated_by=request.user,
+            as_of_date=as_of_date,
+            run_signature=run_signature,
             input_snapshot=input_snapshot,
             output=payload,
             input_hash=input_hash,
             output_hash=output_hash,
+            cma_hash=cma_hash,
+            reviewed_state_hash=reviewed_state_hash,
+            approval_snapshot_hash=approval_snapshot_hash,
             engine_version=output.audit_trace.model_version,
             advisor_summary=output.advisor_summary,
             technical_trace=output.technical_trace,
         )
         goals = {goal.external_id: goal for goal in household.goals.all()}
         accounts = {account.external_id: account for account in household.accounts.all()}
+        links = {
+            link.external_id: link
+            for link in models.GoalAccountLink.objects.filter(
+                goal__household=household,
+                account__household=household,
+            )
+        }
         for recommendation in output.link_recommendations:
+            link = links.get(recommendation.link_id)
             models.PortfolioRunLinkRecommendation.objects.create(
                 portfolio_run=run,
+                goal_account_link=link,
+                link_external_id=recommendation.link_id,
                 goal=goals.get(recommendation.goal_id),
                 account=accounts.get(recommendation.account_id),
                 goal_external_id=recommendation.goal_id,
@@ -217,7 +349,28 @@ class GeneratePortfolioView(APIView):
                 allocations=[
                     allocation.model_dump(mode="json") for allocation in recommendation.allocations
                 ],
+                current_comparison=recommendation.current_comparison.model_dump(mode="json"),
+                explanation=recommendation.explanation,
+                warnings=recommendation.warnings,
             )
+        event_type = (
+            models.PortfolioRunEvent.EventType.REGENERATED_AFTER_DECLINE
+            if regenerated_after_decline
+            else models.PortfolioRunEvent.EventType.GENERATED
+        )
+        _record_portfolio_event(
+            event_type=event_type,
+            portfolio_run=run,
+            household=household,
+            actor=_actor(request),
+            metadata={
+                "run_signature": run_signature,
+                "input_hash": input_hash,
+                "output_hash": output_hash,
+                "cma_hash": cma_hash,
+                "warnings": payload.get("warnings") or [],
+            },
+        )
         record_event(
             action="portfolio_run_generated",
             entity_type="portfolio_run",
@@ -230,6 +383,9 @@ class GeneratePortfolioView(APIView):
                 "cma_snapshot_id": cma_snapshot.external_id,
                 "input_hash": input_hash,
                 "output_hash": output_hash,
+                "cma_hash": cma_hash,
+                "run_signature": run_signature,
+                "schema_version": payload["schema_version"],
                 "link_count": len(output.link_recommendations),
             },
         )
@@ -245,6 +401,70 @@ class PortfolioRunListView(APIView):
         household = get_object_or_404(_household_queryset(request.user), external_id=household_id)
         runs = household.portfolio_runs.order_by("-created_at")
         return Response(PortfolioRunSummarySerializer(runs, many=True).data)
+
+
+class PortfolioRunDeclineView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, household_id: str, run_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        household = get_object_or_404(_household_queryset(request.user), external_id=household_id)
+        run = get_object_or_404(household.portfolio_runs, external_id=run_id)
+        reason = str(request.data.get("reason") or "").strip()
+        _record_portfolio_event(
+            event_type=models.PortfolioRunEvent.EventType.ADVISOR_DECLINED,
+            portfolio_run=run,
+            household=household,
+            actor=_actor(request),
+            reason_code="advisor_declined",
+            note=reason,
+            metadata={"household_id": household.external_id, "run_id": run.external_id},
+        )
+        record_event(
+            action="portfolio_run_declined",
+            entity_type="portfolio_run",
+            entity_id=run.external_id,
+            actor=_actor(request),
+            metadata={"household_id": household.external_id, "reason_present": bool(reason)},
+        )
+        return Response(PortfolioRunSerializer(run).data)
+
+
+class PortfolioRunAuditExportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, household_id: str, run_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        household = get_object_or_404(_household_queryset(request.user), external_id=household_id)
+        run = get_object_or_404(household.portfolio_runs, external_id=run_id)
+        verification = _portfolio_run_verification(run)
+        if not verification["ok"]:
+            _record_portfolio_event(
+                event_type=models.PortfolioRunEvent.EventType.HASH_MISMATCH,
+                portfolio_run=run,
+                household=household,
+                actor=_actor(request),
+                reason_code="audit_export_hash_mismatch",
+                metadata=verification,
+            )
+        _record_portfolio_event(
+            event_type=models.PortfolioRunEvent.EventType.AUDIT_EXPORTED,
+            portfolio_run=run,
+            household=household,
+            actor=_actor(request),
+            metadata={"verification": verification},
+        )
+        record_event(
+            action="portfolio_run_audit_exported",
+            entity_type="portfolio_run",
+            entity_id=run.external_id,
+            actor=_actor(request),
+            metadata={"household_id": household.external_id, "verification_ok": verification["ok"]},
+        )
+        run.refresh_from_db()
+        return Response(_sanitized_portfolio_audit_export(run, verification))
 
 
 class PlanningVersionListView(APIView):
@@ -271,9 +491,13 @@ class PlanningVersionListView(APIView):
             rationale=str(request.data.get("rationale") or ""),
             created_by=request.user,
         )
-        stale_count = household.portfolio_runs.filter(
-            status=models.PortfolioRun.Status.CURRENT
-        ).update(status=models.PortfolioRun.Status.STALE, stale_reason="planning_version_created")
+        stale_count = _record_current_run_invalidations(
+            models.PortfolioRun.objects.filter(household=household),
+            event_type=models.PortfolioRunEvent.EventType.INVALIDATED_BY_HOUSEHOLD_CHANGE,
+            actor=_actor(request),
+            reason_code="planning_version_created",
+            metadata={"planning_version": version},
+        )
         record_event(
             action="planning_version_created",
             entity_type="planning_version",
@@ -451,9 +675,13 @@ class CMASnapshotPublishView(APIView):
             snapshot.published_by = request.user
             snapshot.published_at = timezone.now()
             snapshot.save(update_fields=["status", "published_by", "published_at", "updated_at"])
-            stale_count = models.PortfolioRun.objects.filter(
-                status=models.PortfolioRun.Status.CURRENT
-            ).update(status=models.PortfolioRun.Status.STALE, stale_reason="cma_snapshot_published")
+            stale_count = _record_current_run_invalidations(
+                models.PortfolioRun.objects.all(),
+                event_type=models.PortfolioRunEvent.EventType.INVALIDATED_BY_CMA,
+                actor=_actor(request),
+                reason_code="cma_snapshot_published",
+                metadata={"cma_snapshot_id": snapshot.external_id, "version": snapshot.version},
+            )
         record_event(
             action="cma_snapshot_published",
             entity_type="cma_snapshot",
@@ -900,6 +1128,283 @@ def _actor(request) -> str:  # noqa: ANN001
     return "phase_one_admin"
 
 
+def _record_portfolio_event(
+    *,
+    event_type: str,
+    portfolio_run: models.PortfolioRun | None = None,
+    household: models.Household | None = None,
+    actor: str = "system",
+    reason_code: str = "",
+    note: str = "",
+    metadata: dict | None = None,
+) -> models.PortfolioRunEvent:
+    return models.PortfolioRunEvent.objects.create(
+        portfolio_run=portfolio_run,
+        household=household or (portfolio_run.household if portfolio_run else None),
+        event_type=event_type,
+        actor=actor,
+        reason_code=reason_code,
+        note=note,
+        metadata=metadata or {},
+    )
+
+
+def _portfolio_provenance_hashes(household: models.Household) -> tuple[str, str, list[str]]:
+    workspace = household.review_workspaces.order_by("-updated_at", "-created_at").first()
+    if workspace is None:
+        return "", "", ["synthetic_or_seeded_missing_provenance"]
+    if workspace.data_origin == models.ReviewWorkspace.DataOrigin.REAL_DERIVED:
+        if (
+            workspace.status != models.ReviewWorkspace.Status.COMMITTED
+            or not workspace.reviewed_state
+        ):
+            raise ValueError("Real-derived households require committed reviewed-state provenance.")
+    reviewed_state_hash = _hash_json(workspace.reviewed_state or {})
+    approval_snapshot_hash = _hash_json(
+        {
+            "workspace_id": workspace.external_id,
+            "status": workspace.status,
+            "data_origin": workspace.data_origin,
+            "readiness": workspace.readiness or {},
+        }
+    )
+    warnings = []
+    if workspace.data_origin == models.ReviewWorkspace.DataOrigin.SYNTHETIC:
+        warnings.append("synthetic_missing_real_derived_provenance")
+    return reviewed_state_hash, approval_snapshot_hash, warnings
+
+
+def _portfolio_run_verification(
+    run: models.PortfolioRun,
+    *,
+    input_hash: str | None = None,
+    output_hash: str | None = None,
+    cma_hash: str | None = None,
+    run_signature: str | None = None,
+) -> dict:
+    actual_input_hash = _hash_json(run.input_snapshot)
+    actual_output_hash = _hash_json(run.output)
+    actual_cma_hash = _cma_input_hash(run.cma_snapshot)
+    expected_input_hash = input_hash or run.input_hash
+    expected_output_hash = output_hash or run.output_hash
+    expected_cma_hash = cma_hash or run.cma_hash
+    expected_run_signature = run_signature or run.run_signature
+    checks = {
+        "input_hash_matches": actual_input_hash == expected_input_hash == run.input_hash,
+        "output_hash_matches": actual_output_hash == expected_output_hash == run.output_hash,
+        "cma_hash_matches": actual_cma_hash == expected_cma_hash == run.cma_hash,
+        "run_signature_matches": run.run_signature == expected_run_signature,
+        "schema_version_matches": (run.output or {}).get("schema_version")
+        == "engine_output.link_first.v2",
+    }
+    return {
+        "ok": all(checks.values()),
+        "checks": checks,
+        "stored_hashes": {
+            "input_hash": run.input_hash,
+            "output_hash": run.output_hash,
+            "cma_hash": run.cma_hash,
+            "run_signature": run.run_signature,
+        },
+        "actual_hashes": {
+            "input_hash": actual_input_hash,
+            "output_hash": actual_output_hash,
+            "cma_hash": actual_cma_hash,
+        },
+    }
+
+
+def _reusable_current_run(
+    household: models.Household,
+    run_signature: str,
+) -> models.PortfolioRun | None:
+    runs = list(
+        models.PortfolioRun.objects.filter(household=household)
+        .select_related("household", "cma_snapshot")
+        .prefetch_related("events")
+        .order_by("-created_at", "-id")
+    )
+    if not runs:
+        return None
+    current_run = runs[0]
+    duplicate_same_signature = [
+        run
+        for run in runs[1:]
+        if run.run_signature == current_run.run_signature and _run_is_reusable(run)
+    ]
+    if duplicate_same_signature and _run_is_reusable(current_run):
+        raise ValueError("Duplicate or ambiguous current portfolio run lifecycle state.")
+    if not _run_is_reusable(current_run):
+        return None
+    if current_run.run_signature != run_signature:
+        return None
+    if (current_run.output or {}).get("schema_version") != "engine_output.link_first.v2":
+        return None
+    return current_run
+
+
+def _latest_reusable_run_was_declined(household: models.Household) -> bool:
+    latest = (
+        household.portfolio_runs.order_by("-created_at", "-id").prefetch_related("events").first()
+    )
+    if latest is None:
+        return False
+    return models.PortfolioRunEvent.EventType.ADVISOR_DECLINED in _run_event_types(latest)
+
+
+def _record_current_run_invalidations(
+    queryset,
+    *,
+    event_type: str,
+    actor: str,
+    reason_code: str,
+    metadata: dict,
+) -> int:
+    current_runs = _current_reusable_runs(queryset)
+    count = 0
+    for run in current_runs:
+        if run.events.filter(event_type=event_type, reason_code=reason_code).exists():
+            continue
+        _record_portfolio_event(
+            event_type=event_type,
+            portfolio_run=run,
+            household=run.household,
+            actor=actor,
+            reason_code=reason_code,
+            metadata={
+                **metadata,
+                "run_id": run.external_id,
+                "household_id": run.household.external_id,
+            },
+        )
+        count += 1
+    return count
+
+
+def _current_reusable_runs(queryset) -> list[models.PortfolioRun]:  # noqa: ANN001
+    current_by_household: dict[int, models.PortfolioRun] = {}
+    seen_households: set[int] = set()
+    runs = (
+        queryset.select_related("household", "cma_snapshot")
+        .prefetch_related("events")
+        .order_by("household_id", "-created_at", "-id")
+    )
+    for run in runs:
+        if run.household_id in seen_households:
+            continue
+        seen_households.add(run.household_id)
+        if _run_is_reusable(run):
+            current_by_household[run.household_id] = run
+    return list(current_by_household.values())
+
+
+def _run_is_reusable(run: models.PortfolioRun) -> bool:
+    event_types = _run_event_types(run)
+    terminal_events = {
+        models.PortfolioRunEvent.EventType.ADVISOR_DECLINED,
+        models.PortfolioRunEvent.EventType.INVALIDATED_BY_CMA,
+        models.PortfolioRunEvent.EventType.INVALIDATED_BY_HOUSEHOLD_CHANGE,
+        models.PortfolioRunEvent.EventType.HASH_MISMATCH,
+    }
+    return not bool(event_types & terminal_events)
+
+
+def _run_event_types(run: models.PortfolioRun) -> set[str]:
+    return {event.event_type for event in run.events.all()}
+
+
+def _sanitized_portfolio_audit_export(
+    run: models.PortfolioRun,
+    verification: dict,
+) -> dict:
+    output = run.output or {}
+    recommendations = []
+    for recommendation in output.get("link_recommendations") or []:
+        comparison = recommendation.get("current_comparison") or {}
+        recommendations.append(
+            {
+                "link_id": recommendation.get("link_id"),
+                "goal_id": recommendation.get("goal_id"),
+                "account_id": recommendation.get("account_id"),
+                "goal_risk_score": recommendation.get("goal_risk_score"),
+                "frontier_percentile": recommendation.get("frontier_percentile"),
+                "allocated_amount": recommendation.get("allocated_amount"),
+                "warnings": recommendation.get("warnings") or [],
+                "current_comparison": {
+                    "status": comparison.get("status"),
+                    "reason": comparison.get("reason"),
+                    "unmapped_holdings": comparison.get("unmapped_holdings") or [],
+                },
+            }
+        )
+    return {
+        "schema_version": "portfolio_run_audit_export.v2",
+        "run_id": run.external_id,
+        "household_id": run.household.external_id,
+        "status": PortfolioRunSummarySerializer().get_status(run),
+        "verification": verification,
+        "hashes": {
+            "input_hash": run.input_hash,
+            "output_hash": run.output_hash,
+            "cma_hash": run.cma_hash,
+            "reviewed_state_hash": run.reviewed_state_hash,
+            "approval_snapshot_hash": run.approval_snapshot_hash,
+            "run_signature": run.run_signature,
+        },
+        "manifest": output.get("run_manifest") or {},
+        "diagnostics": {
+            "warnings": output.get("warnings") or [],
+            "recommendations": recommendations,
+        },
+        "lifecycle_events": [
+            {
+                "event_type": event.event_type,
+                "actor": event.actor,
+                "reason_code": event.reason_code,
+                "note": event.note,
+                "metadata": event.metadata,
+                "created_at": event.created_at,
+            }
+            for event in run.events.order_by("created_at", "id")
+        ],
+    }
+
+
+def _cma_input_hash(snapshot: models.CMASnapshot) -> str:
+    return _hash_json(to_engine_cma(snapshot).model_dump(mode="json"))
+
+
+def _validate_v2_manifest(manifest: dict) -> None:
+    required_keys = {
+        "schema_version",
+        "engine_output_schema",
+        "model_version",
+        "method",
+        "as_of_date",
+        "household_id",
+        "cma_snapshot_id",
+        "cma_version",
+        "risk_mapping",
+        "optimizer_eligible_fund_ids",
+        "whole_portfolio_fund_ids",
+        "goal_account_link_ids",
+        "input_hash",
+        "cma_hash",
+        "reviewed_state_hash",
+        "approval_snapshot_hash",
+        "run_signature",
+    }
+    missing = sorted(key for key in required_keys if key not in manifest)
+    if missing:
+        raise ValueError(f"Missing required v2 manifest inputs: {', '.join(missing)}.")
+    if manifest.get("engine_output_schema") != "engine_output.link_first.v2":
+        raise ValueError("Portfolio run manifest must reference engine_output.link_first.v2.")
+    if not manifest.get("optimizer_eligible_fund_ids"):
+        raise ValueError("Portfolio run manifest must include optimizer-eligible funds.")
+    if not manifest.get("goal_account_link_ids"):
+        raise ValueError("Portfolio run manifest must include goal-account link ids.")
+
+
 @transaction.atomic
 def _clone_cma_snapshot(source: models.CMASnapshot, user) -> models.CMASnapshot:  # noqa: ANN001
     last_snapshot = models.CMASnapshot.objects.order_by("-version").first()
@@ -922,7 +1427,9 @@ def _clone_cma_snapshot(source: models.CMASnapshot, user) -> models.CMASnapshot:
             optimizer_eligible=fund.optimizer_eligible,
             is_whole_portfolio=fund.is_whole_portfolio,
             display_order=fund.display_order,
+            aliases=fund.aliases,
             asset_class_weights=fund.asset_class_weights,
+            geography_weights=fund.geography_weights,
             tax_drag=fund.tax_drag,
         )
     for correlation in source.correlations.all():
@@ -981,8 +1488,12 @@ def _apply_cma_patch(snapshot: models.CMASnapshot, data) -> None:  # noqa: ANN00
                 fund_payload.get("is_whole_portfolio", fund.is_whole_portfolio)
             )
             fund.display_order = int(fund_payload.get("display_order", index))
+            if isinstance(fund_payload.get("aliases"), list):
+                fund.aliases = [str(alias) for alias in fund_payload["aliases"]]
             if isinstance(fund_payload.get("asset_class_weights"), dict):
                 fund.asset_class_weights = fund_payload["asset_class_weights"]
+            if isinstance(fund_payload.get("geography_weights"), dict):
+                fund.geography_weights = fund_payload["geography_weights"]
             if isinstance(fund_payload.get("tax_drag"), dict):
                 fund.tax_drag = fund_payload["tax_drag"]
             fund.save()
@@ -1128,6 +1639,9 @@ def _cma_frontier_payload(snapshot: models.CMASnapshot) -> dict:
             "volatility": float(fund.volatility),
             "optimizer_eligible": fund.optimizer_eligible,
             "is_whole_portfolio": fund.is_whole_portfolio,
+            "aliases": fund.aliases,
+            "asset_class_weights": fund.asset_class_weights,
+            "geography_weights": fund.geography_weights,
         }
         for fund in funds
     ]
@@ -1177,6 +1691,9 @@ def _cma_audit_payload(snapshot: models.CMASnapshot) -> dict:
                 "optimizer_eligible": fund.optimizer_eligible,
                 "is_whole_portfolio": fund.is_whole_portfolio,
                 "display_order": fund.display_order,
+                "aliases": fund.aliases,
+                "asset_class_weights": fund.asset_class_weights,
+                "geography_weights": fund.geography_weights,
             }
             for fund in snapshot.fund_assumptions.all()
         ],
@@ -1210,6 +1727,9 @@ def _cma_diff(before: dict, after: dict) -> dict:
                 "optimizer_eligible",
                 "is_whole_portfolio",
                 "display_order",
+                "aliases",
+                "asset_class_weights",
+                "geography_weights",
             )
             if before_fund.get(field) != after_fund.get(field)
         }

@@ -838,6 +838,7 @@ def _merge_household_state(household: models.Household, state: dict[str, Any]) -
             current_value=_number(account_state.get("current_value")),
             is_held_at_purpose=bool(account_state.get("is_held_at_purpose", True)),
             missing_holdings_confirmed=bool(account_state.get("missing_holdings_confirmed", False)),
+            cash_state=account_state.get("cash_state", models.Account.CashState.INVESTED),
         )
         accounts_by_id[external_id] = account
         for holding_index, holding_state in enumerate(account_state.get("holdings") or [], start=1):
@@ -878,6 +879,7 @@ def _merge_household_state(household: models.Household, state: dict[str, Any]) -
         if not goal or not account:
             continue
         models.GoalAccountLink.objects.create(
+            external_id=link_state.get("id") or models.uuid_string(),
             goal=goal,
             account=account,
             allocated_amount=_number(link_state.get("allocated_amount"))

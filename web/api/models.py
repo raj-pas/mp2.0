@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
@@ -30,7 +31,6 @@ class Household(models.Model):
     )
     external_assets = models.JSONField(default=list, blank=True)
     notes = models.TextField(blank=True)
-    last_engine_output = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -79,6 +79,11 @@ class Person(models.Model):
 
 
 class Account(models.Model):
+    class CashState(models.TextChoices):
+        INVESTED = "invested", "Invested"
+        ONBOARDING_CASH = "onboarding_cash", "Onboarding cash"
+        PENDING_INVESTMENT = "pending_investment", "Pending investment"
+
     external_id = models.CharField(max_length=120, unique=True)
     household = models.ForeignKey(Household, related_name="accounts", on_delete=models.CASCADE)
     owner_person = models.ForeignKey(
@@ -97,6 +102,11 @@ class Account(models.Model):
     contribution_history = models.JSONField(default=list, blank=True)
     is_held_at_purpose = models.BooleanField(default=True)
     missing_holdings_confirmed = models.BooleanField(default=False)
+    cash_state = models.CharField(
+        max_length=40,
+        choices=CashState.choices,
+        default=CashState.INVESTED,
+    )
 
     class Meta:
         ordering = ["account_type", "external_id"]
@@ -149,6 +159,7 @@ class Goal(models.Model):
 
 
 class GoalAccountLink(models.Model):
+    external_id = models.CharField(max_length=120, unique=True, default=uuid_string)
     goal = models.ForeignKey(Goal, related_name="account_allocations", on_delete=models.CASCADE)
     account = models.ForeignKey(Account, related_name="goal_allocations", on_delete=models.CASCADE)
     allocated_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
@@ -219,7 +230,9 @@ class CMAFundAssumption(models.Model):
     optimizer_eligible = models.BooleanField(default=True)
     is_whole_portfolio = models.BooleanField(default=False)
     display_order = models.PositiveSmallIntegerField(default=0)
+    aliases = models.JSONField(default=list, blank=True)
     asset_class_weights = models.JSONField(default=dict, blank=True)
+    geography_weights = models.JSONField(default=dict, blank=True)
     tax_drag = models.JSONField(default=dict, blank=True)
 
     class Meta:
@@ -251,10 +264,6 @@ class CMACorrelation(models.Model):
 
 
 class PortfolioRun(models.Model):
-    class Status(models.TextChoices):
-        CURRENT = "current", "Current"
-        STALE = "stale", "Stale"
-
     external_id = models.CharField(max_length=120, unique=True, default=uuid_string)
     household = models.ForeignKey(
         Household, related_name="portfolio_runs", on_delete=models.CASCADE
@@ -269,12 +278,15 @@ class PortfolioRun(models.Model):
         null=True,
         blank=True,
     )
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.CURRENT)
-    stale_reason = models.CharField(max_length=255, blank=True)
+    as_of_date = models.DateField()
+    run_signature = models.CharField(max_length=64, db_index=True)
     input_snapshot = models.JSONField(default=dict)
     output = models.JSONField(default=dict)
     input_hash = models.CharField(max_length=64)
     output_hash = models.CharField(max_length=64)
+    cma_hash = models.CharField(max_length=64)
+    reviewed_state_hash = models.CharField(max_length=64, blank=True)
+    approval_snapshot_hash = models.CharField(max_length=64, blank=True)
     engine_version = models.CharField(max_length=120)
     advisor_summary = models.TextField(blank=True)
     technical_trace = models.JSONField(default=dict, blank=True)
@@ -286,11 +298,20 @@ class PortfolioRun(models.Model):
     def __str__(self) -> str:
         return f"{self.household} portfolio run {self.external_id}"
 
+    def save(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        if self.pk and PortfolioRun.objects.filter(pk=self.pk).exists():
+            raise ValidationError("Portfolio runs are append-only; create a new run instead.")
+        return super().save(*args, **kwargs)
+
 
 class PortfolioRunLinkRecommendation(models.Model):
     portfolio_run = models.ForeignKey(
         PortfolioRun, related_name="link_recommendation_rows", on_delete=models.CASCADE
     )
+    goal_account_link = models.ForeignKey(
+        GoalAccountLink, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    link_external_id = models.CharField(max_length=120)
     goal = models.ForeignKey(Goal, on_delete=models.SET_NULL, null=True, blank=True)
     account = models.ForeignKey(Account, on_delete=models.SET_NULL, null=True, blank=True)
     goal_external_id = models.CharField(max_length=120)
@@ -300,9 +321,66 @@ class PortfolioRunLinkRecommendation(models.Model):
     expected_return = models.DecimalField(max_digits=10, decimal_places=8)
     volatility = models.DecimalField(max_digits=10, decimal_places=8)
     allocations = models.JSONField(default=list)
+    current_comparison = models.JSONField(default=dict, blank=True)
+    explanation = models.JSONField(default=dict, blank=True)
+    warnings = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ["goal_external_id", "account_external_id"]
+
+    def save(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        if self.pk and PortfolioRunLinkRecommendation.objects.filter(pk=self.pk).exists():
+            raise ValidationError("Portfolio recommendation rows are append-only.")
+        return super().save(*args, **kwargs)
+
+
+class PortfolioRunEvent(models.Model):
+    class EventType(models.TextChoices):
+        GENERATED = "generated", "Generated"
+        REUSED = "reused", "Reused"
+        REGENERATED_AFTER_DECLINE = "regenerated_after_decline", "Regenerated after decline"
+        INVALIDATED_BY_CMA = "invalidated_by_cma", "Invalidated by CMA"
+        INVALIDATED_BY_HOUSEHOLD_CHANGE = (
+            "invalidated_by_household_change",
+            "Invalidated by household change",
+        )
+        ADVISOR_DECLINED = "advisor_declined", "Advisor declined"
+        AUDIT_EXPORTED = "audit_exported", "Audit exported"
+        GENERATION_FAILED = "generation_failed", "Generation failed"
+        HASH_MISMATCH = "hash_mismatch", "Hash mismatch"
+
+    portfolio_run = models.ForeignKey(
+        PortfolioRun,
+        related_name="events",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    household = models.ForeignKey(
+        Household,
+        related_name="portfolio_run_events",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    event_type = models.CharField(max_length=80, choices=EventType.choices)
+    actor = models.CharField(max_length=255, default="system")
+    reason_code = models.CharField(max_length=120, blank=True)
+    note = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self) -> str:
+        target = self.portfolio_run.external_id if self.portfolio_run_id else self.household_id
+        return f"{self.event_type}:{target}"
+
+    def save(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        if self.pk and PortfolioRunEvent.objects.filter(pk=self.pk).exists():
+            raise ValidationError("Portfolio run events are append-only.")
+        return super().save(*args, **kwargs)
 
 
 class PlanningVersion(models.Model):

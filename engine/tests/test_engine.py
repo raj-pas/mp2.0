@@ -114,23 +114,26 @@ def test_percentile_projection_values_are_ordered() -> None:
 
 
 def test_optimize_returns_link_first_portfolio_run_payload() -> None:
-    output = optimize(_household(), _cma_snapshot())
+    output = optimize(_household(), _cma_snapshot(), as_of_date=date(2026, 4, 29))
 
-    assert output.schema_version == "engine_output.link_first.v1"
+    assert output.schema_version == "engine_output.link_first.v2"
     assert output.household_id == "hh_chen"
     assert len(output.link_recommendations) == 2
     assert len(output.goal_rollups) == 2
     assert len(output.account_rollups) == 2
     assert output.household_rollup.allocated_amount == pytest.approx(728_000)
-    assert output.audit_trace.model_version == "default_cma_link_frontier_v1"
+    assert output.audit_trace.model_version == "default_cma_link_frontier_v2"
     assert output.audit_trace.cma_version == 1
+    assert output.run_manifest["engine_output_schema"] == "engine_output.link_first.v2"
 
     first = output.link_recommendations[0]
+    assert first.link_id == "link_retirement_rrsp"
     assert first.frontier_percentile == 25
     assert sum(allocation.weight for allocation in first.allocations) == pytest.approx(1.0)
     assert first.current_comparison.missing_holdings is False
+    assert first.current_comparison.status == "mapped"
     assert first.drift_flags == ["review_rebalance"]
-    assert output.warnings == ["missing_holdings", "review_rebalance"]
+    assert output.warnings == ["missing_current_holdings", "review_rebalance"]
 
 
 def test_engine_rejects_legacy_household_risk_scores() -> None:
@@ -142,10 +145,23 @@ def test_optimize_flags_missing_current_holdings() -> None:
     household = _household()
     household.accounts[0].current_holdings = []
 
-    output = optimize(household, _cma_snapshot())
+    output = optimize(household, _cma_snapshot(), as_of_date=date(2026, 4, 29))
 
     assert output.link_recommendations[0].current_comparison.missing_holdings is True
-    assert "missing_holdings" in output.warnings
+    assert "missing_current_holdings" in output.warnings
+
+
+def test_optimize_maps_legacy_current_holding_aliases() -> None:
+    household = _household()
+    household.accounts[0].current_holdings[0].sleeve_id = "income_fund"
+    household.accounts[0].current_holdings[0].sleeve_name = "Income Fund"
+
+    output = optimize(household, _cma_snapshot(), as_of_date=date(2026, 4, 29))
+    comparison = output.link_recommendations[0].current_comparison
+
+    assert comparison.status == "mapped"
+    assert comparison.holdings_diagnostics[0]["mapped_fund_id"] == "sh_income"
+    assert "unmapped_current_holdings" not in output.warnings
 
 
 def test_compliance_risk_rating_is_deterministic() -> None:
@@ -176,6 +192,9 @@ def _cma_snapshot() -> CMASnapshot:
                 volatility=fund["volatility"],
                 optimizer_eligible=fund["optimizer_eligible"],
                 is_whole_portfolio=fund["is_whole_portfolio"],
+                aliases=fund.get("aliases", []),
+                asset_class_weights=fund.get("asset_class_weights", {}),
+                geography_weights=fund.get("geography_weights", {}),
             )
             for fund in data["funds"]
         ],
@@ -202,6 +221,7 @@ def _household() -> Household:
         contribution_plan={"monthly": 3500},
         account_allocations=[
             GoalAccountLink(
+                id="link_retirement_rrsp",
                 goal_id="goal_retirement",
                 account_id="acct_rrsp_mike",
                 allocated_amount=620_000,
@@ -220,6 +240,7 @@ def _household() -> Household:
         contribution_plan={"monthly": 500},
         account_allocations=[
             GoalAccountLink(
+                id="link_education_resp",
                 goal_id="goal_education",
                 account_id="acct_resp_emma",
                 allocated_amount=108_000,

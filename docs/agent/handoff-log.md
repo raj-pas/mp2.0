@@ -241,3 +241,30 @@
   `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run pytest`,
   `npm run build`, Docker Compose `npm run e2e:synthetic`, and local
   secure-root `npm run e2e:real -- --reporter=list --workers=1`.
+
+## 2026-04-30 — Portfolio V2 Contract, Audit, Advisor Console Implemented
+
+- Cut portfolio output over to `engine_output.link_first.v2` only.
+- Removed legacy `Household.last_engine_output` and mutable
+  `PortfolioRun.status/stale_reason`; lifecycle is now append-only
+  `PortfolioRunEvent`.
+- Added durable goal-account link ids, account cash state, CMA aliases,
+  geography metadata, whole-fund metadata, current-vs-ideal diagnostics,
+  mapping diagnostics, run manifests, and sanitized portfolio audit export.
+- Implemented same-input run reuse with input/output/CMA/run-signature
+  verification. Hash mismatch records an event and generates a fresh run.
+- Added advisor decline/regeneration lifecycle and CMA/planning invalidation
+  events.
+- Rebuilt the advisor portfolio surface into Household, Account, and Goal
+  console tabs with account-first recommendations, blended/by-account goal
+  views, fund-type labels, diagnostics, and an audit drawer.
+- Added `scripts/reset-v2-dev.sh --yes` for full local DB reset/reseed.
+- Verification passed:
+  `uv run ruff check .`,
+  `uv run ruff format --check .`,
+  `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run python -m pytest engine/tests/test_engine.py -q`,
+  `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run python -m pytest web/api/tests/test_api.py -q`,
+  `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run python web/manage.py makemigrations --check --dry-run`,
+  `scripts/test-python-postgres.sh`,
+  `npm run build`, and
+  `npm run e2e:synthetic`.

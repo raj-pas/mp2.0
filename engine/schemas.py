@@ -29,6 +29,15 @@ RiskRating = Literal["low", "medium", "high"]
 GoalStatus = Literal["on_track", "watch", "off_track"]
 OptimizationMethod = Literal["percentile", "probability", "utility"]
 AssetClass = Literal["cash", "fixed_income", "equity"]
+CashState = Literal["invested", "onboarding_cash", "pending_investment"]
+FundType = Literal["building_block", "whole_portfolio"]
+MappingStatus = Literal[
+    "mapped",
+    "partially_mapped",
+    "unmapped",
+    "no_holdings",
+    "cash_or_pending",
+]
 
 
 class EngineModel(BaseModel):
@@ -43,6 +52,7 @@ class Holding(EngineModel):
 
 
 class GoalAccountLink(EngineModel):
+    id: str
     goal_id: str
     account_id: str
     allocated_amount: float | None = Field(default=None, ge=0)
@@ -62,6 +72,8 @@ class Account(EngineModel):
     contribution_room: float | None = Field(default=None, ge=0)
     contribution_history: list[dict] = Field(default_factory=list)
     is_held_at_purpose: bool = True
+    missing_holdings_confirmed: bool = False
+    cash_state: CashState = "invested"
 
 
 class Goal(EngineModel):
@@ -134,6 +146,9 @@ class Allocation(EngineModel):
     sleeve_id: str
     sleeve_name: str
     weight: float = Field(ge=0, le=1)
+    fund_type: FundType = "building_block"
+    asset_class_weights: dict[str, float] = Field(default_factory=dict)
+    geography_weights: dict[str, float] = Field(default_factory=dict)
 
 
 class AllocationDelta(EngineModel):
@@ -149,7 +164,9 @@ class FundAssumption(EngineModel):
     volatility: float = Field(ge=0)
     optimizer_eligible: bool = True
     is_whole_portfolio: bool = False
+    aliases: list[str] = Field(default_factory=list)
     asset_class_weights: dict[str, float] = Field(default_factory=dict)
+    geography_weights: dict[str, float] = Field(default_factory=dict)
     tax_drag: dict[str, float] = Field(default_factory=dict)
 
 
@@ -172,10 +189,15 @@ class ProjectionPoint(EngineModel):
 
 class CurrentPortfolioComparison(EngineModel):
     missing_holdings: bool
+    status: MappingStatus = "no_holdings"
+    reason: str = ""
     expected_return: float | None = None
     volatility: float | None = None
     allocations: list[Allocation] = Field(default_factory=list)
     deltas: list[AllocationDelta] = Field(default_factory=list)
+    holdings_diagnostics: list[dict] = Field(default_factory=list)
+    unmapped_holdings: list[dict] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class LinkRecommendation(EngineModel):
@@ -195,6 +217,8 @@ class LinkRecommendation(EngineModel):
     projection: list[ProjectionPoint]
     current_comparison: CurrentPortfolioComparison
     drift_flags: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    explanation: dict = Field(default_factory=dict)
     advisor_summary: str
     technical_trace: dict
 
@@ -232,7 +256,7 @@ class EngineRun(EngineModel):
 
 
 class EngineOutput(EngineModel):
-    schema_version: str = "engine_output.link_first.v1"
+    schema_version: str = "engine_output.link_first.v2"
     household_id: str
     link_recommendations: list[LinkRecommendation]
     goal_rollups: list[Rollup]
@@ -242,4 +266,5 @@ class EngineOutput(EngineModel):
     audit_trace: EngineRun
     advisor_summary: str
     technical_trace: dict
+    run_manifest: dict = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)

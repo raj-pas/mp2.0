@@ -1,12 +1,13 @@
 # MP2.0 Session State
 
-**Last updated:** 2026-04-29
+**Last updated:** 2026-04-30
 **Branch:** `main`
 **Phase:** Secure review plus portfolio-ready handoff tranche
 **Status:** Local thin slice supports authenticated team-scoped advisor review,
 secure-local upload/review to `engine_ready`, `construction_ready` commit
-gating, Default CMA link-first portfolio generation, immutable PortfolioRun
-history, and analyst CMA/frontier workflow.
+gating, Default CMA v2 link-first portfolio generation, immutable append-only
+PortfolioRun/Event history, account-first diagnostics, advisor audit export,
+and analyst CMA/frontier workflow.
 
 ## Current Goal
 
@@ -30,9 +31,9 @@ portfolio recommendations through durable PortfolioRun records:
 - worker heartbeat/stale visibility, retry metadata, duplicate reconcile
   suppression, manual reconcile, OCR overflow metadata, and local artifact
   disposal/report command
-- Default CMA fixtures, analyst-only CMA Workbench draft/edit/publish/audit,
-  Chart.js efficient frontier view, PortfolioRun hashes/traces/history, and
-  advisor explainability
+- Default CMA v2 fixtures, analyst-only CMA Workbench draft/edit/publish/audit,
+  Chart.js efficient frontier view, PortfolioRun hashes/traces/history,
+  advisor explainability, and a Household/Account/Goal portfolio console
 
 Canon v2.3 still raises the next bar:
 
@@ -43,17 +44,21 @@ Canon v2.3 still raises the next bar:
 
 ## Active Handoff
 
-Secure review plus portfolio-ready handoff changes are in the working tree.
-Current verification passed for this tranche:
+Portfolio v2 construction, audit, and advisor console changes are in the
+working tree. Current verification passed during implementation:
 
 - `uv run ruff check .`
 - `uv run ruff format --check .`
-- `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run pytest`
+- `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run python -m pytest engine/tests/test_engine.py -q`
+- `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run python -m pytest web/api/tests/test_api.py -q`
+- `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run python web/manage.py makemigrations --check --dry-run`
+- `scripts/test-python-postgres.sh`
 - `npm run build`
-- Docker Compose synthetic browser E2E:
-  `PLAYWRIGHT_BASE_URL=http://localhost:5173 npm run e2e:synthetic`
-- Local secure-root real-bundle browser gate:
-  `npm run e2e:real -- --reporter=list --workers=1`
+- `npm run e2e:synthetic`
+
+Still manual before real-derived use:
+
+- Manual secure-root `npm run e2e:real` before real-derived use
 
 Implemented pieces:
 
@@ -70,16 +75,26 @@ Implemented pieces:
   code and moved optimizer output to link-first recommendations.
 - Added global CMA snapshot/fund/correlation models, seed command, analyst-only
   draft/update/publish/audit APIs, frontier API, and CMA Workbench UI.
-- Added immutable PortfolioRun storage, link recommendation rows, run hashes,
-  full committed construction snapshot, engine output JSON, advisor summary,
-  technical trace, current/stale status, and run-history UI.
+- Upgraded portfolio output to `engine_output.link_first.v2`; removed legacy
+  household output storage and mutable current/stale lifecycle fields.
+- Added append-only `PortfolioRunEvent` lifecycle rows for generated, reused,
+  decline, regeneration, CMA/household invalidation, hash mismatch, audit export,
+  and generation failure.
+- Added durable goal-account link ids, account cash state, account-first rollups,
+  current-vs-ideal diagnostics, holding alias mapping diagnostics, whole-fund
+  metadata warnings, v2 run manifests, and sanitized audit export.
 - Portfolio generation now starts from committed household/person/account/goal/
   link state only and fails clearly when no active CMA snapshot exists.
 - Financial analysts can access CMA assumptions/frontier/audit metadata but
   remain blocked from real-client/review PII surfaces; advisors cannot access
   raw CMA assumptions, edit, or publish CMA.
-- PlanningVersion snapshots can be created for advisor planning edits and mark
-  current portfolio runs stale.
+- PlanningVersion snapshots can be created for advisor planning edits and now
+  append household-change invalidation events to current portfolio runs.
+- Publishing a new CMA now appends CMA invalidation events instead of mutating
+  stored run status.
+- Advisor console now has Household, Account, and Goal tabs; recommendation
+  cards show direct fund weights first, label building-block vs whole-portfolio
+  funds, and expose structured diagnostics in an audit drawer.
 - Review state versioning now locks workspace rows before merge/version
   creation so fast Postgres-backed edits do not collide or lose prior edits.
 - Browser E2E now covers synthetic review commit, advisor generate/history, and
@@ -100,9 +115,10 @@ Implemented pieces:
 - The optimization unit is `GoalAccountLink`, not goal-alone. Engine output is
   per-link first, then per-account and household rollups.
 - Goal risk is a 5-point snap-to-grid scale mapped to percentiles 5/15/25/35/45.
-- The three-tab household/account/goal view remains the central advisor UX.
-  Every tab should reconcile to the same total AUM and eventually toggle fund vs
-  asset-class look-through.
+- The three-tab household/account/goal view is now the central advisor UX.
+  Every tab reconciles to the same PortfolioRun output, with fund-level direct
+  weights first and asset/geography look-through metadata available for whole
+  funds when present.
 - Extraction/review is a hardened secure-local scaffold. It is not yet the full
   five-layer canon system and still needs IS validation, richer temporal
   reconciliation, pseudonymization, and CI PII checks.
@@ -115,22 +131,22 @@ Implemented pieces:
 
 ## Known Scaffold Drift From Canon
 
-- Fund-of-funds collapse suggestions are still out of scope.
+- Whole-portfolio funds are optimizer eligible and may mix with building-block
+  funds. Fund-of-funds execution collapse suggestions remain out of scope.
 - Real tax-drag math is still out of scope; v1 stores neutral/stub tax-drag
   metadata on CMA funds.
 - Household and goal risk are both 1-5. The specific weighting for the future
   household x goal composite is still open and should remain parameterized.
 - Extraction/LLM routing enforces Bedrock env for real-derived facts and keeps
   raw text transient, but pseudonymization and CI PII checks are pending.
-- Audit log is append-only and PortfolioRun stores input/output hashes plus
-  technical trace. CMA seed/update/publish audit is now visible to financial
-  analysts in the CMA Workbench.
+- Audit log is append-only and PortfolioRun stores input/output/CMA/run-signature
+  hashes plus technical trace. Portfolio lifecycle events are append-only and
+  advisor audit export is sanitized.
 - Auth/RBAC is still early: endpoints require login, advisor team access is
   modeled, and financial analysts are denied PII, but Phase B still needs MFA,
   session timeout, lockout, password reset, and production role governance.
-- Frontend has advisor recommendation/history and analyst CMA Workbench surfaces,
-  but still lacks the full three-tab pivot, asset-class look-through, richer fan
-  chart, and pilot-mode disclaimer.
+- Frontend has the full three-tab advisor pivot and analyst CMA Workbench
+  surfaces, but still lacks richer fan charts and pilot-mode disclaimer wording.
 
 ## Next Recommended Work
 

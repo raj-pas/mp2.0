@@ -43,14 +43,31 @@ authoritative when more detail is needed.
 - Failed documents do not block review. Manual retry queues another processing
   job.
 - Fraser/CMA portfolio generation starts from committed household state only.
-- `PortfolioRun` is the source of truth for generated recommendations; legacy
-  `Household.last_engine_output` is deprecated.
+- `PortfolioRun` plus append-only `PortfolioRunEvent` rows are the source of
+  truth for generated recommendations and lifecycle. Legacy
+  `Household.last_engine_output` and mutable `PortfolioRun.status/stale_reason`
+  are removed in v2.
 - CMA data is versioned globally through snapshot/fund/correlation rows.
   Financial analysts can draft/edit/publish and view the frontier; advisors
   cannot edit CMA.
 - PortfolioRun input snapshots include committed construction data only. Do not
   store review evidence quotes, extracted facts, raw notes/documents, or source
   provenance payloads in PortfolioRun.
+- V2 portfolio output is `engine_output.link_first.v2` only. Do not add a v1
+  compatibility path.
+- The engine id for a goal-account recommendation is durable
+  `GoalAccountLink.external_id`.
+- Whole-portfolio funds are optimizer eligible and may mix with building-block
+  funds; no allocation cap is applied in Phase A.
+- New/onboarding cash is represented explicitly by `Account.cash_state`.
+- Present-but-unmapped non-cash holdings are warnings with structured mapping
+  diagnostics, not generation blockers.
+- Reuse a stored PortfolioRun only after input/output/CMA/run-signature hash
+  verification succeeds. A mismatch records an event and permits fresh
+  regeneration.
+- Advisor audit export must be sanitized: hashes, manifest, diagnostics, and
+  lifecycle events are allowed; raw evidence quotes, document text, and source
+  provenance payloads are not.
 
 ## Canon v2.3 Decisions to Implement Next
 
@@ -63,8 +80,8 @@ authoritative when more detail is needed.
   account-level and household-level rollups. This is now implemented for the
   Fraser v1 engine path.
 - Recommended portfolio always comes from the efficient frontier. Whole-portfolio
-  funds such as Founders/Builders are execution collapse suggestions, not
-  separate optimizer shortcuts.
+  funds such as Founders/Builders are eligible funds in the frontier and are
+  labeled distinctly from building-block funds in explanations.
 - Risk scale is 5-point, snap-to-grid, mapped to optimizer percentiles:
   cautious=5th, conservative-balanced=15th, balanced=25th,
   balanced-growth=35th, growth-oriented=45th.
@@ -78,7 +95,8 @@ authoritative when more detail is needed.
 - CMA assumptions and efficient-frontier visualization are financial-analyst-only.
 - The advisor UX centers on a three-tab household/account/goal view with fund vs
   asset-class look-through and a click-through goal-account assignment workflow.
-- Current vs ideal allocation must be visible together on recommendation screens.
+- Current vs ideal allocation must be visible together on recommendation screens,
+  with account-first diagnostics and alias-mapping warnings.
 - Reporting supports Tier 1/2/3 sophistication from the same deterministic
   engine numbers. AI may style the narrative but cannot invent numbers.
 - Pre-recommendation overrides adjust inputs and rerun the engine; post-
@@ -108,8 +126,9 @@ authoritative when more detail is needed.
 - Current extraction/review is a secure-local scaffold, not full canon Layer 1-5:
   richer source review, temporal reconciliation, IS validation, pseudonymization,
   retention/disposal, and CI PII checks are still needed.
-- Current audit log has append-only protection and sanitized timeline events but
-  not an audit browser UI or full input-to-output trace.
+- Current audit log has append-only protection, sanitized timeline events, and
+  an advisor audit drawer/export for portfolio runs. Full compliance audit
+  browser UI remains deferred.
 - Current RBAC has authenticated-by-default access, advisor team scope, and
   financial-analyst PII denial, but Phase B still needs MFA/session policy,
   lockout, password reset, and admin-only CMA boundaries.

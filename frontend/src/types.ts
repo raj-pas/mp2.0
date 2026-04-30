@@ -35,6 +35,7 @@ export type Account = {
   contribution_room: string | null;
   is_held_at_purpose: boolean;
   missing_holdings_confirmed: boolean;
+  cash_state: "invested" | "onboarding_cash" | "pending_investment";
   holdings: Holding[];
 };
 
@@ -50,6 +51,7 @@ export type Goal = {
   status: "on_track" | "watch" | "off_track";
   notes: string;
   account_allocations: Array<{
+    id: string;
     goal_id: string;
     account_id: string;
     allocated_amount: string | null;
@@ -71,6 +73,9 @@ export type Allocation = {
   sleeve_id: string;
   sleeve_name: string;
   weight: number;
+  fund_type?: "building_block" | "whole_portfolio";
+  asset_class_weights?: Record<string, number>;
+  geography_weights?: Record<string, number>;
 };
 
 export type AllocationDelta = {
@@ -102,12 +107,19 @@ export type LinkRecommendation = {
   }>;
   current_comparison: {
     missing_holdings: boolean;
+    status: "mapped" | "partially_mapped" | "unmapped" | "no_holdings" | "cash_or_pending";
+    reason: string;
     expected_return: number | null;
     volatility: number | null;
     allocations: Allocation[];
     deltas: AllocationDelta[];
+    holdings_diagnostics: Array<Record<string, unknown>>;
+    unmapped_holdings: Array<Record<string, unknown>>;
+    warnings: string[];
   };
   drift_flags: string[];
+  warnings: string[];
+  explanation: Record<string, unknown>;
   advisor_summary: string;
   technical_trace: Record<string, unknown>;
 };
@@ -138,6 +150,7 @@ export type EngineOutput = {
   }>;
   advisor_summary: string;
   technical_trace: Record<string, unknown>;
+  run_manifest: Record<string, unknown>;
   warnings: string[];
   audit_trace: {
     model_version: string;
@@ -150,13 +163,18 @@ export type EngineOutput = {
 export type PortfolioRunSummary = {
   id: number;
   external_id: string;
-  status: "current" | "stale";
-  stale_reason: string;
+  status: "current" | "superseded" | "declined" | "invalidated" | "hash_mismatch";
+  as_of_date: string;
   cma_snapshot_id: string;
   engine_version: string;
   advisor_summary: string;
   input_hash: string;
   output_hash: string;
+  cma_hash: string;
+  reviewed_state_hash: string;
+  approval_snapshot_hash: string;
+  run_signature: string;
+  warnings: string[];
   generated_by_email: string;
   created_at: string;
 };
@@ -172,6 +190,17 @@ export type PortfolioRun = PortfolioRunSummary & {
     expected_return: string;
     volatility: string;
     allocations: Allocation[];
+    current_comparison: LinkRecommendation["current_comparison"];
+    explanation: Record<string, unknown>;
+    warnings: string[];
+  }>;
+  events: Array<{
+    event_type: string;
+    actor: string;
+    reason_code: string;
+    note: string;
+    metadata: Record<string, unknown>;
+    created_at: string;
   }>;
 };
 
@@ -195,13 +224,42 @@ export type CMASnapshot = {
     optimizer_eligible: boolean;
     is_whole_portfolio: boolean;
     display_order: number;
+    aliases: string[];
     asset_class_weights: Record<string, number>;
+    geography_weights: Record<string, number>;
     tax_drag: Record<string, number>;
   }>;
   correlations: Array<{
     row_fund_id: string;
     col_fund_id: string;
     correlation: string;
+  }>;
+};
+
+export type PortfolioAuditExport = {
+  schema_version: "portfolio_run_audit_export.v2";
+  run_id: string;
+  household_id: string;
+  status: PortfolioRunSummary["status"];
+  verification: {
+    ok: boolean;
+    checks: Record<string, boolean>;
+    stored_hashes: Record<string, string>;
+    actual_hashes: Record<string, string>;
+  };
+  hashes: Record<string, string>;
+  manifest: Record<string, unknown>;
+  diagnostics: {
+    warnings: string[];
+    recommendations: Array<Record<string, unknown>>;
+  };
+  lifecycle_events: Array<{
+    event_type: string;
+    actor: string;
+    reason_code: string;
+    note: string;
+    metadata: Record<string, unknown>;
+    created_at: string;
   }>;
 };
 
@@ -227,6 +285,9 @@ export type CmaFundPoint = {
   volatility: number;
   optimizer_eligible: boolean;
   is_whole_portfolio: boolean;
+  aliases: string[];
+  asset_class_weights: Record<string, number>;
+  geography_weights: Record<string, number>;
 };
 
 export type CmaAuditEvent = {

@@ -1,6 +1,6 @@
 {
-  "schema_version": "default_cma.v1",
-  "source_note": "Default CMA assumptions (5y returns and standard deviations)",
+  "schema_version": "default_cma.v2",
+  "source_note": "Default CMA assumptions v2 (5y returns, standard deviations, aliases, and exposure metadata)",
   "starting_price": 100.0,
   "default_periods": 15,
   "default_percentile": 30,
@@ -11,7 +11,11 @@
       "expected_return": 0.0731,
       "volatility": 0.13312,
       "optimizer_eligible": true,
-      "is_whole_portfolio": true
+      "is_whole_portfolio": true,
+      "aliases": ["builders", "builders fund", "steadyhand builders"],
+      "asset_class_weights": {"cash": 0.02, "fixed_income": 0.18, "equity": 0.8},
+      "geography_weights": {"canada": 0.45, "us": 0.3, "international": 0.25},
+      "tax_drag": {"neutral": 0}
     },
     {
       "id": "sh_equity",
@@ -19,7 +23,11 @@
       "expected_return": 0.0708,
       "volatility": 0.11058,
       "optimizer_eligible": true,
-      "is_whole_portfolio": false
+      "is_whole_portfolio": false,
+      "aliases": ["equity_fund", "equity fund", "sh equity", "sh-eq"],
+      "asset_class_weights": {"cash": 0.0, "fixed_income": 0.0, "equity": 1.0},
+      "geography_weights": {"canada": 0.75, "us": 0.15, "international": 0.1},
+      "tax_drag": {"neutral": 0}
     },
     {
       "id": "sh_founders",
@@ -27,7 +35,11 @@
       "expected_return": 0.0597,
       "volatility": 0.07434,
       "optimizer_eligible": true,
-      "is_whole_portfolio": true
+      "is_whole_portfolio": true,
+      "aliases": ["founders", "founders fund", "steadyhand founders"],
+      "asset_class_weights": {"cash": 0.05, "fixed_income": 0.4, "equity": 0.55},
+      "geography_weights": {"canada": 0.5, "us": 0.25, "international": 0.25},
+      "tax_drag": {"neutral": 0}
     },
     {
       "id": "sh_global_equity",
@@ -35,7 +47,11 @@
       "expected_return": 0.0725,
       "volatility": 0.13708,
       "optimizer_eligible": true,
-      "is_whole_portfolio": false
+      "is_whole_portfolio": false,
+      "aliases": ["global_equity_fund", "global equity fund", "sh global equity", "sh-glb"],
+      "asset_class_weights": {"cash": 0.0, "fixed_income": 0.0, "equity": 1.0},
+      "geography_weights": {"canada": 0.0, "us": 0.5, "international": 0.5},
+      "tax_drag": {"neutral": 0}
     },
     {
       "id": "sh_global_small_cap_eq",
@@ -43,7 +59,11 @@
       "expected_return": 0.0758,
       "volatility": 0.15033,
       "optimizer_eligible": true,
-      "is_whole_portfolio": false
+      "is_whole_portfolio": false,
+      "aliases": ["global small-cap equity", "global small cap equity", "small cap global"],
+      "asset_class_weights": {"cash": 0.0, "fixed_income": 0.0, "equity": 1.0},
+      "geography_weights": {"canada": 0.0, "us": 0.55, "international": 0.45},
+      "tax_drag": {"neutral": 0}
     },
     {
       "id": "sh_income",
@@ -51,7 +71,11 @@
       "expected_return": 0.0508,
       "volatility": 0.05464,
       "optimizer_eligible": true,
-      "is_whole_portfolio": false
+      "is_whole_portfolio": false,
+      "aliases": ["income_fund", "income fund", "sh income", "sh-inc"],
+      "asset_class_weights": {"cash": 0.05, "fixed_income": 0.75, "equity": 0.2},
+      "geography_weights": {"canada": 0.65, "us": 0.2, "international": 0.15},
+      "tax_drag": {"neutral": 0}
     },
     {
       "id": "sh_savings",
@@ -59,7 +83,11 @@
       "expected_return": 0.03,
       "volatility": 0.00396,
       "optimizer_eligible": true,
-      "is_whole_portfolio": false
+      "is_whole_portfolio": false,
+      "aliases": ["cash_savings", "cash savings", "cash / savings", "savings"],
+      "asset_class_weights": {"cash": 1.0, "fixed_income": 0.0, "equity": 0.0},
+      "geography_weights": {"canada": 1.0, "us": 0.0, "international": 0.0},
+      "tax_drag": {"neutral": 0}
     },
     {
       "id": "sh_small_cap_equity",
@@ -67,7 +95,11 @@
       "expected_return": 0.0692,
       "volatility": 0.16202,
       "optimizer_eligible": true,
-      "is_whole_portfolio": false
+      "is_whole_portfolio": false,
+      "aliases": ["small_cap_equity", "small cap equity", "steadyhand small cap equity"],
+      "asset_class_weights": {"cash": 0.0, "fixed_income": 0.0, "equity": 1.0},
+      "geography_weights": {"canada": 1.0, "us": 0.0, "international": 0.0},
+      "tax_drag": {"neutral": 0}
     }
   ],
   "correlation_matrix": [

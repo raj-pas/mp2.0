@@ -76,8 +76,10 @@ def _create_snapshot(data: dict) -> models.CMASnapshot:
             optimizer_eligible=bool(fund["optimizer_eligible"]),
             is_whole_portfolio=bool(fund["is_whole_portfolio"]),
             display_order=index,
-            asset_class_weights={},
-            tax_drag={"neutral": 0},
+            aliases=fund.get("aliases", []),
+            asset_class_weights=fund.get("asset_class_weights", {}),
+            geography_weights=fund.get("geography_weights", {}),
+            tax_drag=fund.get("tax_drag", {"neutral": 0}),
         )
     fund_ids = [fund["id"] for fund in data["funds"]]
     for row_index, row in enumerate(data["correlation_matrix"]):

@@ -6,6 +6,7 @@ import type {
   HouseholdDetail,
   HouseholdSummary,
   MatchCandidate,
+  PortfolioAuditExport,
   PortfolioRun,
   ReviewWorkspace,
   ReviewWorkspaceSummary,
@@ -59,6 +60,26 @@ export function generatePortfolio(id: string): Promise<PortfolioRun> {
   return request<PortfolioRun>(`/api/clients/${id}/generate-portfolio/`, {
     method: "POST",
   });
+}
+
+export function declinePortfolioRun(
+  householdId: string,
+  runId: string,
+  reason = "",
+): Promise<PortfolioRun> {
+  return request<PortfolioRun>(`/api/clients/${householdId}/portfolio-runs/${runId}/decline/`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function exportPortfolioAudit(
+  householdId: string,
+  runId: string,
+): Promise<PortfolioAuditExport> {
+  return request<PortfolioAuditExport>(
+    `/api/clients/${householdId}/portfolio-runs/${runId}/audit-export/`,
+  );
 }
 
 export function fetchCmaSnapshots(): Promise<CMASnapshot[]> {

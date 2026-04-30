@@ -1,71 +1,219 @@
 {
   "assumptions": {
-    "assumptions_hash": "95a932abeaa6ad9eaf6948b1be18c15e1b1d1aa80a2829e2881e7843087cab53",
+    "assumptions_hash": "6d2dd2db3712391f38234f02f1cf05908be510db5927f84043570297b39ce9cc",
     "eligible_fund_count": 8,
     "fund_count": 8,
     "funds": [
       {
+        "aliases": [
+          "builders",
+          "builders fund",
+          "steadyhand builders"
+        ],
+        "asset_class_weights": {
+          "cash": 0.02,
+          "equity": 0.8,
+          "fixed_income": 0.18
+        },
         "expected_return": 0.0731,
+        "geography_weights": {
+          "canada": 0.45,
+          "international": 0.25,
+          "us": 0.3
+        },
         "id": "sh_builders",
         "is_whole_portfolio": true,
         "name": "SH Builders",
         "optimizer_eligible": true,
+        "tax_drag": {
+          "neutral": 0
+        },
         "volatility": 0.13312
       },
       {
+        "aliases": [
+          "equity_fund",
+          "equity fund",
+          "sh equity",
+          "sh-eq"
+        ],
+        "asset_class_weights": {
+          "cash": 0.0,
+          "equity": 1.0,
+          "fixed_income": 0.0
+        },
         "expected_return": 0.0708,
+        "geography_weights": {
+          "canada": 0.75,
+          "international": 0.1,
+          "us": 0.15
+        },
         "id": "sh_equity",
         "is_whole_portfolio": false,
         "name": "SH Equity",
         "optimizer_eligible": true,
+        "tax_drag": {
+          "neutral": 0
+        },
         "volatility": 0.11058
       },
       {
+        "aliases": [
+          "founders",
+          "founders fund",
+          "steadyhand founders"
+        ],
+        "asset_class_weights": {
+          "cash": 0.05,
+          "equity": 0.55,
+          "fixed_income": 0.4
+        },
         "expected_return": 0.0597,
+        "geography_weights": {
+          "canada": 0.5,
+          "international": 0.25,
+          "us": 0.25
+        },
         "id": "sh_founders",
         "is_whole_portfolio": true,
         "name": "SH Founders",
         "optimizer_eligible": true,
+        "tax_drag": {
+          "neutral": 0
+        },
         "volatility": 0.07434
       },
       {
+        "aliases": [
+          "global_equity_fund",
+          "global equity fund",
+          "sh global equity",
+          "sh-glb"
+        ],
+        "asset_class_weights": {
+          "cash": 0.0,
+          "equity": 1.0,
+          "fixed_income": 0.0
+        },
         "expected_return": 0.0725,
+        "geography_weights": {
+          "canada": 0.0,
+          "international": 0.5,
+          "us": 0.5
+        },
         "id": "sh_global_equity",
         "is_whole_portfolio": false,
         "name": "SH Global Equity",
         "optimizer_eligible": true,
+        "tax_drag": {
+          "neutral": 0
+        },
         "volatility": 0.13708
       },
       {
+        "aliases": [
+          "global small-cap equity",
+          "global small cap equity",
+          "small cap global"
+        ],
+        "asset_class_weights": {
+          "cash": 0.0,
+          "equity": 1.0,
+          "fixed_income": 0.0
+        },
         "expected_return": 0.0758,
+        "geography_weights": {
+          "canada": 0.0,
+          "international": 0.45,
+          "us": 0.55
+        },
         "id": "sh_global_small_cap_eq",
         "is_whole_portfolio": false,
         "name": "SH Global Small-Cap Eq",
         "optimizer_eligible": true,
+        "tax_drag": {
+          "neutral": 0
+        },
         "volatility": 0.15033
       },
       {
+        "aliases": [
+          "income_fund",
+          "income fund",
+          "sh income",
+          "sh-inc"
+        ],
+        "asset_class_weights": {
+          "cash": 0.05,
+          "equity": 0.2,
+          "fixed_income": 0.75
+        },
         "expected_return": 0.0508,
+        "geography_weights": {
+          "canada": 0.65,
+          "international": 0.15,
+          "us": 0.2
+        },
         "id": "sh_income",
         "is_whole_portfolio": false,
         "name": "SH Income",
         "optimizer_eligible": true,
+        "tax_drag": {
+          "neutral": 0
+        },
         "volatility": 0.05464
       },
       {
+        "aliases": [
+          "cash_savings",
+          "cash savings",
+          "cash / savings",
+          "savings"
+        ],
+        "asset_class_weights": {
+          "cash": 1.0,
+          "equity": 0.0,
+          "fixed_income": 0.0
+        },
         "expected_return": 0.03,
+        "geography_weights": {
+          "canada": 1.0,
+          "international": 0.0,
+          "us": 0.0
+        },
         "id": "sh_savings",
         "is_whole_portfolio": false,
         "name": "SH Savings",
         "optimizer_eligible": true,
+        "tax_drag": {
+          "neutral": 0
+        },
         "volatility": 0.00396
       },
       {
+        "aliases": [
+          "small_cap_equity",
+          "small cap equity",
+          "steadyhand small cap equity"
+        ],
+        "asset_class_weights": {
+          "cash": 0.0,
+          "equity": 1.0,
+          "fixed_income": 0.0
+        },
         "expected_return": 0.0692,
+        "geography_weights": {
+          "canada": 1.0,
+          "international": 0.0,
+          "us": 0.0
+        },
         "id": "sh_small_cap_equity",
         "is_whole_portfolio": false,
         "name": "SH Small Cap Equity",
         "optimizer_eligible": true,
+        "tax_drag": {
+          "neutral": 0
+        },
         "volatility": 0.16202
       }
     ],
@@ -150,7 +298,7 @@
     }
   },
   "hashes": {
-    "assumptions_hash": "95a932abeaa6ad9eaf6948b1be18c15e1b1d1aa80a2829e2881e7843087cab53",
+    "assumptions_hash": "6d2dd2db3712391f38234f02f1cf05908be510db5927f84043570297b39ce9cc",
     "frontier_summary_hash": "550c95201d5c475941b27ff45ad3a284a49f89c6b693702d75b70aaea8b25875",
     "risk_score_points_hash": "35cebf11e0a46ea5a59d03172bb91ef396683232d9535b71a233547ce32fdd0b"
   },
@@ -285,7 +433,7 @@
     }
   },
   "schema_version": "optimizer_validation_pack.v1",
-  "source": "Default CMA assumptions (5y returns and standard deviations)",
+  "source": "Default CMA assumptions v2 (5y returns, standard deviations, aliases, and exposure metadata)",
   "status": "internal_validation_evidence_only",
   "warnings": [
     "Synthetic validation only.",

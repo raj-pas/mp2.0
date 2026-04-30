@@ -47,20 +47,26 @@ def test_generate_portfolio_runs_engine_and_writes_audit() -> None:
     payload = response.json()
     assert payload["status"] == "current"
     assert payload["output"]["household_id"] == "hh_sandra_mike_chen"
-    assert payload["output"]["schema_version"] == "engine_output.link_first.v1"
+    assert payload["output"]["schema_version"] == "engine_output.link_first.v2"
+    assert payload["output"]["run_manifest"]["engine_output_schema"] == (
+        "engine_output.link_first.v2"
+    )
     assert payload["output"]["link_recommendations"]
     assert payload["input_hash"]
     assert payload["output_hash"]
+    assert payload["cma_hash"]
+    assert payload["run_signature"]
     assert payload["link_recommendation_rows"]
     assert AuditEvent.objects.filter(action="portfolio_run_generated").exists()
-    assert models.PortfolioRun.objects.filter(
-        household__external_id="hh_sandra_mike_chen",
-        status=models.PortfolioRun.Status.CURRENT,
+    assert models.PortfolioRunEvent.objects.filter(
+        portfolio_run__household__external_id="hh_sandra_mike_chen",
+        event_type=models.PortfolioRunEvent.EventType.GENERATED,
     ).exists()
+    assert "unmapped_current_holdings" not in payload["output"]["warnings"]
 
 
 @pytest.mark.django_db
-def test_generate_portfolio_marks_prior_run_stale() -> None:
+def test_generate_portfolio_reuses_same_input_run() -> None:
     call_command("load_synthetic_personas")
     call_command("seed_default_cma")
     client = _authenticated_client()
@@ -70,10 +76,47 @@ def test_generate_portfolio_marks_prior_run_stale() -> None:
 
     assert first.status_code == 200
     assert second.status_code == 200
-    assert (
-        models.PortfolioRun.objects.filter(status=models.PortfolioRun.Status.CURRENT).count() == 1
+    assert models.PortfolioRun.objects.count() == 1
+    assert second.json()["external_id"] == first.json()["external_id"]
+    assert models.PortfolioRunEvent.objects.filter(
+        event_type=models.PortfolioRunEvent.EventType.REUSED
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_generate_portfolio_blocks_duplicate_current_lifecycle_state() -> None:
+    call_command("load_synthetic_personas")
+    call_command("seed_default_cma")
+    client = _authenticated_client()
+
+    first = client.post(reverse("generate-portfolio", args=["hh_sandra_mike_chen"]))
+    run = models.PortfolioRun.objects.get(external_id=first.json()["external_id"])
+    models.PortfolioRun.objects.create(
+        household=run.household,
+        cma_snapshot=run.cma_snapshot,
+        generated_by=run.generated_by,
+        as_of_date=run.as_of_date,
+        run_signature=run.run_signature,
+        input_snapshot=run.input_snapshot,
+        output=run.output,
+        input_hash=run.input_hash,
+        output_hash=run.output_hash,
+        cma_hash=run.cma_hash,
+        reviewed_state_hash=run.reviewed_state_hash,
+        approval_snapshot_hash=run.approval_snapshot_hash,
+        engine_version=run.engine_version,
+        advisor_summary=run.advisor_summary,
+        technical_trace=run.technical_trace,
     )
-    assert models.PortfolioRun.objects.filter(status=models.PortfolioRun.Status.STALE).count() == 1
+
+    response = client.post(reverse("generate-portfolio", args=["hh_sandra_mike_chen"]))
+
+    assert response.status_code == 409
+    assert "Duplicate or ambiguous" in response.json()["detail"]
+    assert models.PortfolioRunEvent.objects.filter(
+        event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
+        reason_code="ambiguous_current_lifecycle",
+    ).exists()
 
 
 @pytest.mark.django_db
@@ -101,6 +144,77 @@ def test_portfolio_run_input_snapshot_excludes_review_evidence_payloads() -> Non
     serialized = str(run.input_snapshot)
     assert "source_summary" not in serialized
     assert "field_sources" not in serialized
+    assert "evidence" not in serialized
+    assert "raw" not in serialized
+
+
+@pytest.mark.django_db
+def test_hash_mismatch_records_event_and_regenerates() -> None:
+    call_command("load_synthetic_personas")
+    call_command("seed_default_cma")
+    client = _authenticated_client()
+
+    first = client.post(reverse("generate-portfolio", args=["hh_sandra_mike_chen"]))
+    run = models.PortfolioRun.objects.get(external_id=first.json()["external_id"])
+    models.PortfolioRun.objects.filter(pk=run.pk).update(
+        output={"schema_version": "engine_output.link_first.v2", "tampered": True}
+    )
+    second = client.post(reverse("generate-portfolio", args=["hh_sandra_mike_chen"]))
+
+    assert second.status_code == 200
+    assert models.PortfolioRun.objects.count() == 2
+    assert models.PortfolioRunEvent.objects.filter(
+        portfolio_run=run,
+        event_type=models.PortfolioRunEvent.EventType.HASH_MISMATCH,
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_declined_run_regenerates_new_run() -> None:
+    call_command("load_synthetic_personas")
+    call_command("seed_default_cma")
+    client = _authenticated_client()
+
+    first = client.post(reverse("generate-portfolio", args=["hh_sandra_mike_chen"]))
+    decline = client.post(
+        reverse(
+            "portfolio-run-decline",
+            args=["hh_sandra_mike_chen", first.json()["external_id"]],
+        ),
+        {"reason": "Advisor wants a different portfolio blend."},
+        format="json",
+    )
+    second = client.post(reverse("generate-portfolio", args=["hh_sandra_mike_chen"]))
+
+    assert decline.status_code == 200
+    assert decline.json()["status"] == "declined"
+    assert second.status_code == 200
+    assert second.json()["external_id"] != first.json()["external_id"]
+    assert models.PortfolioRunEvent.objects.filter(
+        event_type=models.PortfolioRunEvent.EventType.REGENERATED_AFTER_DECLINE
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_portfolio_audit_export_is_sanitized() -> None:
+    call_command("load_synthetic_personas")
+    call_command("seed_default_cma")
+    client = _authenticated_client()
+
+    response = client.post(reverse("generate-portfolio", args=["hh_sandra_mike_chen"]))
+    export_response = client.get(
+        reverse(
+            "portfolio-run-audit-export",
+            args=["hh_sandra_mike_chen", response.json()["external_id"]],
+        )
+    )
+
+    assert export_response.status_code == 200
+    payload = export_response.json()
+    assert payload["schema_version"] == "portfolio_run_audit_export.v2"
+    assert payload["verification"]["ok"] is True
+    serialized = str(payload)
+    assert "source_summary" not in serialized
     assert "evidence" not in serialized
     assert "raw" not in serialized
 
@@ -228,8 +342,10 @@ def test_publishing_new_cma_marks_current_portfolio_runs_stale() -> None:
 
     assert generate_response.status_code == 200
     assert publish_response.status_code == 200
-    assert models.PortfolioRun.objects.get().status == models.PortfolioRun.Status.STALE
-    assert models.PortfolioRun.objects.get().stale_reason == "cma_snapshot_published"
+    assert models.PortfolioRunEvent.objects.filter(
+        event_type=models.PortfolioRunEvent.EventType.INVALIDATED_BY_CMA,
+        reason_code="cma_snapshot_published",
+    ).exists()
 
 
 @pytest.mark.django_db
@@ -248,7 +364,10 @@ def test_planning_version_creation_marks_current_run_stale() -> None:
     assert generate_response.status_code == 200
     assert planning_response.status_code == 201
     assert planning_response.json()["version"] == 1
-    assert models.PortfolioRun.objects.get().status == models.PortfolioRun.Status.STALE
+    assert models.PortfolioRunEvent.objects.filter(
+        event_type=models.PortfolioRunEvent.EventType.INVALIDATED_BY_HOUSEHOLD_CHANGE,
+        reason_code="planning_version_created",
+    ).exists()
     assert AuditEvent.objects.filter(action="planning_version_created").exists()
 
 

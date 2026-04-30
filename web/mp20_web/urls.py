@@ -25,6 +25,16 @@ urlpatterns = [
         name="portfolio-run-list",
     ),
     path(
+        "api/clients/<str:household_id>/portfolio-runs/<str:run_id>/decline/",
+        views.PortfolioRunDeclineView.as_view(),
+        name="portfolio-run-decline",
+    ),
+    path(
+        "api/clients/<str:household_id>/portfolio-runs/<str:run_id>/audit-export/",
+        views.PortfolioRunAuditExportView.as_view(),
+        name="portfolio-run-audit-export",
+    ),
+    path(
         "api/clients/<str:household_id>/planning-versions/",
         views.PlanningVersionListView.as_view(),
         name="planning-version-list",

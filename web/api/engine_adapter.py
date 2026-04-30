@@ -86,6 +86,8 @@ def _account_to_engine(account: models.Account) -> Account:
         else None,
         contribution_history=account.contribution_history,
         is_held_at_purpose=account.is_held_at_purpose,
+        missing_holdings_confirmed=account.missing_holdings_confirmed,
+        cash_state=account.cash_state,
     )
 
 
@@ -101,6 +103,7 @@ def _goal_to_engine(goal: models.Goal) -> Goal:
         contribution_plan=goal.contribution_plan,
         account_allocations=[
             GoalAccountLink(
+                id=link.external_id,
                 goal_id=link.goal.external_id,
                 account_id=link.account.external_id,
                 allocated_amount=_float(link.allocated_amount)
@@ -148,7 +151,9 @@ def to_engine_cma(snapshot: models.CMASnapshot) -> CMASnapshot:
                 volatility=_float(fund.volatility),
                 optimizer_eligible=fund.optimizer_eligible,
                 is_whole_portfolio=fund.is_whole_portfolio,
+                aliases=fund.aliases,
                 asset_class_weights=fund.asset_class_weights,
+                geography_weights=fund.geography_weights,
                 tax_drag=fund.tax_drag,
             )
             for fund in funds
@@ -185,6 +190,7 @@ def committed_construction_snapshot(household: models.Household) -> dict:
                 "regulatory_risk_rating": account.regulatory_risk_rating,
                 "is_held_at_purpose": account.is_held_at_purpose,
                 "missing_holdings_confirmed": account.missing_holdings_confirmed,
+                "cash_state": account.cash_state,
                 "holdings": [
                     {
                         "sleeve_id": holding.sleeve_id,
@@ -210,6 +216,8 @@ def committed_construction_snapshot(household: models.Household) -> dict:
                 "goal_risk_score": goal.goal_risk_score,
                 "account_allocations": [
                     {
+                        "id": link.external_id,
+                        "goal_id": link.goal.external_id,
                         "account_id": link.account.external_id,
                         "allocated_amount": (
                             str(link.allocated_amount)

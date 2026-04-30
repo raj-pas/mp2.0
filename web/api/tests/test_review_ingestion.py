@@ -588,9 +588,10 @@ def test_commit_requires_engine_ready_and_creates_household(tmp_path, settings) 
     generate_response = client.post(reverse("generate-portfolio", args=[household_id]), {})
 
     assert generate_response.status_code == 200
-    assert models.PortfolioRun.objects.filter(
-        household__external_id=household_id,
-        status=models.PortfolioRun.Status.CURRENT,
+    assert models.PortfolioRun.objects.filter(household__external_id=household_id).exists()
+    assert models.PortfolioRunEvent.objects.filter(
+        portfolio_run__household__external_id=household_id,
+        event_type=models.PortfolioRunEvent.EventType.GENERATED,
     ).exists()
 
     second_response = client.post(
