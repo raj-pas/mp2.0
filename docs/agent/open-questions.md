@@ -107,4 +107,5 @@ a future implementation session can address.
 | 5 | `integrations/croesus/client.py` returns mock 40/60 holdings | `integrations/croesus/client.py:4-22` | Canon-aligned for now (canon §9.4.3 file-drop in MVP); replace when canon Q9 advances. |
 | 6 | `integrations/{conquest,custodian,pdf_render}/` are empty `__init__.py` | `integrations/{conquest,custodian,pdf_render}/` | Canon Part 10 placeholders; not blocking. |
 | 7 | `tax_drag_version="neutral_tax_drag.v1"` stub on CMASnapshot | `engine/schemas.py:179` | Canon §4.5 says zero drags acceptable for v1; canon-aligned. |
-| 8 | Engine boundary purity has no CI grep-check | engine/* | Verified clean by hand 2026-04-30; worth-adding CI check (Phase B). |
+| 8 | Engine boundary purity has no CI grep-check | engine/* | **Resolved 2026-04-30 R0** — `engine/tests/test_engine_purity.py` enforces; runs in pytest. |
+| 9 | External-holdings risk-tolerance dampener (canon §4.6a) not implemented | `engine/risk_profile.py` (docstring TODO) | **Deferred to Phase B per 2026-04-30 plan locked decision #11.** v36 mockup itself does not implement the dampener; it applies a projection-time penalty (μ × 0.85, σ × 1.15 for external) which is implemented in `engine/projections.py`. Awaits team-confirmed dampener formula. |

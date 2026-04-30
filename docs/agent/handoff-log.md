@@ -294,3 +294,74 @@
   `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run python web/manage.py makemigrations --check --dry-run`,
   `npm run build`, and
   `PLAYWRIGHT_BASE_URL=http://localhost:5173 npm run e2e:synthetic`.
+
+## 2026-04-30 — UI/UX Rewrite Phase R0 (engine layer) Started
+
+- Plan approved at `~/.claude/plans/i-want-you-to-rosy-mccarthy.md` after 9
+  rounds of focused interviewing (39 locked decisions). Branch
+  `feature/ux-rebuild` cut from `main`.
+- Five new pure engine modules added (canon §9.4.2 boundary preserved —
+  `engine/tests/test_engine_purity.py` AST-scans every engine .py and
+  enforces no imports of web/extraction/integrations/django/rest_framework):
+  - `engine/risk_profile.py` — household profile composition (T/C/anchor)
+    with configurable Q1-Q4 score constants. Maps to canon-aligned 5-band
+    descriptors (locked decision #5: Cautious / Conservative-balanced /
+    Balanced / Balanced-growth / Growth-oriented). Hayes worked-example
+    parity test: Q1=5, Q2=B, Q3=1, Q4=B → T=45, C=50, profile=Balanced,
+    anchor=22.5.
+  - `engine/goal_scoring.py` — Goal_50 derivation (anchor + impShift +
+    sizeShift), horizon cap, override-aware effective resolution.
+    **Goal_50 is internal only per locked decision #6**; API surface
+    returns canon 1-5 + descriptor + flags. Configurable IMP_SHIFT,
+    SIZE_SHIFT_TABLE, NECESSITY_TO_TIER constants per locked decision #10.
+    GoalRiskOverride model operates at canon 1-5 + descriptor with
+    required min-10-char rationale. Hayes Retirement worked-example
+    parity (Goal_50=6 → canon Cautious) + Choi Travel (Goal_50=28 →
+    Balanced).
+  - `engine/projections.py` — equity/mu/sigma curves, lognormal quantiles +
+    means + probability-above-target, tier-aware percentile bands (Need
+    P10/P90, Want P5/P95, Wish P2.5/P97.5). External holdings drift
+    penalty (mu × 0.85, sigma × 1.15). Acklam inverse-normal for
+    quantiles; math.erf for CDF.
+  - `engine/moves.py` — rebalance moves with $100 rounding + residual
+    absorbed into largest deficit-side move so total_buy == total_sell
+    exactly. Skip threshold $50. Choi Education worked-example parity.
+  - `engine/collapse.py` — FoF match scorer per canon §4.3b. Computes
+    asset-class composition of a building-block blend; matches against
+    whole-portfolio funds via 1 - L1/2; threshold default 0.92.
+- `engine/sleeves.py` updated to v36 8-fund universe (locked decision #3 —
+  hybrid): added Founders + Builders Sleeve entries; added
+  SLEEVE_REF_POINTS calibration table at scores 5/15/25/35/45/50 (sums to
+  100 each); added SLEEVE_COLOR_HEX (paper/ink/gold/copper/etc per
+  mockup) and FUND_NAMES.
+- `engine/__init__.py` re-exports new modules.
+- External-holdings risk-tolerance dampener (canon §4.6a) deferral
+  documented in 4 places per locked decision #11: docstring TODO at top
+  of `engine/risk_profile.py`; row #9 in `docs/agent/open-questions.md`
+  "Code Drift vs Canon"; entry in `docs/agent/decisions.md` Deferred
+  section; item #9 in memory `project_codebase_drift_signals.md`.
+  Projection-time penalty IS implemented (mu × 0.85 / sigma × 1.15 for
+  external); the risk-score dampener stays a Phase B work item awaiting
+  team-confirmed formula.
+- Engine purity CI grep-check (canon drift item #8) RESOLVED — added
+  `engine/tests/test_engine_purity.py` enforcing the boundary at every
+  engine .py file via AST import scan. Replaces the prior
+  enforced-by-convention posture.
+- Engine R0 verification passed:
+  - `uv run ruff check .` — All checks passed
+  - `uv run ruff format --check .` — 100 files already formatted
+  - `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run python -m pytest engine/tests/ -q`
+    — **216 passed** (parity tests for Hayes risk profile + Hayes
+    Retirement + Choi Travel + Choi Education + Thompson Retirement; 8-fund
+    universe sums; engine purity boundary).
+- **R0 still pending**: frontend foundation (design tokens, self-hosted
+  fonts, shadcn CLI scaffold, TS strict, ESLint, Prettier, i18n, a11y),
+  backend plumbing (drf-spectacular, django-csp, mypy strict, security
+  headers), `scripts/check-vocab.sh`, CI workflow updates, full
+  per-phase gate suite green, R0 final commit + memory cadence.
+- DB reset (`scripts/reset-v2-dev.sh --yes`) deferred until migrations +
+  new fixture exist; will run before backend plumbing requires it.
+- Branch state: `feature/ux-rebuild`, all engine work uncommitted.
+  Working tree clean from a Python tests perspective; ready for either
+  (a) commit-as-checkpoint and continue, or (b) keep going to final R0
+  commit.

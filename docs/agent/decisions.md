@@ -145,3 +145,24 @@ authoritative when more detail is needed.
 - CI PII scanners and encryption-posture validation.
 - Real Croesus, Conquest, custodian, or LLM integrations.
 - Audit browser UI.
+- External-holdings risk-tolerance dampener (canon §4.6a) — deferred to
+  Phase B per 2026-04-30 plan locked decision #11. The v36 mockup itself
+  does not implement the dampener; it applies a projection-time penalty
+  (μ × 0.85, σ × 1.15 for external) which is implemented in
+  `engine/projections.py`. Awaits team-confirmed dampener formula.
+
+## R0 (UI/UX rewrite, 2026-04-30)
+
+- Cut `feature/ux-rebuild` from `main` for the rewrite.
+- Five new pure engine modules added: `risk_profile.py`, `goal_scoring.py`,
+  `projections.py`, `moves.py`, `collapse.py`. All pure Pydantic; canon
+  §9.4.2 boundary preserved (`engine/tests/test_engine_purity.py` enforces).
+- v36 8-fund universe (locked decision #3): `engine/sleeves.py` updated to
+  include Founders + Builders + `SLEEVE_REF_POINTS` calibration table +
+  display colors and names. Fixture already 8-fund.
+- Locked decision #6: Goal_50 is internal engine intermediate only; API
+  surface returns canon 1-5 + descriptor + flags.
+- Locked decision #5: canon-aligned client-facing labels
+  (Cautious / Conservative-balanced / Balanced / Balanced-growth /
+  Growth-oriented) used everywhere; mockup labels retired.
+- 216 engine parity + property + purity tests passing.
