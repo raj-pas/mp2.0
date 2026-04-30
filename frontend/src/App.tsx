@@ -1,71 +1,222 @@
 /**
- * Holding shell for the v36 UI/UX rewrite (Phase R0).
+ * v36 advisor console shell — Phase R2 chrome.
  *
- * Structure pending across R2–R9 phases:
- *   R2 — TopBar + Stage + ContextPanel chrome (BrowserRouter)
- *   R3 — HouseholdRoute + AccountRoute + GoalRoute + Treemap
- *   R4 — Goal allocation + projections + optimizer output + moves
- *   R5 — HouseholdWizard (5-step fallback)
- *   R6 — Realignment + Compare + History
- *   R7 — Doc-drop + Conflict resolution (replaces ReviewShell)
- *   R8 — Methodology overlay
- *   R9 — CMA Workbench rebuild (analyst-only)
- *   R10 — Real-PII testing + parity sweep + final polish
- *
- * Per locked decision #20 (no feature flag), the old App.tsx /
- * ReviewShell / CmaWorkbench surfaces are deleted in this phase rather
- * than coexisting; future phases progressively populate this shell.
- *
- * TODO(canon §13.0.1): pilot-mode disclaimer surface deferred to
- * iterative scope per locked decision #17. Add ribbon under topbar or
- * per-recommendation footer when finalized.
+ * BrowserRouter + auth gate + topbar + per-route ErrorBoundary
+ * (locked decision #31a). Stage content is empty in R2; R3 fills
+ * HouseholdRoute / AccountRoute / GoalRoute with the three-view stage.
  */
+import { useEffect, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { cn } from "./lib/cn";
+import { ContextPanel, type ContextPanelKind } from "./ctx-panel/ContextPanel";
+import { TopBar } from "./chrome/TopBar";
+import { useRememberedClientId } from "./chrome/ClientPicker";
+import { type GroupByMode } from "./chrome/ModeToggle";
+import { useLocalStorage } from "./lib/local-storage";
+import { isAdvisorRole, isAnalystRole, useSession, type SessionUser } from "./lib/auth";
+import { AccountRoute } from "./routes/AccountRoute";
+import { CmaRoute } from "./routes/CmaRoute";
+import { GoalRoute } from "./routes/GoalRoute";
+import { HouseholdRoute } from "./routes/HouseholdRoute";
+import { LoginRoute } from "./routes/LoginRoute";
+import { MethodologyRoute } from "./routes/MethodologyRoute";
+import { ReviewRoute } from "./routes/ReviewRoute";
 
 function App() {
+  return (
+    <BrowserRouter>
+      <SessionGate />
+    </BrowserRouter>
+  );
+}
+
+function SessionGate() {
   const { t } = useTranslation();
+  const session = useSession();
+
+  if (session.isPending) {
+    return <FullScreenStatus tone="muted" message={t("auth.checking")} role="status" />;
+  }
+
+  if (session.isError) {
+    return <FullScreenStatus tone="danger" message={t("empty.backend_unavailable")} role="alert" />;
+  }
+
+  if (!session.data?.authenticated) {
+    return <LoginRoute />;
+  }
+
+  const user = session.data.user;
+  const role = user.role;
+
+  if (isAdvisorRole(role) || isAnalystRole(role)) {
+    return <AuthenticatedShell role={role as "advisor" | "financial_analyst"} user={user} />;
+  }
+  return <FullScreenStatus tone="danger" message={t("auth.role_unsupported")} role="alert" />;
+}
+
+function FullScreenStatus({
+  tone,
+  message,
+  role,
+}: {
+  tone: "muted" | "danger";
+  message: string;
+  role: "status" | "alert";
+}) {
+  const className =
+    tone === "danger"
+      ? "font-mono text-[10px] uppercase tracking-widest text-danger"
+      : "font-mono text-[10px] uppercase tracking-widest text-muted";
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-paper">
+      <p role={role} className={className}>
+        {message}
+      </p>
+    </div>
+  );
+}
+
+function AuthenticatedShell({
+  role,
+  user,
+}: {
+  role: "advisor" | "financial_analyst";
+  user: SessionUser;
+}) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [rememberedId, setRememberedId] = useRememberedClientId();
+  const [groupBy, setGroupBy] = useLocalStorage<GroupByMode>("mp20_group_by", "by-account");
+
+  // Analysts only see CMA — bounce root → /cma on first paint.
+  useEffect(() => {
+    if (role === "financial_analyst" && location.pathname === "/") {
+      navigate("/cma", { replace: true });
+    }
+  }, [role, location.pathname, navigate]);
+
+  const showClientControls = role === "advisor";
 
   return (
-    <ErrorBoundary>
-      <div className="flex min-h-screen flex-col bg-paper text-ink">
-        <header
-          className={cn(
-            "flex h-12 flex-shrink-0 items-center gap-4 border-b border-hairline-2 bg-paper px-5 shadow-sm",
-          )}
-        >
-          <div className="flex items-center gap-2">
-            <div className="grid h-6 w-6 place-items-center bg-ink font-serif text-sm italic font-semibold text-paper">
-              M
-            </div>
-            <div>
-              <span className="font-serif text-sm font-medium tracking-tight text-ink">
-                {t("topbar.brand")}
-              </span>
-              <span className="ml-2 font-mono text-[9px] uppercase tracking-widest text-muted">
-                {t("topbar.brand_subtitle")}
-              </span>
-            </div>
-          </div>
-          <div className="flex-1" />
-        </header>
-
-        <main className="flex flex-1 flex-col items-center justify-center p-12">
-          <div className="max-w-2xl text-center">
-            <p className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted">
-              {t("scaffold.phase_label")}
-            </p>
-            <h1 className="font-serif text-4xl font-medium tracking-tight text-ink">
-              {t("scaffold.title")}
-            </h1>
-            <p className="mt-4 text-sm leading-relaxed text-muted">{t("scaffold.description")}</p>
-          </div>
-        </main>
+    <div className="flex min-h-screen flex-col bg-paper text-ink">
+      <TopBar
+        selectedClientId={rememberedId}
+        onSelectClient={(id) => {
+          setRememberedId(id);
+          navigate("/");
+        }}
+        groupBy={groupBy}
+        onChangeGroupBy={setGroupBy}
+        user={{ name: user.name, role: user.role }}
+        showClientControls={showClientControls}
+      />
+      <div className="flex flex-1 overflow-hidden">
+        <RouteHost role={role} />
       </div>
+    </div>
+  );
+}
+
+function RouteHost({ role }: { role: "advisor" | "financial_analyst" }) {
+  const isAdvisor = role === "advisor";
+  return (
+    <Routes>
+      <Route
+        path="/"
+        element={
+          isAdvisor ? (
+            <StageWithContext kind="household">
+              <HouseholdRoute />
+            </StageWithContext>
+          ) : (
+            <Navigate to="/cma" replace />
+          )
+        }
+      />
+      <Route
+        path="/account/:accountId"
+        element={
+          isAdvisor ? (
+            <StageWithContext kind="account">
+              <AccountRoute />
+            </StageWithContext>
+          ) : (
+            <Navigate to="/cma" replace />
+          )
+        }
+      />
+      <Route
+        path="/goal/:goalId"
+        element={
+          isAdvisor ? (
+            <StageWithContext kind="goal">
+              <GoalRoute />
+            </StageWithContext>
+          ) : (
+            <Navigate to="/cma" replace />
+          )
+        }
+      />
+      <Route
+        path="/review"
+        element={
+          isAdvisor ? (
+            <RouteFrame scope="review">
+              <ReviewRoute />
+            </RouteFrame>
+          ) : (
+            <Navigate to="/cma" replace />
+          )
+        }
+      />
+      <Route
+        path="/cma"
+        element={
+          <RouteFrame scope="cma">
+            <CmaRoute />
+          </RouteFrame>
+        }
+      />
+      <Route
+        path="/methodology"
+        element={
+          <RouteFrame scope="methodology">
+            <MethodologyRoute />
+          </RouteFrame>
+        }
+      />
+      <Route path="*" element={<Navigate to={isAdvisor ? "/" : "/cma"} replace />} />
+    </Routes>
+  );
+}
+
+function StageWithContext({ kind, children }: { kind: ContextPanelKind; children: ReactNode }) {
+  const breadcrumb = useMemo(() => buildBreadcrumb(kind), [kind]);
+  return (
+    <RouteFrame scope={kind}>
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 flex-col overflow-hidden">{children}</div>
+        <ContextPanel kind={kind} breadcrumb={breadcrumb} />
+      </div>
+    </RouteFrame>
+  );
+}
+
+function RouteFrame({ scope, children }: { scope: string; children: ReactNode }) {
+  return (
+    <ErrorBoundary scope={scope}>
+      <div className="flex flex-1 overflow-hidden">{children}</div>
     </ErrorBoundary>
   );
+}
+
+function buildBreadcrumb(kind: ContextPanelKind): string[] {
+  if (kind === "household") return ["Household"];
+  if (kind === "account") return ["Household", "Account"];
+  return ["Household", "Account", "Goal"];
 }
 
 export default App;

@@ -151,6 +151,42 @@ authoritative when more detail is needed.
   (μ × 0.85, σ × 1.15 for external) which is implemented in
   `engine/projections.py`. Awaits team-confirmed dampener formula.
 
+## R2 (UI/UX rewrite, 2026-04-30)
+
+- Frontend chrome shipped: TopBar (BrandMark + ClientPicker + ModeToggle
+  + Report + Methodology + UserChip with logout), ContextPanel (Radix
+  Tabs with per-kind tab definitions, collapse-to-rail mode persisted
+  to localStorage), six empty route placeholders, LoginRoute.
+- BrowserRouter + role-based routing: advisors land at `/` (HouseholdRoute),
+  financial_analysts auto-redirect to `/cma`. Per-route ErrorBoundary
+  via RouteFrame component (locked decision #31a).
+- shadcn-pattern primitives in `frontend/src/components/ui/`: Button
+  (cva variants: default/outline/ghost/toggle/link/destructive),
+  Skeleton (paper-2 shimmer), Toaster wrapping Sonner with paper/ink
+  toast classNames (locked decision #21).
+- Lucide icons replace decorative unicode glyphs (⌂ ⚡ ∑ ▼ ‹ ›) to
+  satisfy `eslint-plugin-i18next/no-literal-string` (locked decision
+  #28a) without polluting i18n catalogs.
+- Lib helpers added: `api.ts` (CSRF-aware fetch wrapper),
+  `auth.ts` (useSession/useLogin/useLogout), `clients.ts` (useClients),
+  `debounce.ts` (useDebouncedValue), `format.ts` (CAD currency +
+  compact + percent), `local-storage.ts` (typed prefs hook — strict
+  no-PII discipline per locked decision #32b), `toast.ts`,
+  `api-error.ts`.
+- New `e2e/foundation.spec.ts` covers chrome smoke (login → topbar →
+  household stage → methodology nav → analyst-to-CMA bounce). Replaces
+  the deleted legacy `synthetic-review.spec.ts` /
+  `portfolio-cma.spec.ts` which targeted the old App.tsx shell
+  (rebuilt at R7 / R9 per the plan); `package.json` `e2e:synthetic`
+  script repointed.
+- i18n keys added under `topbar.*`, `ctx.*`, `routes.*`, plus
+  `auth.role_unsupported` and `scaffold.phase_label_r2`. fr.json
+  remains placeholder (locked decision #12).
+- Locked decision #20 honored: no feature flag — old App.tsx
+  is fully replaced, no two-shell coexistence.
+- Locked decision #2 honored: chrome triggers all data via
+  TanStack Query; no client-side computation duplication.
+
 ## R1 (UI/UX rewrite, 2026-04-30)
 
 - 4 new Django models added (`web/api/models.py` + `0008_v36_ui_models.py`):

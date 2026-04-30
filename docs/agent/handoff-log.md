@@ -634,3 +634,121 @@ audit per locked decisions #30 + #37)**
   tests use ad-hoc fixtures within pytest-django transactions.
 - Phase B work (MFA, lockout, password reset, audit browser UI) per
   locked decisions and parking lot.
+
+## 2026-04-30 — Phase R2 frontend chrome COMPLETE
+
+**Branch:** `feature/ux-rebuild` (commit pending)
+**Phase:** R2 — Frontend chrome (TopBar + ContextPanel + BrowserRouter + auth)
+**Status:** ✅ All R2 gates green; ready for R3
+
+### Scope landed
+
+- `frontend/src/chrome/` — TopBar, BrandMark, ClientPicker (Radix
+  Popover + searchable list), ModeToggle (group-by-account|goal),
+  UserChip (with logout mutation), EmptyStage placeholder.
+- `frontend/src/ctx-panel/ContextPanel.tsx` — Radix Tabs panel with
+  per-kind tab definitions (household: overview/allocation/projections/
+  history; account: overview/allocation/goals; goal: overview/
+  allocation/projections), collapse-to-rail mode persisted in
+  localStorage, breadcrumb header with Lucide ChevronRight separators.
+- `frontend/src/routes/` — six empty route placeholders
+  (HouseholdRoute, AccountRoute, GoalRoute, ReviewRoute, CmaRoute,
+  MethodologyRoute) + LoginRoute (react-hook-form-free for now —
+  simple controlled inputs since wizard's full RHF stack lands R5).
+- `frontend/src/components/ui/` — shadcn-pattern primitives (Button
+  via cva variants, Skeleton, Toaster wrapping Sonner). Tailwind
+  + Radix + cva stack matches locked decision #12 / #21 / #22.
+- `frontend/src/lib/` — api.ts (CSRF-aware fetch wrapper),
+  auth.ts (useSession/useLogin/useLogout TanStack Query hooks),
+  clients.ts (useClients), debounce.ts (useDebouncedValue),
+  format.ts (CAD currency + compact + percent), local-storage.ts
+  (typed prefs hook — no PII), toast.ts (Sonner wrapper),
+  api-error.ts (normalize ApiError → {status,message,code}).
+- `frontend/src/App.tsx` — full rewrite. BrowserRouter +
+  SessionGate + AuthenticatedShell + RouteHost. Role-based routing:
+  advisors land at `/` (HouseholdRoute), financial_analysts auto-
+  redirected to `/cma`. Per-route ErrorBoundary scoping per locked
+  decision #31a.
+- `frontend/src/main.tsx` — added `<Toaster />` next to `<App />`
+  inside QueryClientProvider for app-wide Sonner toasts.
+- `frontend/src/i18n/en.json` — added `topbar.*`, `ctx.*`, `routes.*`,
+  `auth.role_unsupported`, `scaffold.phase_label_r2` keys. fr.json
+  remains the placeholder per locked decision #12.
+- `frontend/e2e/foundation.spec.ts` — new R2 chrome smoke spec:
+  advisor lands on household stage; methodology nav works; analyst
+  routes to /cma. Replaces the deleted `synthetic-review.spec.ts`
+  and `portfolio-cma.spec.ts` (which targeted the old shell deleted
+  in R0; both get rewritten in R7 / R9 per the plan).
+- `frontend/package.json` — `e2e:synthetic` script repointed to
+  `e2e/foundation.spec.ts`.
+
+### Locked decisions honored in R2
+
+- #2 server roundtrip on every interaction — every chrome interaction
+  routes through TanStack Query → /api/* (no client-side state
+  duplication).
+- #5 canon-aligned client-facing labels — TopBar renders advisor
+  role + canon descriptors only; no retired mockup vocabulary.
+- #12 a11y baseline + i18n scaffolding + shadcn/ui — every component
+  uses semantic HTML, ARIA, focus-visible rings; every user-visible
+  string flows through `t()` (eslint-plugin-i18next enforces).
+- #14 vocab CI guard — green; chrome strings respect re-goaling
+  discipline.
+- #17 pilot disclaimer deferred — TopBar.tsx top-of-file TODO comment
+  references canon §13.0.1.
+- #18 latency budget + caching — TanStack Query staleTime 5min /
+  gcTime 30min already from R0; debounce hook ready for R3 sliders.
+- #20 no feature flag — old App.tsx is fully replaced; no
+  coexistence shell.
+- #21 maximalist UX state patterns — Skeleton primitive + Sonner
+  toasts + ConfirmDialog (deferred to R6 — no destructive actions
+  in R2 chrome) + i18n empty-state strings. ClientPicker has
+  skeleton-on-pending.
+- #22 type/lint/security discipline — TS strict + zero `any` (eslint
+  enforces); Python mypy strict on R0 modules; CSP headers active;
+  self-hosted fonts (download still manual per font README).
+- #28a i18n CI guard — eslint-plugin-i18next/no-literal-string
+  enforces; Lucide icons replace decorative unicode glyphs (⌂ ⚡ ∑ ▼
+  ‹ › / ) so they don't trigger the rule.
+- #31a per-route ErrorBoundary — RouteFrame wraps every route with
+  `<ErrorBoundary scope="…">`; broken Goal view leaves Household
+  + Account routes working.
+- #32a/b URL state + localStorage — selections via react-router
+  params; group-by + last-client-id + ctx-collapsed in localStorage
+  via typed `useLocalStorage` hook; no PII stored.
+
+### R2 gate verification
+
+- `uv run ruff check .` — All checks passed
+- `uv run ruff format --check .` — 106 files already formatted
+- `uv run mypy engine/risk_profile.py engine/goal_scoring.py engine/projections.py engine/moves.py engine/collapse.py engine/sleeves.py`
+  — Success: no issues found in 6 source files
+- `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run pytest`
+  — 313 passed in 31.35s (R2 adds no new Python tests; full R0+R1
+  suite remains green)
+- `python web/manage.py makemigrations --check --dry-run` — No changes
+- `python web/manage.py spectacular --validate --file /tmp/schema.yaml` — exit 0 (graceful APIView fallbacks per R0/R1 baseline)
+- `bash scripts/check-vocab.sh` — vocab CI: OK
+- `npm run typecheck` — clean (TS strict + noUncheckedIndexedAccess
+  + zero any)
+- `npm run lint` — clean (eslint-plugin-i18next + jsx-a11y +
+  react-hooks; no-explicit-any error)
+- `npm run format` — All matched files use Prettier code style
+- `npm run build` — 411.80 kB JS / 14.94 kB CSS, gzip 130.64 kB /
+  3.66 kB. Font .woff2 paths warn at build time (manual download
+  documented in `frontend/public/fonts/README.md`); browser falls
+  back to system fonts gracefully until R10 polish.
+
+### Notes for R3
+
+- `useClients()` returns `ClientSummary[]` from `/api/clients/` —
+  R3 should add a `useHousehold(id)` query for the detail surface
+  and feed treemap data via `/api/preview/treemap/` (R1-shipped).
+- ContextPanel kinds (`household`/`account`/`goal`) and tab keys
+  are defined; R3 fills the placeholders with real content panels.
+- BrandMark uses react-router-dom `Link` to "/" — works for advisors;
+  analyst auto-bounces from "/" to "/cma" via SessionGate's effect.
+- `useRememberedClientId()` already wired through TopBar →
+  ClientPicker; R3 uses it as the default `householdId` for queries
+  on first paint.
+- Debounce + format + toast helpers ready for R3 stage panels.

@@ -2,18 +2,79 @@
   "topbar": {
     "brand": "MP2.0",
     "brand_subtitle": "Advisor Console",
+    "brand_home_title": "Reset to household view",
     "logout": "Sign out",
     "user_role_advisor": "Advisor",
     "user_role_analyst": "Analyst",
     "report": "Report",
-    "methodology": "Σ Methodology"
+    "report_title": "Generate report (coming Phase 2)",
+    "methodology": "Methodology",
+    "methodology_label": "Methodology — how every score, bucket, and projection is computed",
+    "methodology_title": "Methodology overlay",
+    "home": "Home",
+    "home_label": "Reset to household view",
+    "group_by_label": "Group by",
+    "group_by_account": "Account",
+    "group_by_goal": "Goal",
+    "client_picker_label": "Select client",
+    "client_picker_placeholder": "Select a client",
+    "client_picker_search": "Search clients",
+    "client_picker_no_match": "No clients match.",
+    "client_picker_error": "Could not load clients."
   },
   "auth": {
     "login_title": "Sign in",
     "email_label": "Email",
     "password_label": "Password",
     "submit": "Sign in",
-    "checking": "Checking session…"
+    "checking": "Checking session…",
+    "generic_error": "Sign-in failed.",
+    "role_unsupported": "Your account is not configured for this console."
+  },
+  "ctx": {
+    "panel_label": "Context panel",
+    "breadcrumb_label": "Context breadcrumb",
+    "expand": "Expand context panel",
+    "collapse": "Collapse context panel",
+    "placeholder_body": "Detail content lands in subsequent phases. The chrome scaffold is in place per the approved migration plan.",
+    "kinds": {
+      "household": "Household",
+      "account": "Account",
+      "goal": "Goal"
+    },
+    "tabs": {
+      "overview": "Overview",
+      "allocation": "Allocation",
+      "projections": "Projections",
+      "history": "History",
+      "goals": "Goals"
+    }
+  },
+  "routes": {
+    "household": {
+      "placeholder_title": "Household view",
+      "placeholder_description": "Three-view stage with treemap and ring charts ships in Phase R3."
+    },
+    "account": {
+      "placeholder_title": "Account view",
+      "placeholder_description": "Account stage for {{accountId}} ships in Phase R3."
+    },
+    "goal": {
+      "placeholder_title": "Goal view",
+      "placeholder_description": "Goal stage for {{goalId}} ships in Phase R4 alongside the fan chart and rebalance moves."
+    },
+    "review": {
+      "placeholder_title": "Review queue",
+      "placeholder_description": "Doc-drop and conflict resolution surface ships in Phase R7."
+    },
+    "cma": {
+      "placeholder_title": "CMA Workbench",
+      "placeholder_description": "Analyst CMA tooling ships in Phase R9."
+    },
+    "methodology": {
+      "placeholder_title": "Methodology",
+      "placeholder_description": "Ten-section methodology overlay ships in Phase R8."
+    }
   },
   "empty": {
     "no_clients": "No clients yet. Onboard a household via doc-drop or the wizard.",
@@ -37,6 +98,7 @@
   },
   "scaffold": {
     "phase_label": "Phase R0 · Foundation",
+    "phase_label_r2": "Phase R2 · Chrome",
     "title": "v36 rewrite scaffold ready",
     "description": "Engine modules + design tokens + i18n + a11y + telemetry are wired. The advisor console (TopBar / Stage / Context Panel / three-view) lands in subsequent phases per the approved migration plan."
   },

@@ -5,6 +5,7 @@ import { I18nextProvider } from "react-i18next";
 
 import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { Toaster } from "./components/ui/toaster";
 import i18n from "./i18n";
 import "./index.css";
 
@@ -29,6 +30,7 @@ ReactDOM.createRoot(rootElement).render(
       <I18nextProvider i18n={i18n}>
         <QueryClientProvider client={queryClient}>
           <App />
+          <Toaster />
         </QueryClientProvider>
       </I18nextProvider>
     </ErrorBoundary>

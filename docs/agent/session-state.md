@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-04-30
 **Branch:** `feature/ux-rebuild` (cut from `main` for the v36 UI/UX rewrite per locked decision #9)
-**Phase:** R1 — Backend extensions **COMPLETE** (4 new models + 18 endpoints + R0 engine + audit-event regression suite)
+**Phase:** R2 — Frontend chrome **COMPLETE** (TopBar + ContextPanel + BrowserRouter + auth gate + shadcn primitives + Sonner toaster + Lucide icons + 6 empty route placeholders + R2 foundation e2e)
 **Status:** R0 lands the substrate for the v36 advisor console rewrite. Five new pure
 engine modules with 216 parity tests; engine purity AST-enforced; new R0 modules pass
 mypy strict. Backend ships drf-spectacular OpenAPI, django-csp 4.x security headers,
@@ -19,13 +19,21 @@ phase-by-phase rebuild.
 
 ## Current Goal
 
-Phases R0 + R1 of the v36 UI/UX rewrite are complete on `feature/ux-rebuild`.
-The approved migration plan at `~/.claude/plans/i-want-you-to-rosy-mccarthy.md`
-(39 locked decisions across 9 rounds) governs the rewrite. R0 laid the
-foundation (engine modules + backend plumbing + frontend foundation); R1
-adds the backend surface the new UI will call (4 new models + 18 endpoints
-+ centralized audit-event regression suite). Phase R2 (frontend chrome:
-TopBar + Stage + ContextPanel + shadcn/ui CLI scaffold) is next.
+Phases R0 + R1 + R2 of the v36 UI/UX rewrite are complete on
+`feature/ux-rebuild`. The approved migration plan at
+`~/.claude/plans/i-want-you-to-rosy-mccarthy.md` (39 locked decisions
+across 9 rounds) governs the rewrite. R0 laid the foundation (engine
+modules + backend plumbing + frontend foundation); R1 added the backend
+surface the new UI will call (4 new models + 18 endpoints + centralized
+audit-event regression suite); R2 ships the chrome — TopBar
+(brand + client picker + group-by toggle + report + methodology + user
+chip), per-route ErrorBoundary, BrowserRouter with role-based routing
+(advisor → `/`, financial_analyst → `/cma`), ContextPanel with Radix
+Tabs + collapse-to-rail, six empty route placeholders, login surface,
+shadcn/Radix primitives (Button/Skeleton/Sonner Toaster), Lucide icons,
+and a new `e2e/foundation.spec.ts` covering chrome smoke. Phase R3
+(three-view stage: HouseholdRoute treemap + AccountRoute + GoalRoute
+hero + ring charts) is next.
 
 Pre-R0, the `main` branch already shipped the canon v2.7 portfolio v2 stack:
 
