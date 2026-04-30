@@ -8,11 +8,12 @@ import { apiFetch } from "./api";
  * `HouseholdListSerializer` on the backend.
  */
 export type ClientSummary = {
-  external_id: string;
-  name: string;
-  total_aum?: number | null;
-  goal_count?: number;
-  account_count?: number;
+  id: string;
+  display_name: string;
+  household_type: string;
+  household_risk_score: number | null;
+  goal_count: number;
+  total_assets: number;
 };
 
 export const CLIENTS_QUERY_KEY = ["clients"] as const;

@@ -752,3 +752,156 @@ audit per locked decisions #30 + #37)**
   ClientPicker; R3 uses it as the default `householdId` for queries
   on first paint.
 - Debounce + format + toast helpers ready for R3 stage panels.
+
+## 2026-04-30 — Phase R3 three-view stage COMPLETE
+
+**Branch:** `feature/ux-rebuild` (commit pending)
+**Phase:** R3 — Three-view stage (treemap + KPI surfaces + ring charts + populated ctx panel)
+**Status:** ✅ All R3 gates green; ready for R4
+
+### Scope landed
+
+- `frontend/src/lib/household.ts` — full type surface mirroring
+  `HouseholdDetailSerializer` + helpers (`useHousehold`, `findGoal`,
+  `findAccount`, `householdInternalAum`, `findLinkRecommendation`).
+- `frontend/src/lib/treemap.ts` — `useTreemap(householdId, mode)` query
+  hook + `colorForNode()` palette mapper for fund/asset/account/goal
+  modes, with safe `noUncheckedIndexedAccess`-friendly fallbacks.
+- `frontend/src/lib/risk.ts` — canon 1-5 risk helpers
+  (`RISK_DESCRIPTOR_KEYS`, `BUCKET_COLORS`, `isCanonRisk`,
+  `descriptorFor`). Locked decision #5 vocabulary enforced.
+- `frontend/src/lib/clients.ts` — `ClientSummary` shape corrected
+  to match the existing `HouseholdListSerializer` payload (`id`,
+  `display_name`, `total_assets`, `goal_count`,
+  `household_risk_score`, `household_type`).
+- `frontend/src/treemap/Treemap.tsx` — squarified d3-hierarchy layout
+  rendered via SVG. ResizeObserver-driven; accessible (each cell is a
+  button when `onSelect` is wired; aria-labels with $ value); paper-2
+  background; Inter Tight + Fraunces text inside cells; truncation
+  proportional to cell width. Click + Enter/Space drill into target.
+- `frontend/src/charts/RingChart.tsx` — Chart.js doughnut wrapper
+  with paper-cream cutout + center-label slot for AUM.
+- `frontend/src/charts/AllocationBars.tsx` — pure-CSS horizontal bars
+  for top-funds breakdowns (no Chart.js needed; tighter bundle).
+- `frontend/src/charts/RiskBandTrack.tsx` — read-only 5-band canon
+  marker (locked decision #6). Active band highlighted, inactive
+  bands at 40% opacity, optional dashed `baselineScore` ghost
+  marker. role="meter" + aria-valuemin/max/now/text. R4 will wrap
+  this in the interactive RiskSlider with override rationale.
+- `frontend/src/routes/HouseholdRoute.tsx` — AUM split strip (Total /
+  internal Steadyhand / external) + canon descriptor stat + goal
+  count + treemap stage. Treemap mode driven by topbar group-by
+  ("by-account" | "by-goal") via `topbarToTreemapMode()` shim.
+  Click-to-drill navigates to `/account/:id` or `/goal/:id`.
+- `frontend/src/routes/AccountRoute.tsx` — 4-tile KPI strip (value /
+  type / goals-in-account count / cash state) + RingChart of
+  fund composition + top-funds AllocationBars + goals-in-account
+  list with clickable navigation to goal route. ChevronLeft "back
+  to household" affordance.
+- `frontend/src/routes/GoalRoute.tsx` — header with goal name + tier
+  pill (Need / Want / Wish / Unsure derived from
+  `necessity_score`); 4 KPI tiles (target / funded / horizon /
+  goal-risk-with-RiskBandTrack); linked-accounts list (account_id +
+  $); blended-view placeholder noting R4 scope.
+- `frontend/src/ctx-panel/HouseholdContext.tsx` — populates
+  household ctx-panel tabs: overview (display_name + type + total
+  AUM + risk descriptor + members), allocation (FundMixStack with
+  stacked bar + top-8 fund table), projections (R4 deferred
+  placeholder), history (R6 deferred placeholder).
+- `frontend/src/ctx-panel/AccountContext.tsx` — overview (type +
+  current_value + reg objective/horizon if set), allocation (top-8
+  funds), goals (goals-in-this-account list).
+- `frontend/src/ctx-panel/GoalContext.tsx` — overview (name + target
+  + funded + canon descriptor + RiskBandTrack), allocation (linked
+  accounts), projections (R4 placeholder).
+- `frontend/src/ctx-panel/ContextPanel.tsx` — refactored: layout
+  stays (collapse-to-rail + tabs); body delegates to per-kind
+  component which owns its own `<Tabs.Content>` panes. Cleaner
+  separation of concerns and matches the plan's filename guidance.
+- `frontend/src/i18n/en.json` — large additions: `routes.household.*`,
+  `routes.account.*`, `routes.goal.*`, `treemap.*`,
+  `risk_descriptors.*`, `ctx.section.*`, `ctx.deferred.*`. Goal
+  horizon uses i18next plural keys (`horizon_years_one` /
+  `horizon_years_other`).
+- `frontend/e2e/foundation.spec.ts` — extended with R3 assertions:
+  client picker → AUM strip + treemap render → click into account
+  → KPI strip → click goal-in-account → goal hero with risk meter.
+
+### Locked decisions honored in R3
+
+- #2 server roundtrip — every read-only surface fetches via
+  TanStack Query; no client-side computation duplication. Treemap
+  is pre-computed by `/api/treemap/`; frontend only does layout.
+- #3 8-fund universe — fund palette in `treemap.ts` + `AccountRoute`
+  + `HouseholdContext` matches engine `SLEEVE_COLOR_HEX` (sh-sav,
+  sh-inc, sh-eq, sh-glb, sh-sc, sh-gsc, sh-fnd, sh-bld).
+- #5 canon-aligned descriptors — every risk display routes through
+  `descriptorFor()` → `risk_descriptors.*` i18n key. Mockup labels
+  not present.
+- #6 Goal_50 hidden — risk surfaces show canon 1-5 + descriptor;
+  `RiskBandTrack` is a 5-band picker, never a 0-50 slider.
+- #12 a11y — treemap cells are buttons with keyboard nav, all
+  charts have role="img" + aria-labels, KPI sections have aria-
+  labels, `RiskBandTrack` is a proper meter with valuemin/max/now/
+  text. Lucide icons remain aria-hidden when an adjacent text
+  carries the label.
+- #14 vocab CI — green; UI strings honor re-goaling discipline.
+- #18 latency budget — TanStack Query staleTime 5min still in
+  effect from R2; no per-call cache layer.
+- #21 maximalist UX state — every panel has skeleton-on-pending +
+  graceful empty states (no clients selected, no holdings, no
+  goals, missing client, missing account, missing goal). Toast
+  + ConfirmDialog still pending for state-changing actions
+  (R4 onward).
+- #28a i18n CI — every user-visible string flows through `t()`;
+  decorative chevrons all use Lucide icons.
+- #31a per-route ErrorBoundary — already wired by R2 RouteFrame;
+  unchanged.
+- #32 URL state — `/account/:accountId` + `/goal/:goalId` carry
+  selection; chrome group-by + remembered client persist via
+  localStorage. No PII stored.
+
+### R3 gate verification
+
+- `uv run ruff check .` — All checks passed
+- `uv run ruff format --check .` — 106 files already formatted
+- `uv run mypy <R0 modules>` — Success: no issues found in 6 source files
+- `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run pytest`
+  — 313 passed in 38.76s (no Python test changes in R3; R0+R1
+  suite remains green)
+- `python web/manage.py makemigrations --check --dry-run` — No changes
+- `bash scripts/check-vocab.sh` — vocab CI: OK
+- `npm run typecheck` — clean
+- `npm run lint` — clean (after replacing `tabs[0]!` non-null
+  assertions with safer `??` fallbacks; Promise.reject path for
+  guarded queryFns instead of `id!`)
+- `npm run format` — All matched files use Prettier code style
+- `npm run build` — 586 kB JS / 17.20 kB CSS, gzip 188 kB / 4.25 kB
+  (Chart.js + d3-hierarchy + lucide additions; bundle budget
+  deferred to R10 polish per locked decision #25). Font .woff2
+  warnings are the documented manual-download step.
+
+### Notes for R4
+
+- `findLinkRecommendation(household, goalId, accountId)` already
+  exists in `lib/household.ts` for R4 to surface per-link
+  recommendations on GoalRoute.
+- `RiskBandTrack` accepts `score` and optional `baselineScore` for
+  the plan-baseline ghost marker R4 will need on the override
+  flow. R4 will compose this into a permission-gated interactive
+  `RiskSlider` with `react-hook-form` rationale capture.
+- Treemap modes `by_fund` and `by_asset` are wired in the lib/
+  endpoint but not yet surfaced in the topbar group-by toggle
+  (locked decision #15 says HH+Goal views get group-by; R4 can
+  decide whether to expand to 4 modes or keep at 2).
+- HouseholdContext.allocation currently uses a stacked bar +
+  top-8 list. R4 may want to swap this for the same RingChart
+  pattern used on AccountRoute for visual consistency.
+- The `tab` prop on `HouseholdContext` is a defensive hook that's
+  not currently used by Radix Tabs (the Root manages active tab
+  state). It's there for future programmatic tab switching.
+- AccountRoute portfolio statistics currently shows fund
+  composition only (no asset-class / geographic rings). R4 should
+  extend this when CMA fund metadata is available client-side
+  (or add a backend helper that returns per-account asset
+  breakdown using `_treemap_by_asset` logic).

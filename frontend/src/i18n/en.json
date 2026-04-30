@@ -48,20 +48,69 @@
       "projections": "Projections",
       "history": "History",
       "goals": "Goals"
+    },
+    "section": {
+      "household": "Household",
+      "account": "Account",
+      "goal": "Goal",
+      "members": "Members",
+      "fund_mix": "Fund mix",
+      "reg_objective": "Regulatory objective",
+      "reg_horizon": "Regulatory time horizon"
+    },
+    "deferred": {
+      "projections_r4": "Projections + fan chart land in Phase R4.",
+      "history_r6": "History snapshots arrive in Phase R6.",
+      "no_holdings": "No holdings on file."
     }
   },
   "routes": {
     "household": {
-      "placeholder_title": "Household view",
-      "placeholder_description": "Three-view stage with treemap and ring charts ships in Phase R3."
+      "select_first": "Select a client from the topbar to view their household.",
+      "missing_client": "Client not found or you don't have access.",
+      "aum_label": "Total AUM",
+      "aum_internal": "Steadyhand",
+      "aum_external": "External",
+      "aum_external_pending": "No external holdings on file.",
+      "risk_score_label": "Household risk",
+      "risk_score_unset": "Not yet assessed",
+      "goals_label": "Goals",
+      "accounts_label": "Accounts"
     },
     "account": {
-      "placeholder_title": "Account view",
-      "placeholder_description": "Account stage for {{accountId}} ships in Phase R3."
+      "back_to_household": "Back to household",
+      "missing_account": "Account not found in this household.",
+      "kpi_value": "Account value",
+      "kpi_type": "Account type",
+      "kpi_goal_count": "Goals in account",
+      "kpi_cash_state": "Cash state",
+      "stats_title": "Portfolio statistics",
+      "asset_class_title": "Asset class",
+      "geographic_title": "Geographic exposure",
+      "top_funds_title": "Top funds",
+      "goals_in_account_title": "Goals in this account",
+      "no_goals_in_account": "This account has no goal allocations yet.",
+      "no_holdings": "No holdings on file."
     },
     "goal": {
-      "placeholder_title": "Goal view",
-      "placeholder_description": "Goal stage for {{goalId}} ships in Phase R4 alongside the fan chart and rebalance moves."
+      "back_to_household": "Back to household",
+      "missing_goal": "Goal not found in this household.",
+      "kpi_target": "Target",
+      "kpi_funded": "Funded",
+      "kpi_horizon": "Time horizon",
+      "kpi_risk": "Goal risk",
+      "kpi_risk_unset": "Not yet assessed",
+      "tier_need": "Need",
+      "tier_want": "Want",
+      "tier_wish": "Wish",
+      "tier_unsure": "Unsure",
+      "horizon_years_one": "{{count}} year",
+      "horizon_years_other": "{{count}} years",
+      "horizon_unset": "—",
+      "risk_track_label": "Goal risk band",
+      "blended_view_title": "Blended view",
+      "linked_accounts_title": "Linked accounts",
+      "advanced_panels_pending": "Allocation, projections, optimizer output, and rebalance moves arrive in Phase R4."
     },
     "review": {
       "placeholder_title": "Review queue",
@@ -75,6 +124,21 @@
       "placeholder_title": "Methodology",
       "placeholder_description": "Ten-section methodology overlay ships in Phase R8."
     }
+  },
+  "treemap": {
+    "empty": "No allocations to chart yet.",
+    "aria_label": "Household treemap, grouped {{mode}}",
+    "mode_by_account": "by account",
+    "mode_by_goal": "by goal",
+    "mode_by_fund": "by fund",
+    "mode_by_asset": "by asset class"
+  },
+  "risk_descriptors": {
+    "1": "Cautious",
+    "2": "Conservative-balanced",
+    "3": "Balanced",
+    "4": "Balanced-growth",
+    "5": "Growth-oriented"
   },
   "empty": {
     "no_clients": "No clients yet. Onboard a household via doc-drop or the wizard.",

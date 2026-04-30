@@ -25,11 +25,11 @@ export function ClientPicker({ selectedId, onSelect, enabled = true }: ClientPic
     if (!clients.data) return [];
     const q = query.trim().toLowerCase();
     if (q.length === 0) return clients.data;
-    return clients.data.filter((c) => c.name.toLowerCase().includes(q));
+    return clients.data.filter((c) => c.display_name.toLowerCase().includes(q));
   }, [clients.data, query]);
 
   const selected =
-    selectedId !== null ? (clients.data?.find((c) => c.external_id === selectedId) ?? null) : null;
+    selectedId !== null ? (clients.data?.find((c) => c.id === selectedId) ?? null) : null;
 
   function handleSelect(id: string) {
     setOpen(false);
@@ -50,11 +50,11 @@ export function ClientPicker({ selectedId, onSelect, enabled = true }: ClientPic
           aria-label={t("topbar.client_picker_label")}
         >
           <span className="font-sans text-[12px] font-semibold text-ink">
-            {selected?.name ?? t("topbar.client_picker_placeholder")}
+            {selected?.display_name ?? t("topbar.client_picker_placeholder")}
           </span>
-          {selected?.total_aum != null && (
+          {selected?.total_assets != null && (
             <span className="font-serif text-[14px] font-medium text-accent-2">
-              {formatCadCompact(selected.total_aum)}
+              {formatCadCompact(selected.total_assets)}
             </span>
           )}
           <ChevronDown aria-hidden className="h-3 w-3 text-muted-2" />
@@ -89,23 +89,25 @@ export function ClientPicker({ selectedId, onSelect, enabled = true }: ClientPic
               </p>
             )}
             {filtered.map((client) => {
-              const active = client.external_id === selectedId;
+              const active = client.id === selectedId;
               return (
                 <button
-                  key={client.external_id}
+                  key={client.id}
                   type="button"
                   role="option"
                   aria-selected={active}
-                  onClick={() => handleSelect(client.external_id)}
+                  onClick={() => handleSelect(client.id)}
                   className={cn(
                     "flex w-full items-center justify-between border-b border-hairline px-3 py-2 text-left transition-colors last:border-b-0",
                     active ? "bg-paper-2" : "bg-paper hover:bg-paper-2",
                   )}
                 >
-                  <span className="font-sans text-[12px] font-medium text-ink">{client.name}</span>
-                  {client.total_aum != null && (
+                  <span className="font-sans text-[12px] font-medium text-ink">
+                    {client.display_name}
+                  </span>
+                  {client.total_assets != null && (
                     <span className="font-mono text-[10px] text-accent-2">
-                      {formatCadCompact(client.total_aum)}
+                      {formatCadCompact(client.total_assets)}
                     </span>
                   )}
                 </button>

@@ -151,6 +151,49 @@ authoritative when more detail is needed.
   (μ × 0.85, σ × 1.15 for external) which is implemented in
   `engine/projections.py`. Awaits team-confirmed dampener formula.
 
+## R3 (UI/UX rewrite, 2026-04-30)
+
+- Three-view stage shipped: HouseholdRoute (AUM split strip +
+  d3-hierarchy squarified treemap), AccountRoute (KPI strip + Chart.js
+  doughnut + AllocationBars + goals-in-account list), GoalRoute (4 KPI
+  tiles + reusable `RiskBandTrack` + linked accounts). Click-to-drill
+  navigation flows household → account → goal.
+- Treemap: SVG render path (not canvas) — accessible (each cell is a
+  keyboard-navigable button, role="button" + aria-label with $ value),
+  ResizeObserver-driven, paper-2 background to match the v36 aesthetic.
+  Click + Enter/Space drill into target.
+- Per-kind ContextPanel: extracted into `HouseholdContext.tsx` /
+  `AccountContext.tsx` / `GoalContext.tsx` matching the plan's
+  filename guidance. ContextPanel layout owns header + collapse +
+  Tabs.List; per-kind components own their `<Tabs.Content>` panes.
+- `lib/risk.ts` canon-aligned helper: `RISK_DESCRIPTOR_KEYS` +
+  `BUCKET_COLORS` + `descriptorFor()` route every risk display
+  through canon 1-5 ↔ Cautious / Conservative-balanced / Balanced /
+  Balanced-growth / Growth-oriented (locked decision #5). Mockup
+  labels not used.
+- `RiskBandTrack` is a read-only canon-1-5 marker (locked decision #6
+  enforces 5-band picker, never 0-50). role="meter" with
+  aria-valuemin/max/now/text. R4 will wrap this in the interactive
+  RiskSlider with override rationale.
+- `lib/household.ts` mirrors `HouseholdDetailSerializer` exactly
+  (Holding / Account / Goal / GoalAccountLink / Member /
+  LinkRecommendation / PortfolioRun) plus pure helpers
+  (`findGoal`, `findAccount`, `householdInternalAum`,
+  `findLinkRecommendation`).
+- `lib/treemap.ts` exposes `useTreemap(householdId, mode)` and
+  `colorForNode()` palette mapper. `noUncheckedIndexedAccess`-safe
+  fallbacks; no non-null assertions.
+- `lib/clients.ts` `ClientSummary` shape corrected to match
+  `HouseholdListSerializer` (`id`, `display_name`, `total_assets`)
+  — the previous R2 sketch used `external_id`/`name`/`total_aum`
+  which never existed on the wire.
+- `e2e/foundation.spec.ts` extended: client picker → AUM strip +
+  treemap render → drill into account → KPI strip → drill into
+  goal → risk meter visible.
+- Bundle size grew to 586 kB (gzip 188 kB) due to Chart.js +
+  d3-hierarchy + lucide-react. Bundle budget deferred to R10
+  polish per locked decision #25.
+
 ## R2 (UI/UX rewrite, 2026-04-30)
 
 - Frontend chrome shipped: TopBar (BrandMark + ClientPicker + ModeToggle

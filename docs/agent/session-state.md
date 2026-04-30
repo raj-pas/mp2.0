@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-04-30
 **Branch:** `feature/ux-rebuild` (cut from `main` for the v36 UI/UX rewrite per locked decision #9)
-**Phase:** R2 — Frontend chrome **COMPLETE** (TopBar + ContextPanel + BrowserRouter + auth gate + shadcn primitives + Sonner toaster + Lucide icons + 6 empty route placeholders + R2 foundation e2e)
+**Phase:** R3 — Three-view stage **COMPLETE** (HouseholdRoute AUM strip + d3 squarified treemap + AccountRoute KPI/ring/bars + GoalRoute hero with 5-band track + populated ContextPanel kinds + R3 e2e)
 **Status:** R0 lands the substrate for the v36 advisor console rewrite. Five new pure
 engine modules with 216 parity tests; engine purity AST-enforced; new R0 modules pass
 mypy strict. Backend ships drf-spectacular OpenAPI, django-csp 4.x security headers,
@@ -19,21 +19,26 @@ phase-by-phase rebuild.
 
 ## Current Goal
 
-Phases R0 + R1 + R2 of the v36 UI/UX rewrite are complete on
+Phases R0 + R1 + R2 + R3 of the v36 UI/UX rewrite are complete on
 `feature/ux-rebuild`. The approved migration plan at
 `~/.claude/plans/i-want-you-to-rosy-mccarthy.md` (39 locked decisions
 across 9 rounds) governs the rewrite. R0 laid the foundation (engine
 modules + backend plumbing + frontend foundation); R1 added the backend
 surface the new UI will call (4 new models + 18 endpoints + centralized
-audit-event regression suite); R2 ships the chrome — TopBar
-(brand + client picker + group-by toggle + report + methodology + user
-chip), per-route ErrorBoundary, BrowserRouter with role-based routing
-(advisor → `/`, financial_analyst → `/cma`), ContextPanel with Radix
-Tabs + collapse-to-rail, six empty route placeholders, login surface,
-shadcn/Radix primitives (Button/Skeleton/Sonner Toaster), Lucide icons,
-and a new `e2e/foundation.spec.ts` covering chrome smoke. Phase R3
-(three-view stage: HouseholdRoute treemap + AccountRoute + GoalRoute
-hero + ring charts) is next.
+audit-event regression suite); R2 shipped the chrome (TopBar +
+ContextPanel + BrowserRouter + auth gate + per-route ErrorBoundary);
+R3 ships the three-view stage — HouseholdRoute (AUM split strip +
+d3-hierarchy squarified treemap with click-to-drill into account or
+goal), AccountRoute (4-tile KPI strip + Chart.js fund-composition
+ring + top-funds AllocationBars + clickable goals-in-account list),
+GoalRoute (4 KPI tiles + reusable RiskBandTrack 5-band marker +
+linked-accounts list), populated per-kind ContextPanel
+(HouseholdContext / AccountContext / GoalContext), and full
+TanStack Query hooks (`useHousehold`, `useTreemap`, `useClients`).
+Risk descriptors flow through `lib/risk.ts` canon-aligned helper.
+Phase R4 (Goal allocation + projections fan chart + optimizer
+output + rebalance moves + 5-band RiskSlider with override flow)
+is next.
 
 Pre-R0, the `main` branch already shipped the canon v2.7 portfolio v2 stack:
 

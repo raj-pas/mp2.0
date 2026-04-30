@@ -6,6 +6,10 @@ import { Button } from "../components/ui/button";
 import { useLocalStorage } from "../lib/local-storage";
 import { cn } from "../lib/cn";
 
+import { AccountContext } from "./AccountContext";
+import { GoalContext } from "./GoalContext";
+import { HouseholdContext } from "./HouseholdContext";
+
 export type ContextPanelKind = "household" | "account" | "goal";
 
 interface ContextPanelProps {
@@ -88,28 +92,16 @@ export function ContextPanel({ kind, breadcrumb }: ContextPanelProps) {
             </Tabs.Trigger>
           ))}
         </Tabs.List>
-        {tabs.map((tab) => (
-          <Tabs.Content key={tab.value} value={tab.value} className="flex-1 overflow-y-auto p-3.5">
-            <CtxPlaceholder kind={kind} tab={tab.value} />
-          </Tabs.Content>
-        ))}
+        <ContextBody kind={kind} />
       </Tabs.Root>
     </aside>
   );
 }
 
-function CtxPlaceholder({ kind, tab }: { kind: ContextPanelKind; tab: string }) {
-  const { t } = useTranslation();
-  return (
-    <div className="flex h-full flex-col items-center justify-center text-center">
-      <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
-        {t(`ctx.kinds.${kind}`)} · {t(`ctx.tabs.${tab}`)}
-      </p>
-      <p className="mt-2 max-w-[260px] text-[12px] leading-relaxed text-muted">
-        {t("ctx.placeholder_body")}
-      </p>
-    </div>
-  );
+function ContextBody({ kind }: { kind: ContextPanelKind }) {
+  if (kind === "household") return <HouseholdContext tab="overview" />;
+  if (kind === "account") return <AccountContext />;
+  return <GoalContext />;
 }
 
 function Breadcrumb({ segments }: { segments: string[] }) {
