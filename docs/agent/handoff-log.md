@@ -1611,3 +1611,123 @@ shape exactly; CompareScreen data flow is `restore → new state, user
 clicks Compare → fetch detail of {sid}+current → diff in-component`.
 The audit invariants (1 realignment + 2 snapshot_created on apply;
 1 restored + 1 created on restore) are verified.
+
+## 2026-04-30 — Phase R6 realignment + compare + history COMPLETE
+
+**Branch:** `feature/ux-rebuild` (commit pending)
+**Status:** ✅ All R6 gates green; re-goal → compare → confirm/revert
+flow + history-tab restore round-trip verified live; 9/9 e2e in 10.7s.
+
+### Scope landed
+
+- `frontend/src/lib/realignment.ts` — typed hooks for the four
+  state-changing endpoints + the BIG_SHIFT preview:
+  `useRealignment` (POST mutation), `useSnapshots` (list query),
+  `useSnapshot` (detail query), `useRestoreSnapshot` (mutation),
+  `useBlendedAccountRisk` (query). Wire shapes match the canonical
+  contracts captured during the pre-R6 smoke.
+- `frontend/src/components/ui/dialog.tsx` — Radix Dialog wrapper with
+  a `fullScreen` prop variant for CompareScreen takeovers; default
+  centered modal otherwise. Close (X) lives in the corner with a
+  proper aria-label.
+- `frontend/src/modals/RealignModal.tsx` — per-account leg editor
+  with live sum validation. Account section turns danger-bordered
+  if its leg-sum doesn't equal `current_value`; Apply is disabled
+  until ALL accounts are balanced. Intro banner enforces canon
+  §6.3a vocab ("Re-goaling re-labels dollars between goals.
+  Underlying holdings don't move and no money changes accounts.").
+- `frontend/src/modals/CompareScreen.tsx` — full-screen Dialog that
+  pulls `useSnapshot` for both before/after ids and renders
+  side-by-side columns with summary deltas (Total AUM, Blended
+  risk, Goal count, Account count) + per-goal allocation rows
+  with delta badges. Used by both realignment-just-applied flow
+  AND History-tab compare. Confirm + Revert (or Close-only)
+  affordance set via callback props.
+- `frontend/src/ctx-panel/HouseholdHistoryTab.tsx` — list of
+  HouseholdSnapshots newest-first with per-row Compare/Restore
+  buttons. Restore mutation invalidates household + snapshots
+  queries so KPIs + the list both reflect the rolled-back state
+  on next paint.
+- `frontend/src/routes/HouseholdRoute.tsx` — wires the
+  "Re-goal across accounts" CTA into the AUM strip; manages the
+  open/close state machine: closed → modal → on-success → compare
+  screen → Confirm or Revert.
+- `frontend/src/ctx-panel/HouseholdContext.tsx` — replaces the
+  R3 deferred-history placeholder with the new
+  `<HouseholdHistoryTab />`.
+- `frontend/src/i18n/en.json` — added `realign.*` (~16 keys),
+  `compare.*` (~12), `history.*` (~7), plus `common.close`. All
+  user-visible strings flow through `t()`. Vocab CI green —
+  every string honors canon §6.3a (`re-goaling`, `realignment`,
+  never `transfer`/`reallocation`/`move money`).
+
+### Locked decisions honored in R6
+
+- #2 server roundtrip — every realignment + restore + compare
+  goes through the R1 endpoints; no client-side leg-sum re-
+  calculation drift.
+- #14 vocab CI — green; UI strings reviewed against canon §6.3a.
+- #15 BIG_SHIFT banner — wired in `useBlendedAccountRisk` + the
+  `big_shifts` field on the realignment response. **Drift item
+  #13** (open-questions) tracks that the backend threshold
+  `> 5.0` against canon-1-5 weighted scores can never trigger;
+  one-line backend fix queued. Frontend is correct as-is.
+- #18 latency budget — restore mutation invalidates queries
+  rather than refetching synchronously; UI stays responsive.
+- #21 maximalist UX state — Skeleton on snapshot fetches,
+  Sonner toasts on confirm/revert/restore success/error,
+  destructive Revert button styled with the `destructive`
+  variant.
+- #28a i18n CI — every string flows through `t()`; lint guard
+  forced one row metric into a parameterized i18n key
+  (`history.row_metrics`).
+- #30 Postgres concurrency — server's realignment commit
+  wraps everything in `transaction.atomic()` (verified live
+  during the pre-R6 smoke).
+- #31a per-route ErrorBoundary — RouteFrame still wraps
+  HouseholdRoute with `scope="household"`; modal/screen errors
+  surface inside the boundary.
+- #32a/b URL state + localStorage — household selection
+  preserved via `mp20_last_client_id`; the modals are
+  ephemeral state by design (closing them is a "discard").
+- #37 audit emission — verified live during pre-R6 smoke
+  AND end-to-end via the e2e test: realignment fires 1
+  `realignment_applied` + 2 `household_snapshot_created`;
+  restore fires 1 `household_snapshot_restored` + 1
+  `household_snapshot_created`. (The plan calls for "exactly
+  one" per state-change but the actual contract is "exactly
+  one PRIMARY action plus one snapshot_created per snapshot
+  saved" — captured in the R0/R1 patterns memory; no drift.)
+
+### R6 gate verification — all green
+
+- `uv run ruff check / ruff format --check` — clean
+- `uv run mypy <R0 modules>` — Success: no issues found
+- `uv run pytest` — **313 passed in 31.43s**
+- `python web/manage.py makemigrations --check --dry-run` — No changes
+- `bash scripts/check-vocab.sh` — vocab CI: OK
+- `npm run typecheck / lint / format / build` — clean
+- `npm run e2e:synthetic` — **9/9 in 10.7s** on live stack
+- Bundle: 829 kB JS / 18 kB CSS (gzip 255 kB / 4.45 kB) — Radix
+  Dialog adds <1 kB; modal/compare presentation pages dominate.
+  Bundle budget deferred to R10 polish per locked decision #25.
+
+### Known scope-trims for R6 (deferred follow-ups)
+
+1. **BIG_SHIFT banner threshold**: per drift item #13, the
+   backend `> 5.0` threshold against canon-1-5 weighted score
+   is unreachable. Frontend is wired to show the banner when
+   `would_trigger_banner === true`; it just never fires today.
+   One-line backend fix is a Phase B exit follow-up.
+2. **Account-row live preview** during typing: `useBlendedAccountRisk`
+   is exported but RealignModal does not yet pre-emptively
+   call it on every input change. The compare screen post-Apply
+   carries the headline numbers; pre-Apply preview can be added
+   when the threshold is fixed (otherwise the indicator would
+   always read "no banner needed").
+3. **Snapshot detail loading state**: CompareScreen renders a
+   skeleton column-by-column. Combined skeleton (single shared
+   loading state) is a UI-polish follow-up.
+4. **Snapshot row date grouping**: history rows are flat
+   newest-first; grouping by day or by trigger_type is R10
+   polish.

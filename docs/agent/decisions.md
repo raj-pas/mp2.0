@@ -151,6 +151,33 @@ authoritative when more detail is needed.
   (μ × 0.85, σ × 1.15 for external) which is implemented in
   `engine/projections.py`. Awaits team-confirmed dampener formula.
 
+## R6 (UI/UX rewrite, 2026-04-30)
+
+- Realignment + Compare + History shipped. RealignModal (per-account
+  leg editor with sum=account_value validation), CompareScreen
+  (full-screen Dialog with side-by-side before/after summary +
+  per-goal delta badges), HouseholdHistoryTab (snapshots list with
+  Compare/Restore actions).
+- `frontend/src/lib/realignment.ts` exports typed hooks for the
+  R1 endpoints: `useRealignment`, `useSnapshots`, `useSnapshot`,
+  `useRestoreSnapshot`, `useBlendedAccountRisk`. Wire shapes match
+  the canonical contracts captured during the pre-R6 smoke.
+- `frontend/src/components/ui/dialog.tsx` adds the Radix Dialog
+  wrapper with `fullScreen` variant for CompareScreen takeovers.
+- HouseholdRoute wires "Re-goal across accounts" CTA into the
+  AUM strip; manages closed → modal → compare → confirm/revert
+  state machine.
+- HouseholdContext history tab replaces R3 placeholder with the
+  full snapshot list; restore action invalidates household +
+  snapshots queries.
+- Vocab CI green — UI strings honor canon §6.3a ("re-goaling",
+  "realignment"; never "transfer"/"reallocation"/"move money").
+- Drift item #13 (BIG_SHIFT threshold) is acknowledged in the
+  RealignModal docstring; frontend is correct, backend fix is a
+  one-line follow-up tracked.
+- e2e foundation spec extended with R6 realignment + history
+  flow (9/9 in 10.7s).
+
 ## R5 (UI/UX rewrite, 2026-04-30)
 
 - 5-step household wizard shipped at `/wizard/new` (locked decision #7

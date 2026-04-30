@@ -364,6 +364,51 @@
     "confirm": "Confirm",
     "delete": "Delete",
     "back": "Back",
-    "next": "Next"
+    "next": "Next",
+    "close": "Close"
+  },
+  "realign": {
+    "cta": "Re-goal across accounts",
+    "title": "Goal realignment",
+    "intro": "Re-goaling re-labels dollars between goals. Underlying holdings don't move and no money changes accounts. The blended risk score for each account may shift; the audit trail captures every change.",
+    "account_section_label": "{{type}} re-goal legs",
+    "account_total": "Account total",
+    "legs_sum": "Legs sum: {{sum}}",
+    "leg_input_label": "Allocated to {{goal}}",
+    "no_goals_for_account": "No goals are linked to this account yet.",
+    "legs_balanced": "All accounts balanced. Apply to record before/after snapshots.",
+    "legs_imbalanced": "Each account's leg sums must equal its current value before Apply.",
+    "apply": "Apply re-goal",
+    "applying": "Applying…",
+    "compare_title": "Confirm or revert this re-goal",
+    "confirm_success": "Re-goal kept",
+    "confirm_body": "After-state preserved. History tab shows both snapshots.",
+    "revert_success": "Re-goal reverted",
+    "revert_body": "Before-state restored as a new history snapshot.",
+    "error_generic": "Re-goal could not be applied."
+  },
+  "compare": {
+    "intro": "Side-by-side compare of two household snapshots. Δ shows the change relative to the before column.",
+    "col_before": "Before",
+    "col_after": "After",
+    "summary_total_aum": "Total AUM",
+    "summary_blended": "Blended risk",
+    "summary_goal_count": "Goal count",
+    "summary_account_count": "Account count",
+    "per_goal_title": "Per goal allocation",
+    "no_goals": "No goals captured in this snapshot.",
+    "confirm": "Keep after-state",
+    "revert": "Revert to before",
+    "reverting": "Reverting…"
+  },
+  "history": {
+    "compare_action": "Compare",
+    "restore_action": "Restore",
+    "restoring": "Restoring…",
+    "compare_title": "Compare snapshot to current state",
+    "restore_success_title": "Snapshot restored",
+    "restore_success_body": "A new history row was added for the restore action.",
+    "restore_error": "Could not restore snapshot.",
+    "row_metrics": "{{aum}} · score {{score}}"
   }
 }

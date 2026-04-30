@@ -1,14 +1,20 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
 import { useRememberedClientId } from "../chrome/ClientPicker";
 import { type GroupByMode } from "../chrome/ModeToggle";
+import { Button } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
 import { householdExternalAum, householdInternalAum, useHousehold } from "../lib/household";
 import { useLocalStorage } from "../lib/local-storage";
 import { formatCad, formatCadCompact, formatPct } from "../lib/format";
 import { descriptorFor } from "../lib/risk";
 import { useTreemap, type TreemapMode } from "../lib/treemap";
+import { CompareScreen } from "../modals/CompareScreen";
+import { RealignModal } from "../modals/RealignModal";
+import { type RealignmentResponse, useRestoreSnapshot } from "../lib/realignment";
+import { toastSuccess } from "../lib/toast";
 import { Treemap } from "../treemap/Treemap";
 
 const STORAGE_GROUP_BY = "mp20_group_by";
@@ -26,6 +32,14 @@ export function HouseholdRoute() {
   const householdQuery = useHousehold(rememberedId);
   const treemapMode = topbarToTreemapMode(groupBy);
   const treemapQuery = useTreemap(rememberedId, treemapMode);
+
+  // Realignment state machine: closed → modal open → on-success → compare-
+  // screen open with the freshly-created snapshot pair → user clicks
+  // Confirm (close) or Revert (restore the before-snapshot, creating a
+  // new "restore" snapshot per locked decision: snapshots are append-only).
+  const [realignOpen, setRealignOpen] = useState(false);
+  const [latestRealign, setLatestRealign] = useState<RealignmentResponse | null>(null);
+  const restoreSnapshot = useRestoreSnapshot(rememberedId);
 
   if (rememberedId === null) {
     return <HouseholdEmpty message={t("routes.household.select_first")} />;
@@ -91,8 +105,45 @@ export function HouseholdRoute() {
             label={t("routes.household.accounts_label")}
             primary={String(household.accounts.length)}
           />
+          <Button type="button" variant="outline" size="sm" onClick={() => setRealignOpen(true)}>
+            {t("realign.cta")}
+          </Button>
         </div>
       </section>
+
+      <RealignModal
+        open={realignOpen}
+        onOpenChange={setRealignOpen}
+        household={household}
+        onApplied={(response) => setLatestRealign(response)}
+      />
+      <CompareScreen
+        open={latestRealign !== null}
+        onOpenChange={(open) => {
+          if (!open) setLatestRealign(null);
+        }}
+        householdId={household.id}
+        beforeSnapshotId={latestRealign?.before_snapshot_id ?? null}
+        afterSnapshotId={latestRealign?.after_snapshot_id ?? null}
+        title={t("realign.compare_title")}
+        onConfirm={() => {
+          setLatestRealign(null);
+          toastSuccess(t("realign.confirm_success"), t("realign.confirm_body"));
+        }}
+        onRevert={() => {
+          if (latestRealign === null) return;
+          restoreSnapshot.mutate(
+            { snapshotId: latestRealign.before_snapshot_id },
+            {
+              onSuccess: () => {
+                setLatestRealign(null);
+                toastSuccess(t("realign.revert_success"), t("realign.revert_body"));
+              },
+            },
+          );
+        }}
+        reverting={restoreSnapshot.isPending}
+      />
 
       <section className="flex flex-1 overflow-hidden border border-hairline-2 shadow-sm">
         {treemapQuery.isPending && (

@@ -1,7 +1,7 @@
 /**
- * R2 + R3 + R4 + R5 foundation smoke spec.
+ * R2 + R3 + R4 + R5 + R6 foundation smoke spec.
  *
- * Verifies the v36 rewrite shell up through the wizard onboarding path:
+ * Verifies the v36 rewrite shell up through realignment + history:
  *   - login → topbar visible (brand + picker + report + methodology)
  *   - role-based routing (advisor lands at /, analyst at /cma)
  *   - context panel renders alongside the household stage
@@ -13,8 +13,10 @@
  *     audit log
  *   - advisor: 5-step wizard creates a household end-to-end and
  *     redirects to the new household stage
+ *   - advisor: re-goal modal applies a balance-preserving leg shift
+ *     and the History tab shows the new before/after snapshots
  *
- * Subsequent phases extend this spec (R6 realignment, R7 doc-drop, R9 CMA).
+ * Subsequent phases extend this spec (R7 doc-drop, R9 CMA).
  */
 import { expect, test, type Page } from "@playwright/test";
 
@@ -235,5 +237,46 @@ test.describe("R5 wizard onboarding", () => {
       householdName.slice(0, 16),
       { timeout: 10000 },
     );
+  });
+});
+
+test.describe("R6 realignment + history", () => {
+  test("advisor re-goals a balance-preserving leg shift and sees it in history", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await loginAdvisor(page);
+
+    // Pick Sandra/Mike Chen — has multiple legs ready to re-goal.
+    await page.getByRole("button", { name: /select client/i }).click();
+    await page.getByRole("option", { name: /Sandra/i }).click();
+
+    // Re-goal CTA opens the modal.
+    await page.getByRole("button", { name: /Re-goal across accounts/i }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(page.getByText(/Re-goaling re-labels dollars between goals/i)).toBeVisible();
+
+    // Apply without changing values (the seeded household is balanced)
+    // — this still creates before/after snapshots and records audit.
+    const applyButton = page.getByRole("button", { name: /^Apply re-goal$/ });
+    await expect(applyButton).toBeEnabled();
+    await applyButton.click();
+
+    // CompareScreen opens with Confirm + Revert affordances.
+    await expect(page.getByRole("heading", { name: /Confirm or revert/i })).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByRole("button", { name: /Keep after-state/i })).toBeVisible();
+
+    // Confirm closes the screen.
+    await page.getByRole("button", { name: /Keep after-state/i }).click();
+
+    // Open the right ctx-panel and switch to the History tab.
+    await page.getByRole("tab", { name: /^History$/ }).click();
+
+    // The new before/after snapshots should appear (label "After realignment"
+    // is the newest row).
+    await expect(page.getByText(/After realignment/).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/Before realignment/).first()).toBeVisible();
   });
 });

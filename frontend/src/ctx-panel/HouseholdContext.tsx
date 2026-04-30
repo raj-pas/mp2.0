@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Skeleton } from "../components/ui/skeleton";
 import { useRememberedClientId } from "../chrome/ClientPicker";
 import { fundColor } from "../lib/funds";
+import { HouseholdHistoryTab } from "./HouseholdHistoryTab";
 import {
   type Account,
   type Holding,
@@ -79,7 +80,7 @@ export function HouseholdContext({ tab }: HouseholdContextProps) {
       </Tabs.Content>
 
       <Tabs.Content value="history" className="flex-1 overflow-y-auto p-3.5">
-        <CtxEmpty body={t("ctx.deferred.history_r6")} />
+        <HouseholdHistoryTab />
       </Tabs.Content>
 
       {/* Use a noop tab content if for some reason the requested tab
