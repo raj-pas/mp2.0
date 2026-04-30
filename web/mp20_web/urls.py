@@ -10,7 +10,7 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
-from web.api import views
+from web.api import preview_views, views, wizard_views
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -128,5 +128,107 @@ urlpatterns = [
         "api/review-workspaces/<str:workspace_id>/commit/",
         views.ReviewWorkspaceCommitView.as_view(),
         name="review-workspace-commit",
+    ),
+    # ---- Phase R1 preview endpoints (read-only engine wrappers) ----
+    path(
+        "api/preview/risk-profile/",
+        preview_views.RiskProfilePreviewView.as_view(),
+        name="preview-risk-profile",
+    ),
+    path(
+        "api/preview/goal-score/",
+        preview_views.GoalScorePreviewView.as_view(),
+        name="preview-goal-score",
+    ),
+    path(
+        "api/preview/sleeve-mix/",
+        preview_views.SleeveMixPreviewView.as_view(),
+        name="preview-sleeve-mix",
+    ),
+    path(
+        "api/preview/projection/",
+        preview_views.ProjectionPreviewView.as_view(),
+        name="preview-projection",
+    ),
+    path(
+        "api/preview/projection-paths/",
+        preview_views.ProjectionPathsPreviewView.as_view(),
+        name="preview-projection-paths",
+    ),
+    path(
+        "api/preview/probability/",
+        preview_views.ProbabilityPreviewView.as_view(),
+        name="preview-probability",
+    ),
+    path(
+        "api/preview/optimizer-output/",
+        preview_views.OptimizerOutputPreviewView.as_view(),
+        name="preview-optimizer-output",
+    ),
+    path(
+        "api/preview/moves/",
+        preview_views.MovesPreviewView.as_view(),
+        name="preview-moves",
+    ),
+    path(
+        "api/preview/blended-account-risk/",
+        preview_views.BlendedAccountRiskPreviewView.as_view(),
+        name="preview-blended-account-risk",
+    ),
+    path(
+        "api/preview/collapse-suggestion/",
+        preview_views.CollapseSuggestionPreviewView.as_view(),
+        name="preview-collapse-suggestion",
+    ),
+    path(
+        "api/treemap/",
+        preview_views.TreemapDataView.as_view(),
+        name="treemap-data",
+    ),
+    # ---- Phase R1 state-changing endpoints ----
+    path(
+        "api/households/wizard/",
+        wizard_views.WizardCommitView.as_view(),
+        name="wizard-commit",
+    ),
+    path(
+        "api/households/<str:household_id>/realignment/",
+        wizard_views.RealignmentView.as_view(),
+        name="household-realignment",
+    ),
+    path(
+        "api/households/<str:household_id>/snapshots/",
+        wizard_views.HouseholdSnapshotListView.as_view(),
+        name="household-snapshots",
+    ),
+    path(
+        "api/households/<str:household_id>/snapshots/<int:snapshot_id>/",
+        wizard_views.HouseholdSnapshotDetailView.as_view(),
+        name="household-snapshot-detail",
+    ),
+    path(
+        "api/households/<str:household_id>/snapshots/<int:snapshot_id>/restore/",
+        wizard_views.HouseholdSnapshotRestoreView.as_view(),
+        name="household-snapshot-restore",
+    ),
+    path(
+        "api/goals/<str:goal_id>/override/",
+        wizard_views.GoalRiskOverrideCreateView.as_view(),
+        name="goal-risk-override-create",
+    ),
+    path(
+        "api/goals/<str:goal_id>/overrides/",
+        wizard_views.GoalRiskOverrideListView.as_view(),
+        name="goal-risk-override-list",
+    ),
+    path(
+        "api/households/<str:household_id>/external-holdings/",
+        wizard_views.ExternalHoldingListCreateView.as_view(),
+        name="external-holdings-list",
+    ),
+    path(
+        "api/households/<str:household_id>/external-holdings/<int:holding_id>/",
+        wizard_views.ExternalHoldingDetailView.as_view(),
+        name="external-holdings-detail",
     ),
 ]

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from engine.goal_scoring import GoalRiskOverride as EngineGoalRiskOverride
+from engine.risk_profile import RiskProfileInput, RiskProfileResult, compute_risk_profile
 from engine.schemas import (
     Account,
     CMASnapshot,
@@ -234,3 +236,72 @@ def committed_construction_snapshot(household: models.Household) -> dict:
             for goal in household.goals.all()
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Phase R1 v36 UI/UX rewrite adapter helpers (locked decisions #6, #11, #29).
+# ---------------------------------------------------------------------------
+
+
+def to_engine_risk_profile(profile: models.RiskProfile) -> RiskProfileResult:
+    """Re-compute the household risk profile from persisted Q1-Q4 inputs.
+
+    The persisted ``tolerance_score`` / ``capacity_score`` / etc. mirror the
+    return shape; recomputing here keeps the engine the source of truth and
+    catches drift if anyone hand-edits the persisted derived columns.
+    """
+
+    return compute_risk_profile(
+        RiskProfileInput(
+            q1=profile.q1,
+            q2=profile.q2,
+            q3=list(profile.q3 or []),
+            q4=profile.q4,
+        )
+    )
+
+
+def active_goal_override(goal: models.Goal) -> EngineGoalRiskOverride | None:
+    """Return the latest GoalRiskOverride as an engine-shape struct.
+
+    Latest-row-wins per locked decision #6. Append-only at the model
+    level (no soft-delete); the most recent row is authoritative.
+    """
+
+    latest = goal.risk_overrides.order_by("-created_at", "-id").first()
+    if latest is None:
+        return None
+    return EngineGoalRiskOverride(
+        score_1_5=latest.score_1_5,
+        descriptor=latest.descriptor,  # type: ignore[arg-type]
+        rationale=latest.rationale,
+    )
+
+
+def current_holdings_to_pct(account: models.Account) -> dict[str, float]:
+    """Convert an account's current_holdings rows to a {fund_id: pct} map.
+
+    Used by `/api/preview/moves/` and `/api/preview/optimizer-output/` to
+    feed `engine.moves.compute_rebalance_moves` and the comparison helpers.
+    Weights from the model are stored as Decimal in [0, 1]; we cast to
+    float for engine consumption (locked decision #6 / canon §9.4.2 — the
+    engine takes plain Python types, not ORM rows).
+    """
+
+    holdings = list(account.holdings.all())
+    if not holdings:
+        return {}
+    return {holding.sleeve_id: float(holding.weight) for holding in holdings}
+
+
+def household_aum(household: models.Household) -> float:
+    """Sum of committed account values + external holdings (locked #11).
+
+    Used by `/api/preview/goal-score/` to compute the size shift on the
+    fly. External holdings are included because the size shift reflects
+    the goal's portion of *household* wealth, not just Steadyhand-managed.
+    """
+
+    sh_total = sum(float(account.current_value) for account in household.accounts.all())
+    ext_total = sum(float(h.value) for h in household.external_holdings.all())
+    return sh_total + ext_total

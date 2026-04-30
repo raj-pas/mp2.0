@@ -509,3 +509,128 @@ Round 2 of R0 lands the backend plumbing + frontend foundation:
 - Phase B work (MFA, lockout, password reset, audit browser UI, real
   PII testing harness, full real-bundle E2E, mockup-parity audit) per
   locked decisions and parking lot.
+
+## 2026-04-30 — R1 backend extensions Implemented
+
+R1 lands the backend surface the v36 advisor console will call. 18 new
+endpoints (10 read-only preview + 8 state-changing), 4 new models with
+append-only contracts, audit-event regression suite enforcing locked
+decision #37.
+
+**New models (`web/api/models.py` + `0008_v36_ui_models.py`)**
+- `RiskProfile` (one-to-one with Household): Q1-Q4 inputs + persisted
+  derived T/C/anchor/descriptor/score_1_5. Per locked decision #6, the
+  derived columns mirror what `engine.risk_profile.compute_risk_profile`
+  returns; engine remains source of truth.
+- `GoalRiskOverride` (append-only via save() override per locked
+  decision #6): score_1_5 + descriptor + rationale (CHECK constraint
+  enforces min 10 chars at DB level). Latest-row-wins per goal.
+- `ExternalHolding` (canon §4.6a): structured rows replacing the legacy
+  `Household.external_assets` JSONField. clean() validates pct sum=100.
+- `HouseholdSnapshot` (append-only via save() override): trigger
+  taxonomy from locked decision #36 — realignment / cash_in / cash_out
+  / re_link / override / re_goal / restore. snapshot + summary JSONFields
+  feed the History tab + Compare view.
+
+**Engine adapter extensions (`web/api/engine_adapter.py`)**
+- `to_engine_risk_profile(profile)` — rebuilds the engine `RiskProfileResult`
+  from persisted Q1-Q4 (engine remains source of truth).
+- `active_goal_override(goal)` — latest GoalRiskOverride as engine struct.
+- `current_holdings_to_pct(account)` — `{fund_id: pct}` map.
+- `household_aum(household)` — sum of committed accounts + external holdings.
+
+**Preview DRF views (`web/api/preview_views.py`, all auth-required)**
+- `POST /api/preview/risk-profile/` — Q1-Q4 → canon 1-5 + descriptor +
+  anchor + flags. Per locked decision #6, no Goal_50 in response.
+- `POST /api/preview/goal-score/` — anchor + tier + size + horizon
+  (+ optional override) → canon 1-5 + descriptor + horizon-cap-binding +
+  derivation. Per locked decision #6, no Goal_50 in response.
+- `POST /api/preview/sleeve-mix/` — canon 1-5 → SLEEVE_REF_POINTS mix
+  for the bucket midpoint. Calibration-only (frontier optimization is
+  what production runs).
+- `POST /api/preview/projection/` — lognormal bands at horizon
+  (P2.5/P5/P10/P25/P50/P75/P90/P95/P97.5 + mean + mu + sigma + tier
+  band lo/hi). Tier-aware per locked decision #21.
+- `POST /api/preview/projection-paths/` — sequence of points along
+  constant-percentile curves for fan-chart paths.
+- `POST /api/preview/probability/` — P(S_T ≥ target). Drives fan-chart
+  hover crosshair callout per v36 mockup §35.
+- `POST /api/preview/optimizer-output/` — improvement_pct = (ideal_low
+  − current_low) / current_low × 100 at P_score downside (mockup v34).
+- `POST /api/preview/moves/` — rebalance moves with $100 rounding +
+  residual absorbed into largest deficit-side move (canon §8.10).
+- `POST /api/preview/blended-account-risk/` — before/after blended
+  account risk with >5pt banner trigger (canon §6.3a).
+- `POST /api/preview/collapse-suggestion/` — FoF collapse-match scorer
+  per canon §4.3b. Surfaces best-effort match score even below threshold.
+- `GET /api/treemap/?household_id=...&mode=by_account|by_goal|by_fund|by_asset`
+  — hierarchical data for the v36 main canvas. Frontend (d3-hierarchy)
+  computes the squarified layout per locked decision #15.
+
+**State-changing DRF views (`web/api/wizard_views.py`, with row locks +
+audit per locked decisions #30 + #37)**
+- `POST /api/households/wizard/` — full wizard commit creates Household
+  + Persons + Accounts + Goals + GoalAccountLinks + RiskProfile +
+  ExternalHoldings atomically inside `transaction.atomic()`. Audit event
+  `household_wizard_committed`.
+- `POST /api/households/<id>/realignment/` — re-goaling label-only per
+  canon §6.3a. Creates before+after HouseholdSnapshots; computes
+  blended-account-risk delta; flags >5pt shifts. Audit events
+  `realignment_applied` + 2× `household_snapshot_created`.
+- `GET /api/households/<id>/snapshots/` — list (history tab).
+- `GET /api/households/<id>/snapshots/<sid>/` — detail.
+- `POST /api/households/<id>/snapshots/<sid>/restore/` — replays
+  allocation amounts; creates new snapshot tagged `restore` per locked
+  decision #36 (chain stays linear). Audit events
+  `household_snapshot_restored` + 1× `household_snapshot_created`.
+- `POST /api/goals/<id>/override/` + `GET /api/goals/<id>/overrides/`
+  — append-only override creation + read-only history. Audit event
+  `goal_risk_override_created` captures before/after canon score +
+  descriptor + rationale per canon §9.4.6.
+- `GET/POST /api/households/<id>/external-holdings/` +
+  `PATCH/DELETE /api/households/<id>/external-holdings/<hid>/` —
+  CRUD with sum-validates-to-100. Each mutation fires
+  `external_holdings_updated` audit event.
+
+**Concurrency safety (locked decision #30)**
+- `_resolve_household_for_write` performs a non-locking team-scope
+  check first, then `Household.objects.select_for_update().get(...)`
+  to actually lock the row. (Necessary because `team_households`
+  returns a LEFT OUTER JOIN — Postgres rejects SELECT FOR UPDATE on
+  the nullable side.)
+
+**OpenAPI (`@extend_schema` decorators)**
+- Every R1 view tagged into the right group (auth/clients/portfolio/
+  preview/cma/review/snapshots) per `SPECTACULAR_SETTINGS`.
+
+**Tests**
+- `web/api/tests/test_r1_preview_endpoints.py` (16 tests) — happy path
+  + auth + scoping + state changes + Goal_50-not-in-response assertion
+  per locked decision #6.
+- `web/api/tests/test_r1_audit_emission.py` (14 tests) — centralized
+  regression suite (locked decision #37) with `_assert_audit_event(action,
+  count, scope)` helper. Asserts every state-changing endpoint fires
+  exactly the expected count of `AuditEvent` rows with the expected
+  `action`. Also asserts read-only preview endpoints emit ZERO events.
+
+**R1 verification — all gates green**
+- `uv run ruff check .` — All checks passed
+- `uv run ruff format --check .` — 106 files already formatted
+- `uv run mypy <R0 modules>` — Success: no issues found in 6 source files
+- `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run pytest`
+  — **313 passed in 31.33s** (216 engine + 97 web, including 30 new
+  R1 tests)
+- `python web/manage.py makemigrations --check --dry-run` — No changes
+- `python web/manage.py spectacular --validate` — schema generates (R1
+  views carry @extend_schema; legacy views carry pre-existing fallback
+  warnings)
+- `bash scripts/check-vocab.sh` — vocab CI: OK
+
+**R1 still pending (next phase)**
+- Frontend wiring of the new endpoints (R2+). The endpoints are tested
+  in isolation; the React UI consumes them across R2-R10.
+- DB reset + new richer Sandra/Mike fixture (locked decision #19) —
+  deferred to R7 when real-PII testing checkpoint requires it; R1
+  tests use ad-hoc fixtures within pytest-django transactions.
+- Phase B work (MFA, lockout, password reset, audit browser UI) per
+  locked decisions and parking lot.

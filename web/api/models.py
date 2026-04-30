@@ -665,3 +665,237 @@ class SectionApproval(models.Model):
 
     def __str__(self) -> str:
         return f"{self.section}:{self.status}"
+
+
+# ---------------------------------------------------------------------------
+# Phase R1 v36 UI/UX rewrite models (locked decisions #6, #11, #14, #19,
+# #30, #34, #36, #37 in ~/.claude/plans/i-want-you-to-rosy-mccarthy.md).
+# ---------------------------------------------------------------------------
+
+
+class RiskProfile(models.Model):
+    """Q1-Q4 wizard inputs + derived T/C/anchor + canon 1-5 score.
+
+    One-to-one with Household. Tolerance/Capacity/anchor are derived via
+    `engine.risk_profile.compute_risk_profile()`; we persist them here so
+    the advisor UI can read them without recomputing on every request,
+    and so the audit log captures the as-saved state.
+
+    Per locked decision #6, ``Goal_50`` and ``T``/``C`` are internal
+    engine intermediates — the API surface returns canon 1-5 + descriptor.
+    These persisted floats are for engine consumption + audit.
+    """
+
+    Q2_CHOICES = [("A", "A"), ("B", "B"), ("C", "C"), ("D", "D")]
+    Q4_CHOICES = Q2_CHOICES
+
+    DESCRIPTOR_CHOICES = [
+        ("Cautious", "Cautious"),
+        ("Conservative-balanced", "Conservative-balanced"),
+        ("Balanced", "Balanced"),
+        ("Balanced-growth", "Balanced-growth"),
+        ("Growth-oriented", "Growth-oriented"),
+    ]
+
+    household = models.OneToOneField(
+        Household,
+        related_name="risk_profile",
+        on_delete=models.CASCADE,
+    )
+    q1 = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(0), MaxValueValidator(10)],
+    )
+    q2 = models.CharField(max_length=1, choices=Q2_CHOICES)
+    q3 = models.JSONField(default=list, blank=True)  # list[str] stressor codes
+    q4 = models.CharField(max_length=1, choices=Q4_CHOICES)
+    tolerance_score = models.DecimalField(max_digits=6, decimal_places=2)
+    capacity_score = models.DecimalField(max_digits=6, decimal_places=2)
+    tolerance_descriptor = models.CharField(max_length=40, choices=DESCRIPTOR_CHOICES)
+    capacity_descriptor = models.CharField(max_length=40, choices=DESCRIPTOR_CHOICES)
+    household_descriptor = models.CharField(max_length=40, choices=DESCRIPTOR_CHOICES)
+    score_1_5 = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+    )
+    anchor = models.DecimalField(max_digits=5, decimal_places=2)
+    flags = models.JSONField(default=list, blank=True)  # consistency flags
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["household__display_name"]
+
+    def __str__(self) -> str:
+        return f"{self.household} risk profile ({self.household_descriptor})"
+
+
+class GoalRiskOverride(models.Model):
+    """Append-only advisor override of system-derived risk bucket.
+
+    Per locked decision #6, override operates exclusively on the canon
+    1-5 + descriptor surface — never the internal Goal_50 scale.
+
+    Per locked decision #37, every save fires an AuditEvent; rationale
+    is required (min 10 chars enforced at serializer + DB level).
+
+    Active override = latest-row-wins per goal (no soft-delete; override
+    history is immutable).
+    """
+
+    goal = models.ForeignKey(
+        Goal,
+        related_name="risk_overrides",
+        on_delete=models.CASCADE,
+    )
+    score_1_5 = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+    )
+    descriptor = models.CharField(
+        max_length=40,
+        choices=RiskProfile.DESCRIPTOR_CHOICES,
+    )
+    rationale = models.TextField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="goal_risk_overrides",
+        on_delete=models.PROTECT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(rationale__regex=r".{10,}"),
+                name="goal_risk_override_rationale_min_length",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.goal.name} override -> {self.descriptor} ({self.created_at:%Y-%m-%d})"
+
+    def save(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        if self.pk and GoalRiskOverride.objects.filter(pk=self.pk).exists():
+            raise ValidationError(
+                "Goal risk overrides are append-only; create a new override row "
+                "instead of mutating an existing one."
+            )
+        return super().save(*args, **kwargs)
+
+
+class ExternalHolding(models.Model):
+    """Structured external holding (canon §4.6a, mockup wizard step 4).
+
+    Replaces the legacy ``Household.external_assets`` JSONField pattern.
+    Asset percentages must sum to 100. Used by:
+    - The wizard step 4 form
+    - The projection drift-penalty path (engine/projections.py
+      ``is_external=True`` -> mu * 0.85, sigma * 1.15) per locked
+      decision #11.
+
+    The risk-tolerance dampener at canon §4.6a remains deferred per
+    locked decision #11 (no formula yet).
+    """
+
+    household = models.ForeignKey(
+        Household,
+        related_name="external_holdings",
+        on_delete=models.CASCADE,
+    )
+    name = models.CharField(max_length=255, blank=True)
+    value = models.DecimalField(max_digits=14, decimal_places=2, validators=[MinValueValidator(0)])
+    equity_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
+    fixed_income_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
+    cash_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
+    real_assets_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["household__display_name", "created_at"]
+
+    def __str__(self) -> str:
+        return self.name or f"External holding ({self.household})"
+
+    def clean(self):  # noqa: D401
+        super().clean()
+        total = self.equity_pct + self.fixed_income_pct + self.cash_pct + self.real_assets_pct
+        if total != 100:
+            raise ValidationError(
+                f"External holding asset percentages must sum to 100, got {total}."
+            )
+
+
+class HouseholdSnapshot(models.Model):
+    """Append-only snapshot of household state at a portfolio-altering event.
+
+    Mirrors the v36 mockup ``CLIENT_DATA[id].archives`` array. Trigger
+    taxonomy from the v36 mockup + locked decision #36 in the migration
+    plan: realignment / cash_in / cash_out / re_link / override / re_goal /
+    restore.
+
+    Snapshot is a deep clone of accounts/goals/hh state; summary holds
+    precomputed aggregates (assetMix, fundMix, blendedScore, etc.) so the
+    History tab + Compare view render without re-aggregating.
+
+    Restore creates a NEW snapshot tagged ``restore`` rather than rewinding,
+    so the chain stays linear and reversible.
+    """
+
+    class TriggerType(models.TextChoices):
+        REALIGNMENT = "realignment", "Realignment"
+        CASH_IN = "cash_in", "Cash in"
+        CASH_OUT = "cash_out", "Cash out"
+        RE_LINK = "re_link", "Re-link"
+        OVERRIDE = "override", "Override"
+        RE_GOAL = "re_goal", "Re-goal"
+        RESTORE = "restore", "Restore"
+
+    household = models.ForeignKey(
+        Household,
+        related_name="snapshots",
+        on_delete=models.CASCADE,
+    )
+    triggered_by = models.CharField(
+        max_length=40,
+        choices=TriggerType.choices,
+    )
+    label = models.CharField(max_length=255)
+    snapshot = models.JSONField(default=dict)
+    summary = models.JSONField(default=dict)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="household_snapshots",
+        on_delete=models.PROTECT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["household", "-created_at"])]
+
+    def __str__(self) -> str:
+        return f"{self.household} {self.triggered_by} ({self.created_at:%Y-%m-%d})"
+
+    def save(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        if self.pk and HouseholdSnapshot.objects.filter(pk=self.pk).exists():
+            raise ValidationError(
+                "Household snapshots are append-only; restore creates a new "
+                "snapshot tagged 'restore' instead of mutating."
+            )
+        return super().save(*args, **kwargs)

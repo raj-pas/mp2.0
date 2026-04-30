@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-04-30
 **Branch:** `feature/ux-rebuild` (cut from `main` for the v36 UI/UX rewrite per locked decision #9)
-**Phase:** R0 — Foundation **COMPLETE** (engine modules + backend plumbing + frontend foundation + CI gates)
+**Phase:** R1 — Backend extensions **COMPLETE** (4 new models + 18 endpoints + R0 engine + audit-event regression suite)
 **Status:** R0 lands the substrate for the v36 advisor console rewrite. Five new pure
 engine modules with 216 parity tests; engine purity AST-enforced; new R0 modules pass
 mypy strict. Backend ships drf-spectacular OpenAPI, django-csp 4.x security headers,
@@ -19,12 +19,13 @@ phase-by-phase rebuild.
 
 ## Current Goal
 
-Phase R0 of the v36 UI/UX rewrite is complete on `feature/ux-rebuild`. The
-approved migration plan at `~/.claude/plans/i-want-you-to-rosy-mccarthy.md`
-(39 locked decisions across 9 rounds) governs the rewrite. R0 lays the
-foundation; R1–R10 progressively populate the advisor console. Phase R1
-(backend models + 14+ DRF preview endpoints + audit-event regression suite)
-is next.
+Phases R0 + R1 of the v36 UI/UX rewrite are complete on `feature/ux-rebuild`.
+The approved migration plan at `~/.claude/plans/i-want-you-to-rosy-mccarthy.md`
+(39 locked decisions across 9 rounds) governs the rewrite. R0 laid the
+foundation (engine modules + backend plumbing + frontend foundation); R1
+adds the backend surface the new UI will call (4 new models + 18 endpoints
++ centralized audit-event regression suite). Phase R2 (frontend chrome:
+TopBar + Stage + ContextPanel + shadcn/ui CLI scaffold) is next.
 
 Pre-R0, the `main` branch already shipped the canon v2.7 portfolio v2 stack:
 

@@ -151,6 +151,35 @@ authoritative when more detail is needed.
   (μ × 0.85, σ × 1.15 for external) which is implemented in
   `engine/projections.py`. Awaits team-confirmed dampener formula.
 
+## R1 (UI/UX rewrite, 2026-04-30)
+
+- 4 new Django models added (`web/api/models.py` + `0008_v36_ui_models.py`):
+  `RiskProfile` (one-to-one with Household), `GoalRiskOverride`
+  (append-only, latest-row-wins per goal, DB CHECK constraint enforces
+  rationale min length 10), `ExternalHolding` (sum=100 validation),
+  `HouseholdSnapshot` (append-only with trigger taxonomy per locked
+  decision #36).
+- 18 new DRF endpoints under `/api/preview/`, `/api/households/`,
+  `/api/goals/` (10 read-only preview + 8 state-changing).
+- Engine adapter extensions in `web/api/engine_adapter.py`:
+  `to_engine_risk_profile`, `active_goal_override`,
+  `current_holdings_to_pct`, `household_aum`.
+- Concurrency safety per locked decision #30:
+  `_resolve_household_for_write` does scope-check first then
+  `select_for_update()` to avoid Postgres outer-join lock rejection.
+- Audit-event regression suite (`test_r1_audit_emission.py`, locked
+  decision #37): `_assert_audit_event(action, count, scope)` helper
+  asserts every state-changing endpoint fires exactly the expected
+  count of AuditEvent rows. Read-only preview endpoints emit ZERO
+  events.
+- 30 new tests (16 endpoint behavior + 14 audit-emission). Full pytest:
+  313 passed in 31.33s.
+- Locked decision #6 enforced at the API layer: serializer + endpoint
+  responses NEVER include the internal Goal_50 / 0-100 T/C numbers;
+  surface is canon 1-5 + descriptor + flags + derivation.
+- Locked decision #14 vocabulary CI guard remains green; new endpoint
+  bodies + audit detail strings respect re-goaling discipline.
+
 ## R0 (UI/UX rewrite, 2026-04-30)
 
 - Cut `feature/ux-rebuild` from `main` for the rewrite.
