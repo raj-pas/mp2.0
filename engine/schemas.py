@@ -7,7 +7,7 @@ database rows into these models before calling `engine.optimize()`.
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -70,7 +70,7 @@ class Account(EngineModel):
     current_value: float = Field(default=0, ge=0)
     current_holdings: list[Holding] = Field(default_factory=list)
     contribution_room: float | None = Field(default=None, ge=0)
-    contribution_history: list[dict] = Field(default_factory=list)
+    contribution_history: list[dict[str, Any]] = Field(default_factory=list)
     is_held_at_purpose: bool = True
     missing_holdings_confirmed: bool = False
     cash_state: CashState = "invested"
@@ -84,7 +84,7 @@ class Goal(EngineModel):
     target_date: date
     necessity_score: int = Field(ge=1, le=5)
     current_funded_amount: float = Field(default=0, ge=0)
-    contribution_plan: dict = Field(default_factory=dict)
+    contribution_plan: dict[str, Any] = Field(default_factory=dict)
     account_allocations: list[GoalAccountLink] = Field(default_factory=list)
     goal_risk_score: int = Field(ge=1, le=5)
     status: GoalStatus = "watch"
@@ -100,15 +100,15 @@ class Person(EngineModel):
     blended_family_flag: bool = False
     citizenship: str = "Canada"
     residency: str = "Canada"
-    health_indicators: dict = Field(default_factory=dict)
+    health_indicators: dict[str, Any] = Field(default_factory=dict)
     longevity_assumption: int | None = Field(default=None, ge=0)
-    employment: dict = Field(default_factory=dict)
-    pensions: list[dict] = Field(default_factory=list)
+    employment: dict[str, Any] = Field(default_factory=dict)
+    pensions: list[dict[str, Any]] = Field(default_factory=list)
     investment_knowledge: Literal["low", "medium", "high"] = "medium"
     trusted_contact_person: str = ""
     poa_status: str = ""
     will_status: str = ""
-    beneficiary_designations: list[dict] = Field(default_factory=list)
+    beneficiary_designations: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class RiskInput(EngineModel):
@@ -122,7 +122,7 @@ class Household(EngineModel):
     members: list[Person] = Field(min_length=1, max_length=2)
     goals: list[Goal] = Field(default_factory=list)
     accounts: list[Account] = Field(default_factory=list)
-    external_assets: list[dict] = Field(default_factory=list)
+    external_assets: list[dict[str, Any]] = Field(default_factory=list)
     household_risk_score: int = Field(ge=1, le=5)
     risk_input: RiskInput
     created_at: datetime
@@ -195,8 +195,8 @@ class CurrentPortfolioComparison(EngineModel):
     volatility: float | None = None
     allocations: list[Allocation] = Field(default_factory=list)
     deltas: list[AllocationDelta] = Field(default_factory=list)
-    holdings_diagnostics: list[dict] = Field(default_factory=list)
-    unmapped_holdings: list[dict] = Field(default_factory=list)
+    holdings_diagnostics: list[dict[str, Any]] = Field(default_factory=list)
+    unmapped_holdings: list[dict[str, Any]] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -218,9 +218,9 @@ class LinkRecommendation(EngineModel):
     current_comparison: CurrentPortfolioComparison
     drift_flags: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
-    explanation: dict = Field(default_factory=dict)
+    explanation: dict[str, Any] = Field(default_factory=dict)
     advisor_summary: str
-    technical_trace: dict
+    technical_trace: dict[str, Any]
 
 
 class Rollup(EngineModel):
@@ -248,11 +248,11 @@ class Constraints(EngineModel):
 class EngineRun(EngineModel):
     model_version: str
     method: OptimizationMethod
-    params: dict
+    params: dict[str, Any]
     cma_snapshot_id: str
     cma_version: int
-    fund_assumptions: list[dict]
-    constraints: dict = Field(default_factory=dict)
+    fund_assumptions: list[dict[str, Any]]
+    constraints: dict[str, Any] = Field(default_factory=dict)
 
 
 class EngineOutput(EngineModel):
@@ -265,6 +265,6 @@ class EngineOutput(EngineModel):
     fan_chart: list[FanChartPoint]
     audit_trace: EngineRun
     advisor_summary: str
-    technical_trace: dict
-    run_manifest: dict = Field(default_factory=dict)
+    technical_trace: dict[str, Any]
+    run_manifest: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)

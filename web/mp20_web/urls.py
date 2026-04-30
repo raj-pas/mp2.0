@@ -4,11 +4,28 @@ from __future__ import annotations
 
 from django.contrib import admin
 from django.urls import path
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
 
 from web.api import views
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    # OpenAPI schema + interactive docs (locked decision #24b).
+    path("api/schema/", SpectacularAPIView.as_view(), name="api-schema"),
+    path(
+        "api/docs/",
+        SpectacularSwaggerView.as_view(url_name="api-schema"),
+        name="api-docs",
+    ),
+    path(
+        "api/redoc/",
+        SpectacularRedocView.as_view(url_name="api-schema"),
+        name="api-redoc",
+    ),
     path("api/auth/login/", views.LocalLoginView.as_view(), name="local-login"),
     path("api/auth/logout/", views.LocalLogoutView.as_view(), name="local-logout"),
     path("api/session/", views.SessionView.as_view(), name="session"),

@@ -24,6 +24,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgres://mp20:mp20@localhost:5432/mp20
+      DJANGO_SECRET_KEY: ci-only-not-secret
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,9 +32,20 @@ jobs:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --all-groups
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run pytest
+      - name: Ruff check
+        run: uv run ruff check .
+      - name: Ruff format check
+        run: uv run ruff format --check .
+      - name: mypy strict (R0 engine modules — locked decision #22b)
+        run: uv run mypy engine/risk_profile.py engine/goal_scoring.py engine/projections.py engine/moves.py engine/collapse.py engine/sleeves.py
+      - name: pytest (engine + web)
+        run: uv run pytest
+      - name: Django makemigrations check
+        run: uv run python web/manage.py makemigrations --check --dry-run
+      - name: OpenAPI schema validate (drf-spectacular)
+        run: uv run python web/manage.py spectacular --validate --file /tmp/schema.yaml
+      - name: Vocabulary CI guard (locked decision #14)
+        run: bash scripts/check-vocab.sh
 
   frontend:
     runs-on: ubuntu-latest
@@ -46,7 +58,14 @@ jobs:
         with:
           node-version: "22"
       - run: npm install
-      - run: npm run build
+      - name: TypeScript strict (locked decision #22a)
+        run: npm run typecheck
+      - name: ESLint (jsx-a11y + i18next + react-hooks + zero any)
+        run: npm run lint
+      - name: Prettier check
+        run: npm run format
+      - name: Build
+        run: npm run build
 
   browser-e2e:
     runs-on: ubuntu-latest

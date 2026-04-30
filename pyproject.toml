@@ -8,17 +8,26 @@ dependencies = [
     "anthropic[bedrock]>=0.40,<1.0",
     "django>=5.1,<6.0",
     "django-cors-headers>=4.4,<5.0",
+    "django-csp>=3.8,<5.0",
     "djangorestframework>=3.15,<4.0",
+    "drf-spectacular>=0.27,<1.0",
     "openpyxl>=3.1,<4.0",
     "pydantic>=2.8,<3.0",
     "psycopg[binary]>=3.2,<4.0",
     "pymupdf>=1.24,<2.0",
     "python-docx>=1.1,<2.0",
+    # OpenTelemetry instrumentation per locked decision #31b (canon §9.1).
+    "opentelemetry-api>=1.27,<2.0",
+    "opentelemetry-sdk>=1.27,<2.0",
+    "opentelemetry-instrumentation-django>=0.48b0,<1.0",
+    "opentelemetry-instrumentation-psycopg2>=0.48b0,<1.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.27,<2.0",
 ]
 
 [dependency-groups]
 dev = [
     "hypothesis>=6.112,<7.0",
+    "mypy>=1.13,<2.0",
     "pytest>=8.3,<9.0",
     "pytest-django>=4.9,<5.0",
     "ruff>=0.8,<1.0",
@@ -44,3 +53,56 @@ ignore = ["DJ008"]
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+
+# mypy strict mode for new R0 engine modules + new preview endpoints
+# (locked decision #22b). Legacy engine modules (schemas.py, optimizer.py)
+# stay at typed-but-not-strict for now — Phase B / R1 broadens coverage as
+# we touch those files. Web-layer paths beyond engine_adapter omitted by
+# scope.
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "."
+namespace_packages = true
+explicit_package_bases = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_decorators = false
+plugins = ["pydantic.mypy"]
+# Default lenient; modules below opt into strict.
+ignore_missing_imports = true
+
+# New R0 modules: strict.
+[[tool.mypy.overrides]]
+module = [
+    "engine.risk_profile",
+    "engine.goal_scoring",
+    "engine.projections",
+    "engine.moves",
+    "engine.collapse",
+    "engine.sleeves",
+]
+strict = true
+
+# Legacy engine modules: typed but not strict. Tightened in subsequent
+# phases as we touch them.
+[[tool.mypy.overrides]]
+module = ["engine.schemas", "engine.optimizer", "engine.frontier", "engine.compliance"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+strict = false
+
+# Tests: pytest fixtures + parametrize defeat strict-mode usefulness.
+[[tool.mypy.overrides]]
+module = ["engine.tests.*"]
+disallow_untyped_decorators = false
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["scipy.*", "hypothesis.*"]
+ignore_missing_imports = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true

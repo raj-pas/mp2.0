@@ -1,0 +1,51 @@
+{
+  "topbar": {
+    "brand": "MP2.0",
+    "brand_subtitle": "Advisor Console",
+    "logout": "Sign out",
+    "user_role_advisor": "Advisor",
+    "user_role_analyst": "Analyst",
+    "report": "Report",
+    "methodology": "Σ Methodology"
+  },
+  "auth": {
+    "login_title": "Sign in",
+    "email_label": "Email",
+    "password_label": "Password",
+    "submit": "Sign in",
+    "checking": "Checking session…"
+  },
+  "empty": {
+    "no_clients": "No clients yet. Onboard a household via doc-drop or the wizard.",
+    "no_goals": "This household has no goals yet.",
+    "no_portfolio_run": "No portfolio generated yet for this household.",
+    "no_holdings": "No holdings on file for this account.",
+    "no_snapshots": "No history yet for this household.",
+    "loading_client": "Loading client…",
+    "select_client": "Select a client to begin.",
+    "backend_unavailable": "Backend unavailable. Retry once the API is reachable."
+  },
+  "errors": {
+    "preview_failed": "Preview computation failed.",
+    "retry": "Retry",
+    "report_problem": "Report this problem",
+    "boundary_title": "Something went wrong",
+    "boundary_scoped": "Error in {{scope}}. The rest of the console is still available.",
+    "boundary_unscoped": "An unexpected error occurred.",
+    "report_phase_b": "Reporting channel coming in Phase B.",
+    "report_this": "Report this"
+  },
+  "scaffold": {
+    "phase_label": "Phase R0 · Foundation",
+    "title": "v36 rewrite scaffold ready",
+    "description": "Engine modules + design tokens + i18n + a11y + telemetry are wired. The advisor console (TopBar / Stage / Context Panel / three-view) lands in subsequent phases per the approved migration plan."
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "delete": "Delete",
+    "back": "Back",
+    "next": "Next"
+  }
+}

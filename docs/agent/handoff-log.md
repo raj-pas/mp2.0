@@ -365,3 +365,147 @@
   Working tree clean from a Python tests perspective; ready for either
   (a) commit-as-checkpoint and continue, or (b) keep going to final R0
   commit.
+
+## 2026-04-30 — R0 engine layer committed (6f60694)
+
+Engine R0 chunk landed as `6f60694` on `feature/ux-rebuild`:
+"Phase R0: engine foundation for v36 UI/UX rewrite". 17 files, +2878 / -7.
+
+## 2026-04-30 — R0 backend plumbing + frontend foundation Implemented
+
+Round 2 of R0 lands the backend plumbing + frontend foundation:
+
+**Backend plumbing**
+- `pyproject.toml`: added drf-spectacular, django-csp 4.x, mypy, OpenTelemetry
+  (api + sdk + django + psycopg2 + otlp-http exporter). `uv sync --all-groups`
+  installed cleanly.
+- `web/mp20_web/settings.py`: drf-spectacular config (`SPECTACULAR_SETTINGS`
+  with TAGS for auth/clients/portfolio/preview/cma/review/snapshots);
+  django-csp 4.x dict-based `CONTENT_SECURITY_POLICY` (strict-dynamic
+  scripts via nonce, self-only fonts/images/connect, frame-ancestors 'none',
+  Vite HMR allowed in dev); SECURE_* headers (X-Frame-Options DENY,
+  Referrer-Policy strict-origin-when-cross-origin, content-type-nosniff,
+  XSS filter); MP20_OTEL_ENABLED env flag.
+- `web/mp20_web/otel.py`: env-toggled OpenTelemetry initializer (Django +
+  psycopg2 instrumentation, OTLP/HTTP exporter to Elastic APM in
+  production per canon §9.1). No-op in dev.
+- `web/mp20_web/{wsgi,asgi}.py`: invoke `configure_opentelemetry()` before
+  Django's app loader so auto-instrumentation hooks at import time.
+- `web/mp20_web/urls.py`: added `/api/schema/`, `/api/docs/` (Swagger UI),
+  `/api/redoc/` (ReDoc).
+- `engine/schemas.py` + `engine/optimizer.py`: bare `dict` annotations
+  converted to `dict[str, Any]`; `MappingStatus` import added; `status:
+  MappingStatus` annotation typed. Required for mypy strict to type-check
+  the new R0 modules end-to-end through their imports.
+- mypy strict config: per-module overrides — strict for the 6 new R0
+  modules (risk_profile, goal_scoring, projections, moves, collapse,
+  sleeves); typed-but-not-strict for legacy schemas/optimizer/frontier/
+  compliance; ignored for tests.
+
+**Frontend foundation (full rewrite per locked decision #1)**
+- `package.json` v0.2.0 with new deps: react-router-dom 6, react-hook-form
+  + zod + @hookform/resolvers (locked decision #29), d3-hierarchy,
+  react-i18next + i18next, sonner, class-variance-authority + clsx +
+  tailwind-merge, all required @radix-ui/* primitives, @opentelemetry/*
+  web SDK + instrumentation (locked decision #31b), openapi-typescript
+  (locked decision #26b), eslint 9 + typescript-eslint 8 +
+  eslint-plugin-jsx-a11y + eslint-plugin-i18next + eslint-config-prettier,
+  prettier 3, globals. `npm install` succeeded (359 packages).
+- `frontend/tailwind.config.ts`: v36 design tokens (locked decision #5):
+  paper/ink/accent (gold/copper)/hairlines/muted; `buckets.*` for canon-aligned
+  risk descriptors; `funds.*` matching `engine/sleeves.py SLEEVE_COLOR_HEX`;
+  Fraunces/Inter Tight/JetBrains Mono font stacks; mockup-aligned shadows;
+  `letterSpacing.{wider,widest,ultrawide}` for JetBrains Mono uppercase
+  labels; `borderRadius.none = 0` (mockup uses square corners).
+- `frontend/src/index.css`: `@font-face` declarations for Fraunces variable
+  + Inter Tight 300/400/500/600/700 + JetBrains Mono 400/500/600. Browser
+  falls back gracefully to system fonts when `.woff2` files are missing.
+  `frontend/public/fonts/README.md` documents the manual download step
+  (Google Fonts CDN download was blocked at execution time per safety
+  controls; gracefully degrades to system fonts).
+- `frontend/src/i18n/{index.ts, en.json, fr.json}`: react-i18next with
+  English + French placeholder per locked decision #12. All user-visible
+  strings flow through `t()`; fr.json is a placeholder until translations
+  land later.
+- `frontend/src/App.tsx`: stripped to a holding shell with topbar
+  placeholder + scaffolding-ready empty stage. Includes the v36 brand
+  mark + canon-aligned scaffolding copy through `t()`. TODO comment
+  for the deferred pilot disclaimer (locked decision #17).
+- `frontend/src/components/ErrorBoundary.tsx`: top-level + per-route
+  React ErrorBoundary (locked decision #31a). Paper/ink fallback UI with
+  Retry + "Report this" CTAs. i18n via the singleton `i18n.t()` since
+  class components can't use the hook.
+- `frontend/src/main.tsx`: ErrorBoundary wraps everything; TanStack Query
+  configured with locked decision #18 cache settings (staleTime 5min /
+  gcTime 30min); I18nextProvider + QueryClientProvider in place.
+- `frontend/src/lib/cn.ts`: shadcn `cn()` helper (clsx + tailwind-merge).
+- `frontend/tsconfig.app.json`: strict + noUncheckedIndexedAccess +
+  noImplicitOverride + noFallthroughCasesInSwitch + verbatimModuleSyntax
+  per locked decision #22a.
+- `frontend/eslint.config.js`: ESLint 9 flat config (locked decision #22e
+  + #28a) with typescript-eslint strict + react-hooks + jsx-a11y
+  recommended + i18next/no-literal-string (markupOnly mode) + zero `any` +
+  prettier-compat. Test files relax i18n rule.
+- `frontend/.prettierrc.json` + `.prettierignore`: 100-char width, double
+  quotes, trailing commas, tabWidth 2.
+- Old surfaces deleted: `ReviewShell.tsx`, `CmaWorkbench.tsx`, `api.ts`,
+  `types.ts`, `components/ui/button.tsx`, `styles.css`. Per locked
+  decision #20 (no feature flag); rebuilt incrementally R2-R9.
+- shadcn/ui CLI scaffold deferred to R2 when components are needed; the
+  R0 chrome (App.tsx + ErrorBoundary) doesn't need a full kit yet.
+
+**Vocabulary CI guard (locked decision #14)**
+- `scripts/check-vocab.sh`: scans `frontend/src/`, `frontend/index.html`,
+  `web/api/serializers.py`, `web/api/management/commands/`,
+  `web/api/migrations/`, `engine/fixtures/` for re-goaling tripwires
+  (`reallocation`, `reallocate`, `move money` per canon §6.3a), retired
+  bare `Conservative` label (canon vocab uses `Cautious` for low-end and
+  `Conservative-balanced` for low-medium per §4.2 + locked decision #5),
+  and retired user-visible `Sleeve ` capitalization (the `Sleeve`
+  Pydantic class identifier is allowed). Allow-listed contexts include
+  this script, eslint config, docs, and inline `canon-vocab-allow:`
+  comments. Currently green.
+
+**CI workflow (`.github/workflows/smoke.yml`)**
+- Python job: ruff check + ruff format + **mypy strict on R0 engine
+  modules** (locked decision #22b) + pytest + makemigrations check +
+  **drf-spectacular --validate** (locked decision #24b) + **vocab CI
+  guard**.
+- Frontend job: **typecheck (TS strict + noUncheckedIndexedAccess + zero
+  `any`)** + **ESLint (jsx-a11y + i18next + react-hooks)** +
+  **Prettier --check** + build.
+- Browser-e2e job unchanged (still synthetic Playwright over Docker
+  Compose). R7 will rewrite the synthetic spec to match the new shell.
+
+**R0 verification — all gates green**
+- `uv run ruff check .` — All checks passed
+- `uv run ruff format --check .` — 101 files already formatted
+- `uv run mypy engine/risk_profile.py engine/goal_scoring.py
+  engine/projections.py engine/moves.py engine/collapse.py
+  engine/sleeves.py` — Success: no issues found in 6 source files
+- `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run python
+  -m pytest engine/tests/ -q` — 216 passed in 2.39s
+- `DATABASE_URL=... uv run python web/manage.py check` — System check
+  identified no issues (0 silenced)
+- `DATABASE_URL=... uv run python web/manage.py spectacular --validate
+  --file /tmp/schema.yaml` — schema generates (legacy-view fallback
+  warnings; R1 will add @extend_schema decorators)
+- `bash scripts/check-vocab.sh` — vocab CI: OK
+- `npm run typecheck` (TS strict) — clean
+- `npm run lint` (ESLint flat config) — clean
+- `npm run format` — All matched files use Prettier code style
+- `npm run build` — successful (250KB JS / 79KB gzipped; expected font
+  404s for un-downloaded woff2 files)
+
+**R0 still pending (next phase)**
+- DB reset (`scripts/reset-v2-dev.sh --yes`) — deferred to R1 when new
+  schema migrations + new richer Sandra/Mike fixture (locked decision #19)
+  exist.
+- Synthetic Playwright spec rewrite — covered by R7 when the doc-drop +
+  review-screen surfaces ship.
+- Self-hosted font `.woff2` files — manual download per
+  `frontend/public/fonts/README.md`; system fonts fall back gracefully
+  until then.
+- Phase B work (MFA, lockout, password reset, audit browser UI, real
+  PII testing harness, full real-bundle E2E, mockup-parity audit) per
+  locked decisions and parking lot.

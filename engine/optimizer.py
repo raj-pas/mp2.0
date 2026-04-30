@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import date
+from typing import Any  # noqa: F401  used by dict[str, Any] annotations
 
 from engine.frontier import (
     compute_frontier,
@@ -23,6 +24,7 @@ from engine.schemas import (
     Goal,
     Household,
     LinkRecommendation,
+    MappingStatus,
     OptimizationMethod,
     ProjectionPoint,
     Rollup,
@@ -388,8 +390,8 @@ def _current_comparison(
         )
 
     weights = [0.0 for _ in fund_ids]
-    diagnostics: list[dict] = []
-    unmapped_holdings: list[dict] = []
+    diagnostics: list[dict[str, Any]] = []
+    unmapped_holdings: list[dict[str, Any]] = []
     for holding in account.current_holdings:
         mapped_fund_id = fund_aliases.get(_normalize_alias(holding.sleeve_id)) or fund_aliases.get(
             _normalize_alias(holding.sleeve_name)
@@ -439,7 +441,7 @@ def _current_comparison(
         for fund, weight in zip(eligible_funds, weights, strict=True)
         if weight > 1e-8
     ]
-    status = "partially_mapped" if unmapped_holdings else "mapped"
+    status: MappingStatus = "partially_mapped" if unmapped_holdings else "mapped"
     warnings = [PARTIAL_MAPPING_WARNING] if unmapped_holdings else []
     return CurrentPortfolioComparison(
         missing_holdings=False,
@@ -584,7 +586,7 @@ def _link_explanation(
     allocations: list[Allocation],
     current_comparison: CurrentPortfolioComparison,
     warnings: list[str],
-) -> dict:
+) -> dict[str, Any]:
     return {
         "risk": {
             "scale": "1-5",

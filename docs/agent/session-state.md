@@ -1,19 +1,32 @@
 # MP2.0 Session State
 
 **Last updated:** 2026-04-30
-**Branch:** `main`
-**Phase:** Secure review plus portfolio-ready handoff tranche
-**Status:** Local thin slice supports authenticated team-scoped advisor review,
-secure-local upload/review to `engine_ready`, `construction_ready` commit
-gating, Default CMA v2 link-first portfolio generation, immutable append-only
-PortfolioRun/Event history, account-first diagnostics, advisor audit export,
-and analyst CMA/frontier workflow.
+**Branch:** `feature/ux-rebuild` (cut from `main` for the v36 UI/UX rewrite per locked decision #9)
+**Phase:** R0 — Foundation **COMPLETE** (engine modules + backend plumbing + frontend foundation + CI gates)
+**Status:** R0 lands the substrate for the v36 advisor console rewrite. Five new pure
+engine modules with 216 parity tests; engine purity AST-enforced; new R0 modules pass
+mypy strict. Backend ships drf-spectacular OpenAPI, django-csp 4.x security headers,
+self-hosted-fonts scaffold (.woff2 download manual), OpenTelemetry hookup (env-toggled).
+Frontend ships v36 design tokens (paper/ink/copper/gold/buckets/funds/fonts), TS strict
++ noUncheckedIndexedAccess + zero-`any`, ESLint flat config (jsx-a11y + i18next +
+react-hooks), react-i18next scaffolding (en + fr placeholder), holding shell with
+top-level + per-route ErrorBoundary, all old surfaces removed (App.tsx replaced;
+ReviewShell + CmaWorkbench + api.ts + types.ts deleted; rebuilt across R2-R9).
+Vocabulary CI guard scans frontend + backend serializers/migrations/management
+commands/fixtures. Pre-existing portfolio v2 + secure-local review pipeline +
+immutable audit + analyst CMA Workbench remain on `main`; ride forward via the
+phase-by-phase rebuild.
 
 ## Current Goal
 
-Use the existing scaffold as the base for the canon v2.7 build sequence while
-moving real-data intake through a secure local review gate and generated
-portfolio recommendations through durable PortfolioRun records:
+Phase R0 of the v36 UI/UX rewrite is complete on `feature/ux-rebuild`. The
+approved migration plan at `~/.claude/plans/i-want-you-to-rosy-mccarthy.md`
+(39 locked decisions across 9 rounds) governs the rewrite. R0 lays the
+foundation; R1–R10 progressively populate the advisor console. Phase R1
+(backend models + 14+ DRF preview endpoints + audit-event regression suite)
+is next.
+
+Pre-R0, the `main` branch already shipped the canon v2.7 portfolio v2 stack:
 
 - DB-backed synthetic Sandra/Mike Chen persona
 - authenticated client list/detail in the advisor shell

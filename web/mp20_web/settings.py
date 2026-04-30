@@ -25,7 +25,9 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "corsheaders",
+    "csp",  # CSP middleware (locked decision #22c).
     "rest_framework",
+    "drf_spectacular",  # OpenAPI schema (locked decision #24b).
     "web.audit",
     "web.api",
 ]
@@ -33,6 +35,8 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # CSP middleware applies after security (locked decision #22c).
+    "csp.middleware.CSPMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -121,4 +125,65 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.BasicAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": ["web.permissions.permissions.AllowPhaseOneAccess"],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
+
+# OpenAPI schema (locked decision #24b).
+SPECTACULAR_SETTINGS = {
+    "TITLE": "MP2.0 API",
+    "DESCRIPTION": (
+        "MP2.0 — planning-first model portfolio platform. Per canon §9.4.2 "
+        "engine purity, financial numbers come from `engine/` only; AI "
+        "extracts and styles, never invents."
+    ),
+    "VERSION": "0.2.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+    # Tag groupings used by the new R1 preview endpoints.
+    "TAGS": [
+        {"name": "auth", "description": "Session + login + logout."},
+        {"name": "clients", "description": "Household list + detail."},
+        {"name": "portfolio", "description": "PortfolioRun + lifecycle events."},
+        {"name": "preview", "description": "Read-only engine previews (no commits)."},
+        {"name": "cma", "description": "Capital Market Assumptions (analyst-only)."},
+        {"name": "review", "description": "Doc-drop + conflict resolution."},
+        {"name": "snapshots", "description": "Append-only HouseholdSnapshot lifecycle."},
+    ],
+}
+
+# Security headers (locked decision #22c). Self-hosted fonts (locked
+# decision #22d) drop third-party font-src; CSP can stay tight.
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
+X_FRAME_OPTIONS = "DENY"
+SECURE_BROWSER_XSS_FILTER = True
+
+# CSP via django-csp 4.x dict format. ``strict-dynamic`` for scripts via
+# nonce; self-only for everything else. Vite dev (port 5173) needs
+# websocket for HMR — allowed only in dev (not in production deploys).
+CONTENT_SECURITY_POLICY = {
+    "DIRECTIVES": {
+        "default-src": ["'self'"],
+        "script-src": ["'self'", "'strict-dynamic'"],
+        # Tailwind + shadcn inject style elements at runtime; allow inline.
+        "style-src": ["'self'", "'unsafe-inline'"],
+        "font-src": ["'self'", "data:"],
+        "img-src": ["'self'", "data:", "blob:"],
+        "connect-src": [
+            "'self'",
+            *CORS_ALLOWED_ORIGINS,
+            "ws://localhost:5173",  # Vite HMR.
+        ],
+        "frame-ancestors": ["'none'"],
+        "object-src": ["'none'"],
+        "base-uri": ["'self'"],
+        "form-action": ["'self'"],
+    },
+    "INCLUDE_NONCE_IN": ["script-src"],
+}
+
+# OpenTelemetry instrumentation (locked decision #31b, canon §9.1).
+# Disabled by default in dev to avoid OTLP-not-running noise; production
+# AWS turns OTEL_SDK_DISABLED=false and points OTEL_EXPORTER_OTLP_ENDPOINT
+# at Elastic APM. Instrumentation is wired in web/mp20_web/otel.py.
+MP20_OTEL_ENABLED = os.getenv("MP20_OTEL_ENABLED", "0") == "1"
