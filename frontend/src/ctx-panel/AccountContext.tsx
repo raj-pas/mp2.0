@@ -4,19 +4,9 @@ import { useParams } from "react-router-dom";
 
 import { useRememberedClientId } from "../chrome/ClientPicker";
 import { Skeleton } from "../components/ui/skeleton";
+import { fundColor } from "../lib/funds";
 import { findAccount, useHousehold } from "../lib/household";
 import { formatCad, formatPct } from "../lib/format";
-
-const FUND_COLORS: Record<string, string> = {
-  "sh-sav": "#5D7A8C",
-  "sh-inc": "#2E4A6B",
-  "sh-eq": "#0E1116",
-  "sh-glb": "#8B5E3C",
-  "sh-sc": "#B87333",
-  "sh-gsc": "#2E5D3A",
-  "sh-fnd": "#6B5876",
-  "sh-bld": "#8B8C5E",
-};
 
 export function AccountContext() {
   const { t } = useTranslation();
@@ -88,7 +78,7 @@ export function AccountContext() {
                     <span
                       aria-hidden
                       className="inline-block h-2 w-2"
-                      style={{ background: FUND_COLORS[h.sleeve_id] ?? "#9CA3AF" }}
+                      style={{ background: fundColor(h.sleeve_id) }}
                     />
                     <span className="text-ink">{h.sleeve_name}</span>
                   </span>

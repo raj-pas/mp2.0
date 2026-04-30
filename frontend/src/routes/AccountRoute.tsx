@@ -6,26 +6,9 @@ import { useRememberedClientId } from "../chrome/ClientPicker";
 import { AllocationBars, type AllocationRow } from "../charts/AllocationBars";
 import { RingChart, type RingDatum } from "../charts/RingChart";
 import { Skeleton } from "../components/ui/skeleton";
+import { fundColor } from "../lib/funds";
 import { findAccount, type Holding, useHousehold } from "../lib/household";
 import { formatCad, formatCadCompact } from "../lib/format";
-
-const FUND_COLORS: Record<string, string> = {
-  "sh-sav": "#5D7A8C",
-  "sh-inc": "#2E4A6B",
-  "sh-eq": "#0E1116",
-  "sh-glb": "#8B5E3C",
-  "sh-sc": "#B87333",
-  "sh-gsc": "#2E5D3A",
-  "sh-fnd": "#6B5876",
-  "sh-bld": "#8B8C5E",
-};
-const FALLBACK_PALETTE = ["#5D7A8C", "#2E4A6B", "#8B5E3C", "#B87333", "#2E5D3A", "#6B5876"];
-
-function colorForFund(sleeveId: string, fallbackIndex: number): string {
-  return (
-    FUND_COLORS[sleeveId] ?? FALLBACK_PALETTE[fallbackIndex % FALLBACK_PALETTE.length] ?? "#9CA3AF"
-  );
-}
 
 export function AccountRoute() {
   const { t } = useTranslation();
@@ -185,7 +168,7 @@ function buildRingData(holdings: Holding[]): RingDatum[] {
     .map((h, i) => ({
       label: h.sleeve_name,
       value: Number(h.market_value),
-      color: colorForFund(h.sleeve_id, i),
+      color: fundColor(h.sleeve_id, i),
     }));
 }
 
@@ -196,6 +179,6 @@ function buildBarRows(holdings: Holding[]): AllocationRow[] {
       id: h.sleeve_id,
       label: h.sleeve_name,
       pct: Number(h.weight),
-      color: colorForFund(h.sleeve_id, i),
+      color: fundColor(h.sleeve_id, i),
     }));
 }

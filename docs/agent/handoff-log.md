@@ -995,3 +995,115 @@ backend` would fix it; right now Docker pypi is timing out (network /
 firewall flake on this machine). Host-mode dev works perfectly via the
 new Vite proxy. Before CI / pilot a clean image rebuild is needed; this
 is now in `docs/agent/open-questions.md` as a follow-up.
+
+## 2026-04-30 — Deeper smoke: R1 endpoint live integration + audit flow + Docker rebuild
+
+**Branch:** `feature/ux-rebuild` (commit pending)
+**Status:** ✅ All R1 endpoints validated live; audit flow validated; Docker image clean
+
+Following the first smoke session that fixed 4 foundation bugs, ran a
+deeper round to de-risk R4 specifically. Found a real foundation issue
+(fund-id naming chaos) that would have silently cascaded; fixed it.
+
+### R1 endpoint live integration matrix
+
+Every R1 preview + state-changing endpoint curl-probed against the
+Sandra/Mike Chen synthetic. Canonical contracts captured below for
+R4 wire-shape reference:
+
+| Endpoint | Request shape (verified) | Response shape (verified) |
+|---|---|---|
+| `POST /api/preview/risk-profile/` | `{q1, q2, q3[], q4}` | `{tolerance_score, capacity_score, tolerance_descriptor, capacity_descriptor, household_descriptor, score_1_5, anchor, flags[]}` |
+| `POST /api/preview/goal-score/` | `{anchor, necessity_score?, goal_amount, household_aum, horizon_years, override?}` | `{score_1_5, descriptor, system_descriptor, horizon_cap_descriptor, uncapped_descriptor, is_horizon_cap_binding, is_overridden, derivation: {anchor, imp_shift, size_shift}}` (Goal_50 NEVER returned per locked decision #6) |
+| `POST /api/preview/sleeve-mix/` | `{score_1_5}` | `{score_1_5, reference_score, mix: {fund_id: pct}, fund_names: {fund_id: name}}` |
+| `POST /api/preview/projection/` | `{start, score_1_5, horizon_years, mode?, is_external?, tier?}` | `{p2_5, p5, p10, p25, p50, p75, p90, p95, p97_5, mean, mu, sigma, tier_low_pct, tier_high_pct}` |
+| `POST /api/preview/projection-paths/` | `{start, score_1_5, horizon_years, percentiles[], n_steps?, mode?, is_external?}` | `{paths: [{percentile, points: [{year, value, percentile}]}]}` |
+| `POST /api/preview/probability/` | `{start, score_1_5, horizon_years, target, mode?, is_external?}` | `{probability}` |
+| `POST /api/preview/optimizer-output/` | `{household_id, goal_id}` | `{ideal_low, current_low, improvement_pct, effective_score_1_5, effective_descriptor, p_used, tier}` |
+| `POST /api/preview/moves/` | `{household_id, goal_id}` | `{moves: [{action: "buy"\|"sell", fund_id, fund_name, amount}], total_buy?, total_sell?}` |
+| `POST /api/preview/blended-account-risk/` | `{household_id, account_id, candidate_goal_amounts: {goal_id: amount}}` | `{before_score, after_score, delta, would_trigger_banner, banner_threshold}` |
+| `POST /api/preview/collapse-suggestion/` | `{blend: {fund_id: weight}, threshold?}` | `{suggested_fund_id\|null, best_score, best_candidate_id, threshold}` |
+| `POST /api/goals/{id}/override/` | `{score_1_5, descriptor, rationale}` (rationale min 10 chars) | `{override_id, goal_id, score_1_5, descriptor, created_at}` |
+
+### Real-bug found: fund-id naming chaos
+
+Curl-probing surfaced FOUR coexisting fund-id naming conventions:
+
+| Source | Format | Examples |
+|---|---|---|
+| `engine/sleeves.py` v36 universe canon | `SH-Sav` mixed-case | `SH-Sav`, `SH-Inc`, `SH-Eq`, `SH-Glb`, `SH-SC`, `SH-GSC`, `SH-Fnd`, `SH-Bld` |
+| Default CMA seed `fund_assumptions` | `sh_savings` snake | `sh_savings`, `sh_income`, `sh_equity`, `sh_global_equity`, `sh_small_cap_equity`, `sh_global_small_cap_eq`, `sh_founders`, `sh_builders` |
+| Synthetic persona `Holding.sleeve_id` | legacy product names | `cash_savings`, `income_fund`, `equity_fund`, `global_equity_fund` |
+| (deprecated) my treemap.ts palette | dashed lowercase | `sh-sav`, `sh-inc`, etc. |
+
+R4 will render sleeve-mix output (`SH-Sav` style) alongside current
+holdings (`income_fund` style); without normalization every fund
+renders the gray fallback. Fixed with new `frontend/src/lib/funds.ts`
+exporting:
+
+- `canonizeFundId(rawId)` — maps any variant → canon `SH-X` form
+- `fundColor(rawId, fallbackIndex)` — returns hex via canon color map
+- `fundDisplayName(rawId, fallback)` — returns canon Steadyhand name
+
+All four call sites (`treemap.ts`, `AccountRoute.tsx`,
+`HouseholdContext.tsx`, `AccountContext.tsx`) now use the helper.
+Inline `FUND_COLORS` Records deleted. Drift item #11 added to
+open-questions; the underlying fix (fixture regeneration to canon
+8-fund universe) is locked decision #19, deferred to R7.
+
+### Audit flow validated live
+
+- `POST /api/goals/goal_retirement_income/override/` with
+  `{score_1_5: 2, descriptor: "Conservative-balanced", rationale: ...}`
+- AuditEvent count 0 → 1 of action `goal_risk_override_created`
+- Audit row: `actor=advisor@example.com`, `entity_type=goal`,
+  `entity_id=goal_retirement_income`, `metadata={rationale,
+  descriptor, override_id, new_score_1_5, previous_score_1_5}`
+- Locked decision #6 honored: surface is canon 1-5 + descriptor only,
+  no Goal_50 in payload
+- Locked decision #30 honored: Postgres `select_for_update()` path
+  (split scope-check + lock) wraps the mutation transaction
+- Locked decision #37 honored: exactly one audit event per
+  state-changing endpoint
+
+### Docker compose backend rebuild
+
+- Previous image had been built before R0 added `django-csp` to
+  `pyproject.toml`; `docker compose up backend` fails with
+  `ModuleNotFoundError: No module named 'csp'`. Open question #10
+  flagged this.
+- Today `docker compose build backend` succeeded cleanly (78s).
+  pypi connectivity was healthy. The rebuilt image starts cleanly,
+  applies migrations, seeds the persona, bootstraps advisor +
+  analyst users, and serves `/api/session/` 200.
+- Open question #10 resolved: the documented `docker compose up
+  --build` entry point works for fresh-clone setup.
+
+### Security headers verified live
+
+`curl -I http://localhost:8000/api/session/` returns:
+
+- `X-Frame-Options: DENY`
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Cross-Origin-Opener-Policy: same-origin`
+- `Content-Security-Policy: default-src 'self'; base-uri 'self';
+  script-src 'self' 'strict-dynamic'; object-src 'none'; img-src 'self'
+  data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:;
+  connect-src 'self' http://localhost:5173 http://127.0.0.1:5173
+  ws://localhost:5173; frame-ancestors 'none'; form-action 'self'`
+
+Locked decision #22c (django-csp + DENY + nosniff + strict-origin)
+verified live, not just configured.
+
+### Final regression — all gates green on rebuilt stack
+
+- `npm run typecheck / lint / format / build` — clean
+- `uv run ruff check / ruff format --check` — clean
+- `bash scripts/check-vocab.sh` — vocab CI: OK
+- `uv run mypy <R0 modules>` — Success
+- `uv run python web/manage.py makemigrations --check --dry-run` — No changes
+- `uv run pytest` — **313 passed in 40.62s**
+- `npx playwright test e2e/foundation.spec.ts` — **5/5 in 6.5s**
+
+Foundation is solid. Ready for R4.

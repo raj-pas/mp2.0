@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { apiFetch } from "./api";
+import { canonizeFundId, FUND_COLOR_BY_CANON } from "./funds";
 
 export type TreemapMode = "by_account" | "by_goal" | "by_fund" | "by_asset";
 
@@ -33,17 +34,6 @@ export function useTreemap(householdId: string | null, mode: TreemapMode) {
   });
 }
 
-const FUND_COLOR_BY_ID: Record<string, string> = {
-  "sh-sav": "#5D7A8C",
-  "sh-inc": "#2E4A6B",
-  "sh-eq": "#0E1116",
-  "sh-glb": "#8B5E3C",
-  "sh-sc": "#B87333",
-  "sh-gsc": "#2E5D3A",
-  "sh-fnd": "#6B5876",
-  "sh-bld": "#8B8C5E",
-};
-
 const ASSET_COLOR: Record<string, string> = {
   "ASSET_CLASS:CANADIAN_EQUITY": "#5D7A8C",
   "ASSET_CLASS:US_EQUITY": "#2E4A6B",
@@ -73,7 +63,9 @@ function fallbackColor(index: number): string {
 
 export function colorForNode(node: TreemapNode, mode: TreemapMode, index: number): string {
   if (mode === "by_fund") {
-    return FUND_COLOR_BY_ID[node.id] ?? fallbackColor(index);
+    const canon = canonizeFundId(node.id);
+    if (canon !== null) return FUND_COLOR_BY_CANON[canon];
+    return fallbackColor(index);
   }
   if (mode === "by_asset") {
     return ASSET_COLOR[node.id] ?? fallbackColor(index);
