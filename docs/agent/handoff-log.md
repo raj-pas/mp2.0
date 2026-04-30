@@ -1521,3 +1521,93 @@ gotcha is documented; everything else is a green-light.
    per locked decision #4. The "Add new household" affordance
    is also hidden for analysts because the ClientPicker is
    not rendered on their CMA-only chrome.
+
+## 2026-04-30 — Pre-R6 realignment + snapshots smoke
+
+**Status:** ✅ Realignment + snapshot list/detail/restore contracts verified live; one drift item filed (BIG_SHIFT threshold).
+
+Targeted ~15-min smoke before R6 build. Same pattern as pre-R5: capture
+canonical wire shapes for the endpoints R6 will wire so the build
+doesn't burn time on shape drift.
+
+### Realignment (`POST /api/households/{hh}/realignment/`)
+
+Canonical request shape verified:
+
+```json
+{
+  "account_goal_amounts": {
+    "<account_external_id>": {
+      "<goal_external_id>": "<decimal_amount>"
+    }
+  }
+}
+```
+
+Response: `{before_snapshot_id: int, after_snapshot_id: int, big_shifts: [{account_id, account_type, before_score, after_score, delta}]}`.
+
+Atomic side effects (verified live):
+
+- 2 `HouseholdSnapshot` rows created (triggered_by=`realignment`,
+  labeled "Before realignment" / "After realignment")
+- `GoalAccountLink.allocated_amount` rows updated (or created via
+  `get_or_create` if a (goal, account) pair didn't yet exist)
+- 1 `realignment_applied` AuditEvent fires with metadata
+  `{before_snapshot_id, after_snapshot_id, big_shift_count}`
+- 2 `household_snapshot_created` AuditEvents fire (one per
+  snapshot save, locked decision #37 verified)
+
+### Snapshots list (`GET /api/households/{hh}/snapshots/`)
+
+Returns array of `{id, triggered_by, label, summary, created_at,
+created_by}` newest-first. `summary` is precomputed `{sh_aum, ext_aum,
+total_aum, goal_count, account_count, blended_score}` so the R6
+History tab doesn't need to walk the full snapshot blob to render
+each row.
+
+### Snapshot detail (`GET /api/households/{hh}/snapshots/{sid}/`)
+
+Adds `snapshot` to the list shape — full nested state with
+`{goals, members, accounts, household, external_holdings}`. Used by
+the CompareScreen to diff against current state.
+
+### Snapshot restore (`POST /api/households/{hh}/snapshots/{sid}/restore/`)
+
+Response: `{new_snapshot_id, restored_from_snapshot_id}`. Side effects:
+
+- New `HouseholdSnapshot` row created with triggered_by=`restore`
+  (per locked decision: append-only, never rewind)
+- 1 `household_snapshot_restored` AuditEvent fires with metadata
+  `{new_snapshot_id, restored_from_snapshot_id}`
+- 1 additional `household_snapshot_created` AuditEvent fires from
+  the new snapshot save
+- `GoalAccountLink` rows are rolled back to the values captured in
+  the restored snapshot (verified live: legs went back to pre-
+  realignment $68k/$40k after restore)
+
+### Drift finding: BIG_SHIFT threshold
+
+In `web/api/wizard_views.py::RealignmentView` (~line 542):
+
+```python
+if abs(after - before) > 5.0:
+    big_shifts.append(...)
+```
+
+`_blended_score(account)` returns `goal.goal_risk_score * weight` —
+canon 1-5 weighted, so max value is 5 and max delta is `~4`. The
+`> 5.0` threshold can never be exceeded under canon 1-5; locked
+decision #15's BIG_SHIFT banner will never trigger as written.
+
+Filed as drift item #13 in `docs/agent/open-questions.md`. R6
+frontend can ship the banner UI without blocker; backend threshold
+fix is a one-line follow-up (either drop to `> 1.0` for canon-band
+shifts or scale `_blended_score` to 0-100 internally).
+
+### No code fixes needed for R6 build itself
+
+All wire shapes are clear. R6 zod schemas can mirror the request
+shape exactly; CompareScreen data flow is `restore → new state, user
+clicks Compare → fetch detail of {sid}+current → diff in-component`.
+The audit invariants (1 realignment + 2 snapshot_created on apply;
+1 restored + 1 created on restore) are verified.
