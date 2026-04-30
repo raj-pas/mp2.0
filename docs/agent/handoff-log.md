@@ -1370,3 +1370,154 @@ new households organically.
 
 All contracts match what R5's wizard frontend will send. The PATCH
 gotcha is documented; everything else is a green-light.
+
+## 2026-04-30 — Phase R5 wizard onboarding COMPLETE
+
+**Branch:** `feature/ux-rebuild` (commit pending)
+**Status:** ✅ All R5 gates green; wizard end-to-end commit verified live; 8/8 e2e
+
+### Scope landed
+
+- `frontend/src/wizard/schema.ts` — zod schema mirroring
+  `WizardCommitSerializer`. ACCOUNT_TYPES enum, Q2/Q4 + Q3 stressor
+  taxonomies, member/account/goal-leg/external-holding sub-schemas,
+  superRefine for `joint_consent` + `account_index` cross-field
+  validation. `emptyWizardDraft()` for first paint and discard
+  recovery. `draftToCommitPayload()` strips frontend-only
+  `joint_consent` before POST.
+- `frontend/src/wizard/draft.ts` — per-tab session id stored in
+  `sessionStorage`, `localStorage` draft keyed by it. Save on every
+  step transition + 30s heartbeat (`useDraftHeartbeat`).
+  `loadInitial()` decides between fresh and resumable based on
+  `isMeaningfulDraft()` heuristic (any non-empty visible field).
+- `frontend/src/wizard/commit.ts` — `useWizardCommit()` mutation
+  hook. POST `/api/households/wizard/`; on success invalidates
+  `CLIENTS_QUERY_KEY` so the picker picks up the new household.
+- `frontend/src/wizard/Step1Identity.tsx` — display_name input,
+  household_type radio (single/couple), joint_consent checkbox
+  (only when couple), members[0..1] name+dob, notes textarea.
+  Auto-adjusts `members` array length when household_type
+  toggles via `useFieldArray`.
+- `frontend/src/wizard/Step2RiskProfile.tsx` — Q1 range slider
+  (0-10) via Controller; Q2/Q4 4-button radiogroups; Q3 4-checkbox
+  multi-select. Live recompute via `useRiskProfilePreview` with
+  `useDebouncedValue(250ms)`. Right-side preview panel exposes
+  T/C/anchor (locked decision #6 — wizard is the ONE place these
+  intermediates appear) + canon descriptor + canon score.
+- `frontend/src/wizard/Step3Goals.tsx` — accounts mini-table with
+  add/remove + per-account fields (account_type select, current_value,
+  custodian); goals table with name, target_date, necessity_score
+  dropdown (5 → Need, 4 → Need, 3 → Want, 2 → Wish, 1 → Wish per
+  locked decision #10), target_amount (optional), legs allocator
+  (account_index select referencing accounts[] + allocated_amount).
+  Each goal has its own nested useFieldArray for legs.
+- `frontend/src/wizard/Step4External.tsx` — table-row holdings with
+  inline percentage cells + live-computed sum column. Sum highlight
+  goes red when ≠ 100; success-green when matches. Skippable
+  (parent strips empty rows before commit).
+- `frontend/src/wizard/Step5Review.tsx` — read-only receipt of the
+  full draft. Identity, risk profile, accounts, goals (with leg
+  details), external holdings (full-width when present).
+- `frontend/src/wizard/HouseholdWizard.tsx` — orchestrator route at
+  `/wizard/new`. Top banner (locked decision #7 doc-drop affordance
+  via `wizard.banner.docs_cta` → `/review`). Recovery banner when
+  draft is resumable. Stepper shows the 5 step labels with current
+  highlighted. Per-step `trigger()` validation gates Next; final
+  Commit runs full schema + POSTs. On success: clear draft, set
+  rememberedClientId to new UUID, toast, navigate to `/`.
+- `frontend/src/App.tsx` — registers `/wizard/new` route under
+  the advisor branch (locked decision #4 — analysts get redirected
+  to /cma). Per-route ErrorBoundary scoped to "wizard" (locked
+  decision #31a).
+- `frontend/src/chrome/ClientPicker.tsx` — added "Add new
+  household" entry above the search results that closes the
+  popover and navigates to `/wizard/new`.
+- `frontend/src/i18n/en.json` — added `wizard.banner.*`,
+  `wizard.recovery.*`, `wizard.nav.*`, `wizard.commit.*`,
+  `wizard.step1.*`–`wizard.step5.*` (~70 keys total). All
+  user-visible strings flow through `t()`.
+- `frontend/e2e/foundation.spec.ts` — added R5 wizard test:
+  open client picker → "Add new household" → step through identity
+  + risk profile (live recompute) + accounts/goals + external
+  (skip) + review + commit → verify topbar reflects the new
+  household name.
+
+### Locked decisions honored in R5
+
+- #2 server roundtrip — every Step 2 input change triggers a
+  debounced server recompute via `/api/preview/risk-profile/`;
+  no client-side T/C math.
+- #6 Goal_50 hidden — Step 2 preview panel is the single
+  approved surface where T/C/anchor are visible (with explicit
+  context that they're advisor-transparent intermediates);
+  every other R-phase surface stays canon 1-5 + descriptor only.
+- #7 doc-drop primary — wizard banner literally calls out
+  doc-drop as the recommended path; `Use document upload
+  instead →` button bounces to `/review`.
+- #10 size-shift + tier-shift — `necessity_score` dropdown
+  uses canon necessity values 1-5; mapped server-side to
+  Need/Want/Wish/Unsure tier codes.
+- #14 vocab CI — green; all wizard strings honor canon
+  vocabulary (no "reallocation"/"transfer"/"move money").
+- #18 latency budget — Step 2 recompute uses
+  `useDebouncedValue(250ms)`; commit invalidates the clients
+  query so the picker picks up the new household within
+  one render cycle.
+- #28a i18n CI — every user-visible string flows through `t()`;
+  no decorative unicode (Lucide icons throughout).
+- #29 react-hook-form + zod — full validation stack; per-step
+  `trigger()` for incremental validation, full schema check
+  on commit. `superRefine` for cross-field rules
+  (joint_consent, leg account_index pointing to a real account).
+- #30 Postgres concurrency — server's wizard commit wraps
+  everything in `transaction.atomic()`; verified live during
+  the pre-R5 smoke (open-question #10 resolved).
+- #31a per-route ErrorBoundary — RouteFrame wraps wizard with
+  `scope="wizard"`; broken step leaves the rest of the
+  console working.
+- #32a/b URL state + localStorage — wizard at `/wizard/new`
+  (URL); draft survives crash via `mp20_wizard_draft_<sessionId>`
+  in localStorage; sessionId in sessionStorage so multi-tab
+  drafts don't collide.
+- #35 wizard state recovery — heartbeat 30s + step-transition
+  saves; recovery prompt on remount with Resume/Discard.
+  Cleared explicitly on commit success.
+- #37 audit emission — verified live during pre-R5 smoke;
+  POST commit fires exactly one `household_wizard_committed`
+  AuditEvent with metadata.
+
+### R5 gate verification
+
+- `uv run ruff check / ruff format --check` — clean
+- `uv run mypy <R0 modules>` — Success: no issues found
+- `uv run pytest` — **313 passed in 31.28s** (no Python
+  changes in R5)
+- `python web/manage.py makemigrations --check --dry-run` — No changes
+- `bash scripts/check-vocab.sh` — vocab CI: OK
+- `npm run typecheck / lint / format / build` — clean
+- `npm run e2e:synthetic` — **8/8 in 7.1s** (R5 wizard e2e
+  flows from picker → 5-step wizard → commit → topbar updates)
+- Bundle: 826 kB JS / 18 kB CSS gzip 254 kB / 4.45 kB
+  (RHF + zod already in deps; wizard adds form pages but no
+  new heavy libraries)
+
+### Known scope-trims for R5 (deferred follow-ups)
+
+1. **Wizard URL step persistence** — current step lives only
+   in component state; refresh on `/wizard/new` resets to step
+   1 even if the draft has step-3 data. R10 polish: add
+   `?step=N` param to URL.
+2. **Step 3 leg-sum live validation** — schema currently
+   enforces server-side that legs sum to either target_amount
+   or self-determined goal value; client doesn't yet show a
+   running "legs sum / target" indicator while typing. Easy
+   follow-up that R10 can polish in.
+3. **Step 4 row partial-skip** — empty holdings rows are
+   stripped before commit but the schema still requires
+   `value` to be a number. Either drop the requirement on
+   schema or have the UI explicitly mark "draft" rows.
+4. **Wizard from analyst role** — analysts can't reach
+   `/wizard/new` (route gate redirects to `/cma`); intentional
+   per locked decision #4. The "Add new household" affordance
+   is also hidden for analysts because the ClientPicker is
+   not rendered on their CMA-only chrome.

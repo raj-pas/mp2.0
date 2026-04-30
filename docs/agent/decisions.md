@@ -151,6 +151,30 @@ authoritative when more detail is needed.
   (μ × 0.85, σ × 1.15 for external) which is implemented in
   `engine/projections.py`. Awaits team-confirmed dampener formula.
 
+## R5 (UI/UX rewrite, 2026-04-30)
+
+- 5-step household wizard shipped at `/wizard/new` (locked decision #7
+  — fallback path; doc-drop is primary). Steps: identity, risk
+  profile, accounts+goals, external holdings, review+commit.
+- `frontend/src/wizard/schema.ts` mirrors `WizardCommitSerializer`
+  exactly (verified during the pre-R5 smoke). superRefine validates
+  cross-field rules (joint_consent for couple, leg account_index
+  bounds).
+- State recovery (locked decision #35): per-tab session id keys a
+  localStorage draft saved on every step transition + 30s heartbeat;
+  recovery banner offers Resume/Discard on mount.
+- Step 2 live recompute calls `/api/preview/risk-profile/` with
+  `useDebouncedValue(250ms)`; the preview panel is the ONE approved
+  surface where T/C/anchor numbers are visible (locked decision #6).
+- Commit success → invalidate clients query, set
+  rememberedClientId to the new UUID, toast, navigate to `/`.
+  AuditEvent `household_wizard_committed` fires (locked decision
+  #37 verified live).
+- "Add new household" affordance added to ClientPicker; closes the
+  popover and navigates to `/wizard/new`.
+- e2e foundation spec extended with the full wizard flow
+  (8/8 in 7.1s).
+
 ## R4 (UI/UX rewrite, 2026-04-30)
 
 - Goal allocation surfaces shipped: hero KPI strip + interactive

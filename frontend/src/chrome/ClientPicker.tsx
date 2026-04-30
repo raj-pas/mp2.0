@@ -1,7 +1,8 @@
 import * as Popover from "@radix-ui/react-popover";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 
 import { Skeleton } from "../components/ui/skeleton";
 import { useClients, type ClientSummary } from "../lib/clients";
@@ -17,6 +18,7 @@ interface ClientPickerProps {
 
 export function ClientPicker({ selectedId, onSelect, enabled = true }: ClientPickerProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const clients = useClients(enabled);
@@ -88,6 +90,19 @@ export function ClientPicker({ selectedId, onSelect, enabled = true }: ClientPic
                 {query.length > 0 ? t("topbar.client_picker_no_match") : t("empty.no_clients")}
               </p>
             )}
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                navigate("/wizard/new");
+              }}
+              className="flex w-full items-center justify-between border-b border-hairline bg-paper-2 px-3 py-2 text-left transition-colors hover:bg-paper"
+            >
+              <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-ink">
+                <Plus aria-hidden className="h-3 w-3" />
+                {t("topbar.client_picker_add")}
+              </span>
+            </button>
             {filtered.map((client) => {
               const active = client.id === selectedId;
               return (

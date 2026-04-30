@@ -20,7 +20,8 @@
     "client_picker_placeholder": "Select a client",
     "client_picker_search": "Search clients",
     "client_picker_no_match": "No clients match.",
-    "client_picker_error": "Could not load clients."
+    "client_picker_error": "Could not load clients.",
+    "client_picker_add": "Add new household"
   },
   "auth": {
     "login_title": "Sign in",
@@ -215,6 +216,121 @@
     "sells": "Sells",
     "buy_action": "Buy",
     "sell_action": "Sell"
+  },
+  "wizard": {
+    "banner": {
+      "bold": "Most households are onboarded by uploading documents and conversation notes.",
+      "body": "The AI extraction handles the data entry. Use this form for edge cases, or when you have all the data ready to enter manually.",
+      "docs_cta": "Use document upload instead →"
+    },
+    "recovery": {
+      "title": "Resume in-progress household setup?",
+      "body": "An unsaved wizard draft was found in this browser session.",
+      "resume": "Resume",
+      "discard": "Discard"
+    },
+    "nav": {
+      "back": "Back",
+      "next": "Next",
+      "commit": "Commit household",
+      "committing": "Committing…"
+    },
+    "commit": {
+      "success_title": "Household created",
+      "success_body": "The household tree was created and an audit event was recorded.",
+      "error_generic": "Could not commit household."
+    },
+    "step1": {
+      "title": "Who is the household?",
+      "subtitle": "Basic identification. Risk profile and goals come next.",
+      "name_label": "Household name",
+      "name_placeholder": "e.g. Patel & Singh",
+      "type_label": "Household type",
+      "type_single": "Single person",
+      "type_couple": "Two-person household",
+      "consent_label": "Both members consent to a joint household view.",
+      "consent_help": "Joint households can share fees and reporting. Both members must sign a consent form before account opening.",
+      "members_label_single": "Member",
+      "members_label_couple": "Members",
+      "member_name": "Member {{n}} name",
+      "member_name_placeholder": "Full name",
+      "member_dob": "Date of birth",
+      "notes_label": "Notes",
+      "notes_placeholder": "Anything an advisor should know — life events, preferences, prior history…"
+    },
+    "step2": {
+      "title": "Household risk profile",
+      "subtitle": "Four questions establish tolerance (T) and capacity (C). The household anchor is min(T, C) ÷ 2.",
+      "q1_text": "How do you see yourself: are you generally a person who is fully prepared to take risks, or do you try to avoid taking risks?",
+      "q1_legend": "0 = avoid risk · 10 = fully prepared to take risks",
+      "q2_text": "When something unexpected and stressful happens, how do you typically respond?",
+      "q2_a": "Anxious; can't sleep",
+      "q2_b": "Worry but push through",
+      "q2_c": "Stay calm; work the problem",
+      "q2_d": "See it as opportunity",
+      "q3_text": "Which of these are likely sources of stress for the household over the next 5 years? Select all that apply.",
+      "q3_career": "Career changes",
+      "q3_health": "Health events",
+      "q3_family": "Family changes",
+      "q3_market_volatility": "Market volatility",
+      "q4_text": "What is the household's capacity to take on investment risk?",
+      "q4_a": "Limited — relies on portfolio income",
+      "q4_b": "Moderate — has some flexibility",
+      "q4_c": "Strong — multiple income sources",
+      "q4_d": "High — long horizon + reserves",
+      "preview_title": "Live recompute",
+      "preview_t": "Tolerance (T)",
+      "preview_c": "Capacity (C)",
+      "preview_anchor": "Anchor",
+      "preview_descriptor": "Household profile",
+      "preview_canon_score": "Canon score"
+    },
+    "step3": {
+      "title": "Accounts and goals",
+      "subtitle": "Add the household's accounts, then assign each goal's funding across them.",
+      "accounts_title": "Accounts",
+      "add_account": "Add account",
+      "remove_account": "Remove account",
+      "value_placeholder": "Current value",
+      "custodian_placeholder": "Custodian (optional)",
+      "goals_title": "Goals",
+      "add_goal": "Add goal",
+      "remove_goal": "Remove goal",
+      "goal_name_placeholder": "Retirement, Education, …",
+      "goal_date_label": "Target date",
+      "goal_necessity_label": "Tier",
+      "goal_target_placeholder": "Target amount (optional)",
+      "legs_title": "Account legs",
+      "add_leg": "Add leg",
+      "remove_leg": "Remove leg",
+      "leg_account_label": "Account",
+      "leg_amount_placeholder": "Allocated amount"
+    },
+    "step4": {
+      "title": "External holdings (optional)",
+      "subtitle": "Funds held outside Steadyhand. Asset percentages must sum to 100.",
+      "add_holding": "Add holding",
+      "remove_holding": "Remove",
+      "empty": "No external holdings on file. Click Add holding or skip.",
+      "col_name": "Name",
+      "col_value": "Value",
+      "col_equity": "Equity %",
+      "col_fixed": "Fixed inc %",
+      "col_cash": "Cash %",
+      "col_real": "Real %",
+      "name_placeholder": "Old broker account"
+    },
+    "step5": {
+      "title": "Review and commit",
+      "subtitle": "Confirm the household tree before committing. Audit event fires on success.",
+      "identity": "Identity",
+      "members": "Members",
+      "risk_profile": "Risk profile",
+      "accounts": "Accounts",
+      "goals": "Goals",
+      "external_holdings": "External holdings",
+      "goal_horizon": "Target date {{date}}"
+    }
   },
   "empty": {
     "no_clients": "No clients yet. Onboard a household via doc-drop or the wizard.",

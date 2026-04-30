@@ -1,7 +1,7 @@
 /**
- * R2 + R3 + R4 foundation smoke spec.
+ * R2 + R3 + R4 + R5 foundation smoke spec.
  *
- * Verifies the v36 rewrite shell up through the goal allocation stage:
+ * Verifies the v36 rewrite shell up through the wizard onboarding path:
  *   - login → topbar visible (brand + picker + report + methodology)
  *   - role-based routing (advisor lands at /, analyst at /cma)
  *   - context panel renders alongside the household stage
@@ -11,8 +11,10 @@
  *   - advisor: goal page shows RiskSlider + Allocation + Optimizer +
  *     Moves + ProjectionsFan; override save round-trips through the
  *     audit log
+ *   - advisor: 5-step wizard creates a household end-to-end and
+ *     redirects to the new household stage
  *
- * Subsequent phases extend this spec (R5 wizard, R7 doc-drop, R9 CMA).
+ * Subsequent phases extend this spec (R6 realignment, R7 doc-drop, R9 CMA).
  */
 import { expect, test, type Page } from "@playwright/test";
 
@@ -169,5 +171,69 @@ test.describe("R4 goal allocation + override", () => {
     // Override history shows in ctx-panel projections tab.
     await page.getByRole("tab", { name: /Projections/i }).click();
     await expect(page.getByText(rationale)).toBeVisible({ timeout: 10000 });
+  });
+});
+
+test.describe("R5 wizard onboarding", () => {
+  test("advisor walks the 5-step wizard and commits a household", async ({ page }) => {
+    test.setTimeout(60_000);
+    await loginAdvisor(page);
+
+    // Open client picker → "Add new household"
+    await page.getByRole("button", { name: /select client/i }).click();
+    await page.getByRole("button", { name: /Add new household/i }).click();
+    await expect(page).toHaveURL(/\/wizard\/new$/);
+
+    // Step 1 — identity
+    const stamp = Date.now();
+    const householdName = `R5 Smoke Wizard ${stamp}`;
+    await page.getByPlaceholder(/Patel & Singh/i).fill(householdName);
+    // Member 1 inputs
+    const memberInputs = page.locator('input[name^="members."]');
+    await memberInputs.nth(0).fill("Smoke Smith");
+    await memberInputs.nth(1).fill("1975-04-15");
+    await page.getByRole("button", { name: /^Next$/ }).click();
+
+    // Step 2 — risk profile (defaults Q1=5, Q2=B, Q4=B → Balanced/3)
+    await expect(page.getByText(/Live recompute/i)).toBeVisible();
+    // Wait for the live preview's canon-score readout (debounced 250ms +
+    // network roundtrip). The Stat dt label is exactly "Tolerance (T)".
+    await expect(
+      page.getByRole("definition").filter({ hasText: /\/100/ }).first(),
+    ).toBeVisible({ timeout: 10000 });
+    await page.getByRole("button", { name: /^Next$/ }).click();
+
+    // Step 3 — accounts + goals
+    // Default account is RRSP at index 0; fill its current_value.
+    const accountValueInput = page
+      .locator('input[name^="accounts."]')
+      .filter({ hasText: "" })
+      .nth(0);
+    // The first numeric input under accounts is `accounts.0.current_value`
+    await page.locator('input[name="accounts.0.current_value"]').fill("180000");
+    // Default goal — fill name, target date, target amount, leg amount.
+    await page.locator('input[name="goals.0.name"]').fill("Retirement");
+    await page.locator('input[name="goals.0.target_date"]').fill("2045-12-31");
+    await page.locator('input[name="goals.0.target_amount"]').fill("1500000");
+    await page.locator('input[name="goals.0.legs.0.allocated_amount"]').fill("180000");
+    void accountValueInput;
+    await page.getByRole("button", { name: /^Next$/ }).click();
+
+    // Step 4 — external holdings (skippable)
+    await expect(page.getByRole("heading", { name: /External holdings/i })).toBeVisible();
+    await page.getByRole("button", { name: /^Next$/ }).click();
+
+    // Step 5 — review + commit
+    await expect(page.getByRole("heading", { name: /Review and commit/i })).toBeVisible();
+    await expect(page.getByText(householdName)).toBeVisible();
+    await page.getByRole("button", { name: /^Commit household$/ }).click();
+
+    // After commit we land on `/` and the topbar reflects the new
+    // household name.
+    await expect(page).toHaveURL(/\/$/, { timeout: 10000 });
+    await expect(page.getByRole("button", { name: /select client/i })).toContainText(
+      householdName.slice(0, 16),
+      { timeout: 10000 },
+    );
   });
 });

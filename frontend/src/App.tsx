@@ -23,6 +23,7 @@ import { HouseholdRoute } from "./routes/HouseholdRoute";
 import { LoginRoute } from "./routes/LoginRoute";
 import { MethodologyRoute } from "./routes/MethodologyRoute";
 import { ReviewRoute } from "./routes/ReviewRoute";
+import { HouseholdWizard } from "./wizard/HouseholdWizard";
 
 function App() {
   return (
@@ -155,6 +156,18 @@ function RouteHost({ role }: { role: "advisor" | "financial_analyst" }) {
             <StageWithContext kind="goal">
               <GoalRoute />
             </StageWithContext>
+          ) : (
+            <Navigate to="/cma" replace />
+          )
+        }
+      />
+      <Route
+        path="/wizard/new"
+        element={
+          isAdvisor ? (
+            <RouteFrame scope="wizard">
+              <HouseholdWizard />
+            </RouteFrame>
           ) : (
             <Navigate to="/cma" replace />
           )
