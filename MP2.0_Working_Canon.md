@@ -1,7 +1,7 @@
-# MP2.0 — Working Canon (v2.3)
+# MP2.0 — Working Canon (v2.7)
 
-**Merged seed context + engineering addendum + real-PII handling + MVP/pilot framing + Day 2 design decisions**
-**Compiled:** April 2026, post Day-2 of MAT offsite (architectural lock-ins, three-tab view, risk methodology, tax drag, override patterns, schedule correction)
+**Merged seed + engineering + real-PII + MVP/pilot + Day 2 design + production-grade reframe + Day 3 lock-ins + internal consistency pass**
+**Compiled:** April 30, 2026, internal-review pass after Day-3 afternoon
 **Owners:** Fraser Stark (project lead) | Saranyaraj Rajendran (engineering lead)
 **Mission-Aligned Team:** Fraser Stark, Nafal Butt, Lori Norman, Saranyaraj Rajendran
 **Executive Sponsor:** Som Seif, CEO Purpose Investments
@@ -29,7 +29,7 @@ It is opinionated where the team has aligned. It is explicit about what is still
 2. The conceptual model
 3. The 6-stage customer journey
 4. Investment theory & engine mechanics
-5. Sleeve universe
+5. Fund universe
 6. Data model & required inputs
 7. Regulatory & compliance constraints
 8. Reporting & client communication
@@ -88,29 +88,46 @@ Som's framing for the offsite: every client meeting today opens with returns. In
 
 - **Steadyhand** is the launch context for the MVP. It's a Purpose subsidiary, MFDA-registered, with ~3,500–4,000 clients and a small Investment Specialist (IS) team led by Lori Norman.
 - Steadyhand has a constrained, well-understood fund lineup, a high-trust client base, and a culture that already over-delivers on advice relative to its regulatory mandate. Ideal for a v1.0.
-- After Steadyhand, the next deployment is **Harness** (advisor platform, especially retired clients — Harness Investment Committee has confirmed interest, conditional on sleeves being formally launched as funds with a Purpose PM attached). Eventually: 3rd-party IIROC/CIRO advisors, Partnership Program, Link group plans, and DIY.
+- After Steadyhand, the next deployment is **Harness** (advisor platform, especially retired clients — Harness Investment Committee has confirmed interest, conditional on the building-block funds being formally launched as funds with a Purpose PM attached). Eventually: 3rd-party IIROC/CIRO advisors, Partnership Program, Link group plans, and DIY.
 
-### 1.6 The deliverable — MVP for advisor pilot, not a demo **[LOCKED]**
+### 1.6 The deliverable — production-grade MVP for advisor pilot **[LOCKED]**
 
-> **MP2.0 is a working MVP that 3–5 Steadyhand Investment Specialists will use with real clients in a controlled pilot. It is not a demo.** The Wednesday end-of-day Som demo and the IS team validation sessions the following Mon/Tue are the start of pilot use — not one-time presentations. Everything in this canon should be read with that bar in mind.
+> **MP2.0 is production-grade software with a limited user set.** The word "MVP" describes scope (small, focused, controlled pilot population), not engineering bar (it is not "demo-grade", "scaffolding", or "throwaway"). 3–5 Steadyhand Investment Specialists will use the system with their real clients. Real Canadian client PII flows through the system from day one.
 
-This distinction matters because it changes what "done" means at every layer:
+This distinction matters because earlier framings of this project ("Som demo," "Friday launch event," "Phase A scaffold-grade") created a false comfort that some controls could be deferred. **They cannot.** Real PII does not wait for Phase B; it has been flowing through the system since the secure-local review tranche landed. The auth, audit, RBAC, kill-switch, fail-closed Bedrock routing, sensitive-identifier handling, and immutable-audit-via-DB-triggers controls are production controls, built in from the start, not Phase-B aspirations.
 
-| Concern | Demo bar | MVP-for-advisor-pilot bar (the actual bar) |
-|---|---|---|
-| **Audience posture** | Passive — watching a screen | Active — clicking around, doing their job, exploring edge cases |
-| **Path coverage** | Storyboard happy path works | Most reasonable advisor actions produce sensible output or graceful failure |
-| **Personas** | One hero persona | Whatever real client files an advisor loads |
-| **Auth** | One hardcoded login | Per-advisor accounts, password reset, session timeout, lockout |
-| **Output trust** | "Looks impressive" | Every recommendation is clearly marked as pilot output requiring advisor judgment |
-| **Failure mode** | Awkward silence in the room | An advisor takes pilot output to a real client conversation |
-| **Success metric** | "They liked it" | Advisors keep using it after week one |
-| **Feedback loop** | Post-demo survey optional | Structured channel from day one — advisors flag bugs, surface bad output, ask questions |
-| **PII volume** | 1–2 validation personas | Real client books, at routine pilot volume |
+The implications:
 
-The **honest implication** is that the offsite 2-day build produces the *foundation*, not the finished MVP. There's a defined window between offsite end and first advisor onboarding (the **pilot hardening window**, see Part 13.0) where the gap between "demo-shaped" and "advisor-usable" gets closed. That window is part of the project, not an afterthought.
+| Concern | Production-grade-MVP bar (the actual bar) |
+|---|---|
+| **Audience posture** | Active — real advisors using the system to inform real client conversations |
+| **PII handling** | Real PII flows from day one; controls are production-grade or the system doesn't ship |
+| **Auth** | Authenticated-by-default DRF, advisor team scope, financial-analyst PII denial, kill-switch on engine generation. MFA / lockout / password reset are Phase B *additions* to a production foundation, not introductions |
+| **Audit** | Append-only via model guards plus DB triggers, sanitized timeline events, edit hashes, kill-switch as audit event. Browser UI is deferred; *the writes are not.* |
+| **Output trust** | Every recommendation marked as pilot-mode requiring advisor judgment; engine never invents numbers |
+| **Failure mode** | An advisor takes pilot output to a real client conversation. Kill-switch, audit trail, and bounded blast radius (3–5 advisors) are how this is contained, not avoided |
+| **Success metric** | Advisors keep using it after week one; no Sev-1 incidents |
 
-Naming this here so that no decision downstream — auth phase, error handling, edge-case coverage, support model — can quietly slip back to demo-grade just because something said "demo" in an earlier draft.
+**What this retires from earlier versions of this canon:** the language "Phase A is demo-grade," "stage-managed paths," "scaffold-grade," and "Som-demo-grade" are misleading and have been removed from this version. They were inherited from an earlier era when the team imagined synthetic-only data on stage Friday and real PII deferred behind a hardening window. Reality: real PII landed in the system by Day 2 evening; the engineering bar adjusted accordingly. The canon now reflects that.
+
+**The Phase A → B → C structure remains useful** as a rollout sequence (offsite foundation → IS validation → pilot expansion), but each phase is production-grade for its scope, and the gates between phases are about *coverage* (more advisors, more clients, more controls layered in) not about *quality* (which is production-grade throughout).
+
+### 1.7 Platform alignment — goal-based lens layered on foundations **[LOCKED — Day 3 morning]**
+
+> **MP2.0 is a goal-based lens that layers on top of foundational platforms — not a parallel rebuild of them.**
+
+The Purpose Engineering Director is rebuilding Advisor Center components in React (moving away from OutSystems). The risk Fraser flagged at Day 3 morning is real: if MP2.0 inadvertently rebuilds what Advisor Center already does, *some elements will be better, some worse, and both outcomes create organizational friction.* Better-than-Advisor-Center invites political conflict; worse-than-Advisor-Center invites comparison the team will lose. Neither serves the project.
+
+The resolution is positional clarity:
+
+- **The differentiator is the goal-based lens and portfolio construction engine.** The goal × account cross-reference (Part 4.3a), the household/account/goal three-view UX (Part 8.7), and the optimization engine itself are MP2.0's secret sauce.
+- **The scaffolding (advisor login, client list, document storage, contact management, account dashboards) is not the differentiator.** Where Advisor Center provides this, MP2.0 should consume it — eventually — rather than rebuild it.
+- **Build for snap-in.** The Phase A and B implementations build minimal scaffolding to hold the goal-based views together. The goal-based features are designed to be modular enough to plug into the Advisor Center React foundation as it matures.
+- **For demo: minimum viable scaffolding.** Polish, branding, and Purpose visual identity are deferred. Usability for an advisor like Evan is the bar, not visual finish.
+
+**The strategic implication:** if the goal-based lens is powerful enough on Steadyhand, it expands beyond Steadyhand to Harness and other Purpose channels via the same snap-in pattern (Goal #2 in Part 1.3, "One Purpose"). The platform decisions made now should keep that path open.
+
+> *"That goal-based lens becomes the glasses we look at things through... we could build it on top of what [the engineering team is] doing as the foundational platform."* — Fraser, Day 3 morning
 
 ---
 
@@ -130,7 +147,7 @@ HOUSEHOLD  (1 or 2 people; never more — 3+ becomes dependents-as-goals)
    │
    └── ACCOUNTS (the regulatory-required containers where money is held & risk is set)
          - each account has: type (RRSP/TFSA/RESP/Non-reg/...), regulatory IPS constraints, holdings
-         - accounts contain SLEEVES (sleeve funds = the building blocks)
+         - accounts contain FUNDS (building-block funds = the constituent paints; whole-portfolio funds = collapsed mixes)
 ```
 
 **Critical insight from the offsite:** goals and accounts have a **many-to-many** relationship.
@@ -140,26 +157,28 @@ HOUSEHOLD  (1 or 2 people; never more — 3+ becomes dependents-as-goals)
 
 Regulatory reality: at Steadyhand (MFDA), accounts cannot be formally "nicknamed" or labeled with goals. The mapping is a logical/system layer above the regulatory account.
 
-### 2.2 The sleeve-blend architecture (Option C) **[LOCKED]**
+### 2.2 The fund-blend architecture (Option C) **[LOCKED — terminology updated Day 3 afternoon]**
 
-**The foundational architectural decision is Option C: the hybrid sleeve-blend model.**
+**The foundational architectural decision is Option C: the hybrid fund-blend model.**
+
+> **Terminology note (Day 3 afternoon):** earlier versions of this canon used "sleeve" / "sleeve fund" for the building-block category. **The team has retired that term** because (a) "sleeves" originally meant *purpose-built funds designed specifically for MP2.0*, and no purpose-built funds are being created — the system uses the existing Purpose fund universe; and (b) "sleeve" is industry-ambiguous (it can mean in-kind transfers, sub-portfolio components, or other things depending on context). **The replacement term is "fund."** Where the building-block-vs-whole-portfolio distinction matters, the canon uses "**building-block fund**" for the former and "**whole-portfolio fund**" for the latter (Founders, Builders, PACF, etc.). The conceptual distinction persists; the vocabulary tightened.
 
 The analogy is **paint mixing** (Fraser's):
-- **Sleeves** = building-block funds (the paints). 8–12 sleeves total. Each sleeve has a clear mandate (e.g., "Canadian large-cap equity," "investment-grade bonds," "cash"). Each sleeve is itself a real, papered fund with a Purpose PM attached.
-- **Blend ratios** = personalized mix of sleeves driven by the financial plan (the painting). Every household–goal–account combination produces a unique blend.
-- **Atoms-and-molecules**: sleeves are molecules; the underlying holdings (individual securities) are the atoms. Clients/advisors operate at the molecule level. The Macro Insight Layer (see 2.3) operates at the atom level inside each sleeve.
+- **Building-block funds** = the paints. 8–12 building blocks total. Each has a clear mandate (e.g., "Canadian large-cap equity," "investment-grade bonds," "cash"). Each is a real, papered fund with a Purpose PM attached.
+- **Blend ratios** = personalized mix of building-block funds driven by the financial plan (the painting). Every household–goal–account combination produces a unique blend.
+- **Atoms-and-molecules**: building-block funds are molecules; the underlying holdings (individual securities) are the atoms. Clients/advisors operate at the molecule level. The Macro Insight Layer (see 2.3) operates at the atom level inside each building-block fund.
 
 Why this architecture:
-- Standardized sleeves give us manageability, consistency across client books, and operational tractability (rebalancing 12 sleeves vs. 1,000 unique portfolios).
+- Standardized building-block funds give us manageability, consistency across client books, and operational tractability (rebalancing ~12 funds vs. 1,000 unique portfolios).
 - Personalized blends give us the planning-driven personalization that defines MP2.0.
-- Sleeves earn trust over time because they have track records, mandates, and PMs — they're real funds, not synthetic constructs.
+- Building-block funds earn trust over time because they have track records, mandates, and PMs — they're real funds, not synthetic constructs.
 
 ### 2.3 The Macro Insight Layer **[LOCKED]**
 
-The CIO/strategist function does **not** touch individual client portfolios. It updates the **internals of sleeves** (the underlying holdings) based on macro views — duration calls, sector tilts, currency hedging decisions, factor exposures.
+The CIO/strategist function does **not** touch individual client portfolios. It updates the **internals of building-block funds** (the underlying holdings) based on macro views — duration calls, sector tilts, currency hedging decisions, factor exposures.
 
 This means there are **two independent update cycles**:
-1. **Sleeve internals** — driven by the Macro Insight Layer (probably monthly). Affects every client who holds that sleeve.
+1. **Fund internals** — driven by the Macro Insight Layer (probably monthly). Affects every client who holds that fund.
 2. **Client blend ratios** — driven by changes to the client's plan, life events, or material drift. Affects only that client.
 
 Clients see one allocation. The two cycles run silently underneath.
@@ -184,7 +203,7 @@ The system is a **continuous loop**, not a linear funnel.
 |------:|------|--------------|-----------------|
 | 1 | **Client Onboarding** | Digital intake, KYC/AML, risk profiling, goals & life context capture. AI helps extract from meeting notes. Static/configurable intake form ensures required attributes are always captured (deterministic). | Client: "Tell me about myself, easily." Advisor: "Let me capture everything I'd ask anyway, faster." |
 | 2 | **Living Financial Plan** | Goals-based engine. Cash flow projections, scenario modeling, Monte Carlo, success probabilities by goal. Plan outputs feed Stage 3. **Trust is built or lost here.** | Client: "Will I be okay?" Advisor: "What scenarios do we need to test?" |
-| 3 | **Portfolio Construction** | The MP2.0 engine itself. Sleeve-blend optimization driven by plan. Two independent update cycles (sleeve internals via Macro Insight Layer; blend via plan). | Purpose: "Are sleeves consistent across clients?" Advisor: "Why this blend?" Client: "Why these funds?" |
+| 3 | **Portfolio Construction** | The MP2.0 engine itself. Fund-blend optimization driven by plan. Two independent update cycles (fund internals via Macro Insight Layer; blend via plan). | Purpose: "Are the building-block funds consistent across clients?" Advisor: "Why this blend?" Client: "Why these funds?" |
 | 4 | **Automated Execution** | Drift detection, tax-aware rebalancing, custodian API, compliance guardrails. **Phase 2+ — explicitly out of MVP scope.** Should be invisible to the client when it works. | All: invisible until it isn't. |
 | 5 | **Outcomes Reporting** | "Am I going to be okay?" reports. Goal progress visualization, plan-vs-actual, market context. AI/LLM-generated meeting prep for advisors. Periodic personalized updates. | Client: "Am I on track?" Advisor: "What do I tell them?" Purpose: regulatory reporting layered on top. |
 | 6 | **Continuous Loop** | Event-driven triggers feed back into Stage 2: life changes, market shifts, advisor observations, plan-progress signals. **This is where MP2.0 becomes sticky.** | All: the system gets smarter with every interaction. |
@@ -199,18 +218,18 @@ This is the math the offsite locked in for v1. Like the race-car-engine analogy:
 
 ### 4.1 Foundation: efficient frontier optimization **[LOCKED]**
 
-For a given universe of sleeve funds, with each sleeve characterized by:
+For a given universe of building-block funds, with each fund characterized by:
 - Expected return (after-fee, net)
 - Volatility (annualized standard deviation)
-- A correlation matrix across all sleeves
+- A correlation matrix across all funds in the universe
 
 …we compute the **efficient frontier** — the set of portfolios that maximize expected return for each level of volatility (and equivalently, minimize volatility for each level of expected return).
 
-This is Modern Portfolio Theory, applied at the sleeve level. The frontier is a curve in (volatility, return) space. Any blend of sleeves that lands **on** the curve is optimal in the mean-variance sense; anything below is dominated.
+This is Modern Portfolio Theory, applied at the building-block-fund level. The frontier is a curve in (volatility, return) space. Any blend of funds that lands **on** the curve is optimal in the mean-variance sense; anything below is dominated.
 
-**Key mechanic observed in the offsite:** as we vary correlations between sleeves, the *shape* of the frontier changes meaningfully — strongly negatively-correlated sleeves push the frontier up and to the left (more return for less risk). This is why launching a true **bond-only sleeve** matters: today the Steadyhand bond fund (Income Fund) is 75% bonds / 25% equities, which "couples" the bond axis to the equity axis and limits how far we can extend the frontier.
+**Key mechanic observed in the offsite:** as we vary correlations between funds, the *shape* of the frontier changes meaningfully — strongly negatively-correlated funds push the frontier up and to the left (more return for less risk). This is why launching a true **bond-only building-block fund** matters: today the Steadyhand bond fund (Income Fund) is 75% bonds / 25% equities, which "couples" the bond axis to the equity axis and limits how far we can extend the frontier.
 
-### 4.2 Risk modeling — composite, 5-point, three components exposed **[LOCKED — Day 2]**
+### 4.2 Risk modeling — composite, 5-point, three components exposed **[LOCKED — Day 2 + Day 3 afternoon refinements]**
 
 Where on the frontier should a given client's blend sit?
 
@@ -226,17 +245,25 @@ Where on the frontier should a given client's blend sit?
 
 The 5–45 range (intentionally below the median) prevents 100%-global-equity outcomes even for the most risk-tolerant clients. The 1st-percentile extreme produced absurd outcomes (all-cash too early); 50th felt too aggressive. **5–45 keeps a margin of conservatism even for "high-risk" clients.** Output is **snap-to-grid** — the blended risk score rounds to the nearest five-point step.
 
+**Lexical distinction (Day 3 afternoon §2.3):**
+- At the **client/household level**, the term is **"risk tolerance"** — a property of the person/household.
+- At the **goal/account level**, the term is **"riskiness"** of the allocation — a property of the position/portfolio.
+
+These describe related but distinct things; the canon uses both terms with this discipline.
+
 **The risk input is composed of three named components, all exposed to the advisor:**
 
-1. **Household risk rating** — derived from the holistic view of the household: income, net worth, investment knowledge, behavioral signals (loss aversion, follow-through, sentiment under volatility), tax sensitivity, attitude to debt.
-2. **Goal-level risk rating** — specific to *this* goal: how essential is it (need / want / wish), what's the time horizon, how much variability can the client tolerate on this specific outcome.
+1. **Household risk tolerance** — derived from the holistic view of the household: income, net worth, investment knowledge, behavioral signals (loss aversion, follow-through, sentiment under volatility), tax sensitivity, attitude to debt.
+2. **Goal-level risk tolerance** — specific to *this* goal, derived from: goal classification (need / want / wish per Part 6.3 necessity_score), and the **portion of total household AUM allocated to this goal** (Day 3 afternoon §5.4 — a goal that holds 90% of the household's wealth carries different riskiness considerations than one holding 5%).
 3. **Combined / "goal-adjusted" risk** — what the optimizer actually uses.
 
-**Showing all three avoids the black-box feel** (Day 2). An info icon / drill-down is preferred over hiding. The advisor chooses whether to walk the client through it.
+**Time horizon is NOT a component of the risk score [LOCKED — Day 3 afternoon §5.4].** Time horizon is a separate input that drives where on the efficient frontier the portfolio targets (via the duration framework in Part 4.3d). Including time horizon in the risk score would **double-count** it: the same year-of-maturity would push the blend conservative once via the risk score and a second time via the frontier selection. Risk score and time horizon are orthogonal inputs to the optimizer.
+
+**Showing all three components avoids the black-box feel** (Day 2). An info icon / drill-down is preferred over hiding. The advisor chooses whether to walk the client through it.
 
 Both component scores can start very simple: the goal-level score can be **a single 4- or 5-point question per goal** ("If you missed this target by 30%, what would that mean to you?"). The household-level can be a 3-question composite + behavioral data from notes.
 
-**Vocabulary** **[LOCKED — Day 2 §6.2]**: client-facing copy uses *cautious / balanced / growth-oriented* (and intermediates), not *low / medium / high*. The technical labels are held internally for the engine and for compliance mapping; the friendly descriptors surface in any client-visible copy. *"Low / medium / high" reads as a verdict; advisors and clients should not see those words in the client experience layer.*
+**Vocabulary [LOCKED — Day 2 §6.2; Day 3 afternoon §2.3]:** client-facing copy uses *cautious / conservative-balanced / balanced / balanced-growth / growth-oriented*. The internal labels (low / low-medium / medium / medium-high / high) are held for engine math and compliance mapping. Day 3 afternoon discussed both vocabularies; the team agreed both internal-numeric and named bands are useful. **The pilot UI should default to the descriptor vocabulary; "low / medium / high" reads as a verdict and stays out of client-facing surfaces.** (Open question #54: final UI string discipline; subset of the broader low-vs-named-band tension flagged Day 3.)
 
 > **Note:** this is **not** the same as the regulatory KYC risk rating. The KYC score (low / medium / high investment knowledge × time horizon × objective) is a parallel artifact we still maintain because regulators require it. Our optimized portfolio is then **mapped back** to a regulatory risk bucket for compliance reporting (Section 7.4).
 
@@ -273,10 +300,10 @@ This is why the data model treats `GoalAccountLink` as a first-class entity (Par
 Even when the recommendation collapses to a single fund (Founders, Builders), the back end is solving the **same optimization** on the same efficient frontier. The collapse is an execution-level decision, not a recommendation-level shortcut.
 
 The rule:
-- Optimize as usual; produce a sleeve-level blend
+- Optimize as usual; produce a building-block-fund-level blend
 - Compare blend composition against existing whole-portfolio funds (PACF, PABF, PAGF, Founders, Builders, etc.)
 - Where the optimization output closely matches an existing fund-of-funds, **recommend executing via that fund-of-funds** for tax efficiency (no client-level rebalancing on the underlying)
-- Where it doesn't, recommend the sleeve-level blend directly
+- Where it doesn't, recommend the building-block-fund-level blend directly
 
 **Same composition, fewer trade events.** This is also how Steadyhand existing portfolios (the "1.0" models) coexist with MP2.0 outputs — when MP2.0 lands on the same allocation as an existing model, it recommends the existing model.
 
@@ -288,9 +315,33 @@ Future targets are **optional secondary input**, used when the client volunteers
 
 This is also why Lori's caution prevailed at Day 2: the candidate one-sentence justification (Part 8.5) leads with "this allocation gives you the maximum portfolio value at a level of confidence aligned to your risk tolerance" — no future number unless one is explicitly provided.
 
-### 4.4 Glide path & the cash sleeve as risk-reducer **[LOCKED]**
+### 4.3d Goal duration computation **[LOCKED — Day 3 morning, Fraser's framework]**
 
-As a goal nears its target date, the optimal blend should glide toward lower-volatility sleeves — and ultimately toward **cash**. The cash sleeve (currently approximated by Steadyhand Savings/MMF, with ~2.1% expected return and ~0.5% modeled volatility) functions as the "risk-free corner" of the frontier.
+Duration is the time-horizon input the optimizer consumes for each `GoalAccountLink`. How it's computed depends on the *shape* of the goal — three patterns cover the v1 cases:
+
+| Goal shape | Duration formula | Example |
+|---|---|---|
+| **Lump-sum goal** (buy a car, pay tuition, down payment) | `years_until_needed` | Car in 5 years → duration = 5 years |
+| **Retirement estate goal** | `years_to_retirement + expected_years_in_retirement` | Age 51, retire at 65, life expectancy 95 → 14 + 30 = **44 years** |
+| **Retirement income goal** | `years_to_retirement + (expected_years_in_retirement / 2)` | Same client → 14 + 15 = **29 years** at the planning moment, decaying to **15 years** at retirement |
+
+**Rationales:**
+
+- *Lump-sum* is straightforward — money is needed on a date; the engine glides toward cash as that date approaches (Part 4.4).
+- *Retirement estate* uses the *full* expected retirement years because there is no lump-sum payout at retirement. The estate keeps running (and growing) through retirement; you don't move it to cash at age 65.
+- *Retirement income* uses *half* the expected retirement years — the bond-duration analogy. Retirement income is paid out over many years; the midpoint/weighted-average horizon captures when the average dollar of that stream is needed. At the planning moment this is "years to retirement + half of post-retirement years"; at retirement itself it reduces to "half of remaining retirement years."
+
+**Engine consequences:**
+
+- The same household with a single retirement context typically produces **two `GoalAccountLink` optimizations** — one for the retirement income goal and one for the retirement estate goal — with different durations and therefore different optimal blends. That's expected, not a duplication problem.
+- The duration is **recomputed on every optimization run**, not stored once. This matters because `years_to_retirement` decreases over calendar time, and the retirement-income duration formula is age-dependent.
+- Edge cases (couples with different retirement dates, phased retirements, goals that span generations) are handled by goal decomposition: split into multiple goals with their own durations rather than overloading a single goal.
+
+This framework belongs in `engine/duration.py` and is called once per `GoalAccountLink` before optimization.
+
+### 4.4 Glide path & the cash building-block as risk-reducer **[LOCKED]**
+
+As a goal nears its target date, the optimal blend should glide toward lower-volatility funds — and ultimately toward **cash**. The cash building-block fund (currently approximated by Steadyhand Savings/MMF, with ~2.1% expected return and ~0.5% modeled volatility) functions as the "risk-free corner" of the frontier.
 
 In the model, as time-to-goal approaches zero, the optimizer naturally allocates more to cash. The engine should:
 - Compute the optimal blend under current time-to-goal
@@ -323,76 +374,136 @@ These return as v2+ refinements once the v1 framework is running.
 
 These are knowingly missing from v1; flag them as v2+ work:
 
-- **Currency / hedging decisions** (hedge ratios, FX overlays). Today buried inside sleeve internals.
-- **Factor tilts** (value, growth, momentum, quality). Today emergent from sleeve mandates. *Behavioral risk* of factor concentration (clients bailing in a crisis on funds they don't emotionally connect with) is real and material — handled in v1 via CMA tuning that prevents extreme concentrations (Part 4.7) and via investment-specialist discretion, not by adding factor-tilt math to the optimizer (Day 2 §6.3).
-- **Geographic / sector concentration look-through.** A future feature: re-aggregate the underlying atoms across all sleeves the blend holds, and flag concentration risks.
+- **Currency / hedging decisions** (hedge ratios, FX overlays). Today buried inside fund internals.
+- **Factor tilts** (value, growth, momentum, quality). Today emergent from fund mandates. *Behavioral risk* of factor concentration (clients bailing in a crisis on funds they don't emotionally connect with) is real and material — handled in v1 via CMA tuning that prevents extreme concentrations (Part 4.7) and via investment-specialist discretion, not by adding factor-tilt math to the optimizer (Day 2 §6.3).
+- **Geographic / sector concentration look-through.** A future feature: re-aggregate the underlying atoms across all funds the blend holds, and flag concentration risks.
 - **Full external-portfolio simulation.** v1 treats external holdings as a **simple risk-tolerance dampener** (Part 4.6a), not a full position model.
 
 The offsite consensus: build v1 with these gaps explicit, then evaluate which to close based on what we observe with real personas.
 
-### 4.6a External holdings as household-risk dampener **[LOCKED — Day 2 §6.4]**
+### 4.6a External holdings — risk-tolerance dampener + collection methodology **[LOCKED — Day 2 §6.4 + Day 3 afternoon §8]**
 
 External holdings (other-firm investments, real estate, business equity, private investments) are **optional input** in v1 and act as a simple **dampener** on the household risk score used for Purpose accounts:
 
 - Higher external risk or larger external holdings push the household risk score *down* (more conservative) for the Purpose-managed portion
 - This is a single-number adjustment, not a full external-portfolio simulation
-- Disclosure is optional; the system needs to articulate the value to the client of disclosing (Day 2 §6.4 — open work)
 - When external holdings aren't disclosed, the dampener is simply absent (no penalty, no warning)
+- Full external-portfolio modeling (joint optimization across Purpose + external assets) is v2+
 
-The math is intentionally simple. Full external-portfolio modeling (joint optimization across Purpose + external assets) is v2+.
+**Data collection methodology (Day 3 afternoon §8) — fallback hierarchy:**
 
-### 4.7 Capital market assumptions are an admin lever **[LOCKED — Day 2 §4]**
+1. **Statement upload** (preferred) — advisors push hard for external statements; most clients comply. AI ingestion (Part 11) detects external-statement documents (foreign institution headers) and auto-classifies; structured extraction populates approximate holdings.
+2. **Conversational fallback** — if no statement available, the advisor asks for an approximate asset mix in conversation (e.g., "70% equity, 20% bonds, 10% cash") and approximate geographic split. Captured as note-derived facts with low confidence indicator (Part 6.5.1).
+3. **Default fallback** — if the client won't disclose at all, **assume balanced allocation** as default. The dampener uses this default but the UI flags that external holdings are presumed, not disclosed.
 
-Purpose owns the CMA inputs (expected return, std dev, correlation matrix per sleeve, asset-class composition per fund, per-asset-class tax drag). These are not user-editable parameters; they are the firm's investment views.
+**Data sources for the holdings-detail view:**
+- **Steadyhand-internal funds:** Morningstar data drives asset class, geography, and fund-level breakdowns (Day 3 afternoon §8)
+- **External funds:** client-provided data only; system does not look up external securities against Morningstar or any third-party reference. External holdings show at asset-class granularity only, never fund-level (see Part 8.7 holdings views).
+
+**Future vision** (Day 3 afternoon §8): AI ingestion auto-classifies external statements as their own document type and routes them through a specialized extraction prompt — distinct from how Steadyhand statements are processed. v2+ work.
+
+### 4.7 Capital market assumptions are an admin lever **[LOCKED — Day 2 §4 + Day 3 morning + Day 3 afternoon refinements]**
+
+Purpose owns the CMA inputs (expected return, std dev, correlation matrix per fund, asset-class composition per fund, per-asset-class tax drag). These are not user-editable parameters; they are the firm's investment views.
 
 **Important guardrail:** the optimizer will not concentrate to a single fund **as long as no fund is Pareto-dominant and all pairwise correlations are sub-1**. Tuning CMAs is therefore a legitimate guardrail to keep recommendations within the range of "fundable" allocations the firm is comfortable with. This is a feature, not a bug — extreme concentrations (e.g., 100% global small-cap equity) are prevented by the same CMA inputs that drive optimization.
 
 **The CMA editor and the efficient frontier visualization are admin-only.** They live in the application but behind a permissions gate:
-- Advisors do not see the frontier, do not edit CMAs
-- Designated administrators (initially: the CIO/strategist function — the "Macro Insight Layer" of Part 2.3) edit CMAs and view the frontier
+- **Financial Analyst** role: create/edit/save-draft/publish CMAs and view the efficient frontier (Day 3 afternoon §1.1)
+- **Advisor / IS** role: separate read-only view (no edit, no frontier)
 - All CMA edits write to the audit log with operator + timestamp + before/after values
-- This is the first real distinction in the permissions model beyond admin/non-admin (cf. Part 9.2 RBAC scaffolding)
+- Note: this re-uses the Financial Analyst role from Part 9.2; Day 3 afternoon clarified that the role's authorized scope is CMA editing (not real-client PII surfaces, which it remains denied)
 
-This sharpens what was previously the abstract "Macro Insight Layer" of Part 2.3 into something with a real UI surface and a real permission boundary.
+#### 4.7.1 Admin portal flow — draft / publish state model **[Day 3 afternoon §1.1]**
+
+The CMA admin portal is a back-end surface where CIO/strategists enter:
+
+1. **Expected return** per fund
+2. **Volatility** (annualized standard deviation) per fund
+3. **Correlation matrix** across the fund universe — stored as decomposed linear arrays / vectors (not as a full matrix structure) for efficient data mapping in the database
+
+The state model is **create draft → edit → save draft → publish**:
+
+- *Draft state* — visible only to the editing Financial Analyst. Multiple drafts can coexist without affecting client portfolios.
+- *Save draft* — persists work-in-progress; no propagation, no advisor alerts.
+- *Publish* — atomically writes a new `CMASnapshot` row, triggers an audit log entry recording who published which values when, and triggers the propagation flow (4.7.3).
+
+Output: the **efficient frontier** of achievable portfolios, visualized on the admin page **and on a chart visualization that ships with the v1 CMA UI** (Day 3 afternoon §1.4 follow-up). Admins see the curve before publishing; the curve they see is the curve client portfolios will be drawn from. Publication writes a new `CMASnapshot` row that becomes the optimizer's input until the next publication.
+
+#### 4.7.2 Update cadence and event handling **[Day 3 morning]**
+
+- **Cadence:** approximately monthly, or triggered by major events (rate-cycle inflection, significant downgrades). Not real-time. CMA changes are expected to be **marginal most of the time** — meaningful but not whiplash.
+- **Major market events** (bank run, broad downgrades) trigger broader portfolio reviews led by the **investment committee**, not by automated rebalances. The system provides the data backbone (which portfolios are affected, by how much) so the committee can decide; the system does not auto-execute.
+- **Decision authority:** Steadyhand CIO / head of investment makes the final call on CMA changes. Purpose CIO provides input; Steadyhand leadership has decision authority. (This boundary may evolve as MP2.0 expands beyond Steadyhand.)
+
+#### 4.7.3 Propagation, stale-portfolio state, and advisor alerts **[Day 3 morning + Day 3 afternoon §1.3]**
+
+When a `CMASnapshot` is published, the system **does not auto-regenerate client portfolios.** Instead, every previously-generated portfolio that was optimized against the prior snapshot is marked **`is_stale = true`**.
+
+- **Stale state** — the portfolio still displays correctly to the advisor with its previous numbers, but is visually marked as stale; the advisor must click **"regenerate"** to compute the new optimal blend against the published snapshot.
+- **Why manual, not automatic:** Day 3 afternoon §1.3 — auto-update can confuse advisors who have mentally anchored to specific numbers in a recent client conversation. Manual regeneration gives advisors control and a clean before/after view to walk the client through.
+- **Audit trail** — every regeneration event records the previous parameters and the new parameters; nothing is silently overwritten.
+- **Future refinement (open question #59):** auto-update with a "delta from last dated portfolio" panel showing what changed, or a hover-over presentation of the same. Both options viable; team finalizes after UI integration.
+
+In parallel with the stale-marking, the system identifies accounts whose newly-optimal allocation (under the new snapshot) has **drifted significantly** from current holdings:
+
+- **Drift threshold for alert:** default >5% absolute deviation, or material event (configurable; aligns with Part 4.4 rebalancing logic). Compliance burden raises this threshold further — see Part 7.5a.
+- **Advisor-facing summary:** "17 accounts are now >5% off their optimal allocation" appears in the advisor's client list / dashboard view
+- **Alert routing:** alerts flow **to advisors**, never to CMA admins. The admins push the change; the advisors handle the consequences with their clients. CMA admins receive a publication confirmation, not a portfolio-impact list.
+- **No auto-rebalance.** Drift detection generates a flag for advisor review, not an automated trade. The advisor decides whether to recommend rebalancing per Part 7.5.
+
+#### 4.7.4 Math validation as a Phase B blocker **[Day 3 afternoon §1.4]**
+
+The optimization engine is **the core compliance layer** — risk rating, efficient-frontier accuracy, and portfolio construction all flow from it. The team agreed to **pressure-test the math** thoroughly once the correlation matrix is integrated (Part 5.4). This includes:
+
+- Validating Raj's backend-engine outputs against Fraser's reference model (both should produce equivalent efficient frontiers given the same inputs)
+- Standard mean-variance optimization with matrix operations (inverse matrix, correlation, covariance) — the theory is settled; differences arise from iteration decisions or specific algorithm variants
+- Pressure testing happens *after* correlation-matrix integration, not before; without correlations the math cannot be meaningfully validated
+
+This validation is a **Phase B exit blocker**. The engine cannot drive real-client portfolio recommendations under pilot conditions until its outputs are reconciled with the reference model.
+
+This sharpens what was previously the abstract "Macro Insight Layer" of Part 2.3 into something with a real UI surface, real permission boundary, real operational rhythm, and a concrete validation gate.
 
 ---
 
-## PART 5 — SLEEVE UNIVERSE
+## PART 5 — FUND UNIVERSE
 
-### 5.1 Initial sleeve universe (Steadyhand v1) **[LOCKED]**
+### 5.1 Initial fund universe (Steadyhand v1) **[LOCKED]**
 
-The Steadyhand fund lineup is the v1 sleeve universe. Eight funds total; six are pure building blocks, two are funds-of-funds.
+The Steadyhand fund lineup is the v1 fund universe. Eight funds total; six are pure building blocks, two are whole-portfolio funds.
 
-| Sleeve | Mandate | Role | Notes |
+| Fund | Mandate | Role | Notes |
 |--------|---------|------|-------|
-| **Equity Fund** (a.k.a. Builders Fund) | ~160 companies, Canadian + global, mid/large cap, style-agnostic | Equity core | Primary equity sleeve |
+| **Equity Fund** | ~160 companies, Canadian + global, mid/large cap, style-agnostic | Equity core | Primary equity building block |
 | **Global Equity Fund** | International equities | Global diversification | Underperformed historically — flagged for review |
-| **Small-Cap Equity Fund** (×2: Canadian + Global) | Small-cap exposure | Equity satellite | Two sub-sleeves |
-| **Income Fund** | 75% Canadian bonds, 25% Canadian equities | Fixed income (impure) | **Identified as a constraint** — we need a true bond-only sleeve |
+| **Small-Cap Equity Fund** (×2: Canadian + Global) | Small-cap exposure | Equity satellite | Two sub-funds |
+| **Income Fund** | 75% Canadian bonds, 25% Canadian equities | Fixed income (impure) | **Identified as a constraint** — we need a true bond-only building block |
 | **Cash / Savings (MMF)** | Money market | Risk-free corner of the frontier | Used for glide-path-to-goal |
-| **Founders Fund** | Tactical balanced; ~60/40 long-term target, can flex 50–70% equity | Fund-of-funds, tactical | Currently ~55% cash. Hard to model quantitatively because of active tactical layer |
-| **Builders Fund** (whole-portfolio equity) | All-equity fund-of-funds | Aggressive whole-portfolio | Comprised of the four equity sleeves above |
+| **Founders Fund** | Tactical balanced; ~60/40 long-term target, can flex 50–70% equity | Whole-portfolio fund, tactical | Currently ~55% cash. Hard to model quantitatively because of active tactical layer. Available as fund-of-funds collapse target (Part 4.3b). |
+| **Builders Fund** | All-equity fund-of-funds | Aggressive whole-portfolio | Comprised of the four equity building blocks above. Available as fund-of-funds collapse target. |
 
-For the v1 engine: **operate on the six pure sleeves.** Founders and Builders are funds-of-funds and add modeling complexity (their active layer is hard to capture quantitatively). They can be re-introduced as toggle-able shortcuts later.
+For the v1 engine: **operate on the six building-block funds.** Founders and Builders are whole-portfolio funds and add modeling complexity (their active layer is hard to capture quantitatively). They are reintroduced via the **fund-of-funds collapse** suggestion in the optimizer (Part 4.3b) — when the optimal blend closely matches one of these whole-portfolio funds, the engine recommends executing via that fund for tax efficiency rather than holding the building blocks separately.
 
-### 5.2 Sleeve gaps to close (priority order)
+### 5.2 Building-block gaps to close (priority order)
 
-1. **A pure bond-only sleeve.** This is the single highest-leverage addition to the v1 universe — it would meaningfully improve the shape of the efficient frontier. Already under discussion (Salman / Tom).
-2. **A true cash / MMF sleeve** with zero modeled volatility (currently approximated by the Savings Fund at ~0.5% modeled vol).
+1. **A pure bond-only building block.** This is the single highest-leverage addition to the v1 universe — it would meaningfully improve the shape of the efficient frontier. Already under discussion (Salman / Tom).
+2. **A true cash / MMF building block** with zero modeled volatility (currently approximated by the Savings Fund at ~0.5% modeled vol).
 3. **All-weather diversifier** — alternatives, hybrid, or inflation-protected exposure. Open question whether this comes from existing Purpose products (Hybrid, etc.).
 
-### 5.3 Future sleeve strategy (post-Steadyhand)
+### 5.3 Future fund strategy (post-Steadyhand)
 
-When MP2.0 expands beyond Steadyhand, the sleeve universe grows. Key principles:
+When MP2.0 expands beyond Steadyhand, the fund universe grows. Key principles:
 
-- **Sleeves are real, papered funds with a PM attached** (the Harness Investment Committee made this a table-stakes requirement).
-- **Sleeves are launched ideally as ETFs** (universal accessibility, lowest cost), with mutual fund and SMA structures available where channel needs require.
-- **Sleeves use the same rigor as Purpose's existing whole-portfolio funds (PACF/PABF/PAGF).** No "quickly whipped together" allocations.
+- **Building-block funds are real, papered funds with a PM attached** (the Harness Investment Committee made this a table-stakes requirement).
+- **Building-block funds are launched ideally as ETFs** (universal accessibility, lowest cost), with mutual fund and SMA structures available where channel needs require.
+- **Building-block funds use the same rigor as Purpose's existing whole-portfolio funds (PACF/PABF/PAGF).** No "quickly whipped together" allocations.
 - Purpose's existing 16 whole-portfolio models (PACF, PABF, PAGF, Harness, Link, PIMP) coexist with MP2.0 — they don't get replaced; they sit alongside as the "1.0" option.
 
 ### 5.4 Capital market assumptions source **[OPEN]**
 
-Sleeve return / vol / correlation inputs need a defensible source: Goldman, JPM, Basinger (Purpose CIO) views, or composite. This is more consequential than its position implies — placeholder CMAs produce placeholder portfolios, which becomes critical when advisors begin using output to inform real client conversations. **Owner: Saranyaraj + Fraser.** Resolution required before Phase B exit; pilot use cannot begin without defensible CMAs in place. If unresolved at the Wednesday Som demo, the demo narrative must explicitly say "illustrative numbers" upfront.
+Fund return / vol / correlation inputs need a defensible source: Goldman, JPM, Basinger (Purpose CIO) views, or composite. This is more consequential than its position implies — placeholder CMAs produce placeholder portfolios, which becomes critical when advisors begin using output to inform real client conversations. **Owner: Saranyaraj + Fraser.** Resolution required before Phase B exit; pilot use cannot begin without defensible CMAs in place. If unresolved at the Wednesday Som demo, the demo narrative must explicitly say "illustrative numbers" upfront.
+
+**Correlation matrix is a blocking dependency for efficient-frontier validation** (Day 3 afternoon §1.2): without a real correlation table, the engine has to assume zero correlation or arbitrary values, and the math cannot be pressure-tested against Fraser's reference model. Integrating the correlation matrix into the optimization engine is a Phase B prerequisite to any pilot use.
 
 The CMA values themselves live behind the admin-only editor (Part 4.7) — that's the *where they're managed* question. This section is the *where they come from* question. Both must be answered before pilot launch.
 
@@ -411,9 +522,21 @@ Household {
   members: Person[1..2]
   external_assets: ExternalAsset[]   // optional, where known
   household_risk_score: int           // composite, see 4.2
+  householding_consent: {             // see Day 3 afternoon §7.2
+    consented: bool                   // true only when each member has signed
+    consent_form_ids: list[str]       // signed-form references per person
+    consented_at: datetime
+  }
   created_at, updated_at
 }
 ```
+
+**Householding consent (Day 3 afternoon §7.2):** clients must sign a consent form to be viewed under the same household. **Privacy among couples is real** — one partner may not want the other to see their full financial situation. The system enforces:
+
+- A single person is always a valid household (household of one) — no consent required for their own data
+- Two-person households require both consents on file; if either is missing, the system shows the persons' accounts separately and does not roll up
+- The consent form is a Steadyhand-provided document (paper or DocuSign per Part 7.5); MP2.0 stores the reference (form ID, signed date) but does not host the signing flow itself
+- Withdrawing consent (e.g., after separation) is supported but flagged for advisor review — re-householding is a non-trivial change with downstream effects on every household-level report
 
 ### 6.2 Person entity
 
@@ -438,8 +561,16 @@ Person {
 ```
 Goal {
   id, household_id
-  name                                  // e.g., "Buy cabin", "Retirement"
+  name                                  // e.g., "Buy cabin", "Retirement income", "Retirement estate"
+  goal_shape: lump_sum                  // drives duration formula per Part 4.3d
+            | retirement_estate
+            | retirement_income
+            | other                     // fallback; explicit duration must be set
   target_amount, target_date            // OPTIONAL — secondary input only when client volunteers (Part 4.3c)
+                                        //   For lump_sum, target_date drives duration
+                                        //   For retirement_*, retirement_date + life_expectancy drive duration
+  retirement_date                       // person reference; required for retirement_* goal_shapes
+  life_expectancy                       // person reference; required for retirement_* goal_shapes
   necessity_score: 1..5                 // wish → want → need
   current_funded_amount
   contribution_plan: { monthly, annual, lump_sum_dates }
@@ -461,6 +592,39 @@ GoalAccountLink {
 
 The advisor sets `account_allocations` via the click-through workflow (Part 8.8). AI ingestion attempts to extract these mappings from notes (Day 2 §2.2 — *"the $25k in the TFSA is for Emma's school"*) but the advisor validates / overrides.
 
+Duration is **derived per optimization run** from `goal_shape` + the relevant date inputs, not stored on the Goal entity. See Part 4.3d.
+
+### 6.3a Re-goaling — conceptual, not money-movement **[LOCKED — Day 3 afternoon §5.2]**
+
+Clients' goals evolve over time. The system needs a mechanism for advisors to **re-label or re-apportion dollars between goals within an account** without implying any actual asset reallocation.
+
+This is a **conceptual overlay**, not a money-movement operation. **Vocabulary discipline matters and is locked:**
+
+| Use | Avoid |
+|---|---|
+| ✅ "re-goaling" | ❌ "reallocation" (implies asset reallocation; compliance issue) |
+| ✅ "goal realignment" | ❌ "transfer" (implies wire transfer; client confusion) |
+| ✅ "re-label dollars between goals" | ❌ "move money" (implies actual movement) |
+
+**Why the discipline matters:** if a client (or regulator, or another advisor reading the audit log) reads "$25k reallocated from cabin goal to retirement goal," that reasonably reads as a transaction. It isn't — no shares were sold, no cash moved, no fund position changed. The same dollars are now labeled with a different goal. Calling that "reallocation" creates a documentation problem when reconciling against actual trade history.
+
+**Engine effect:** when the goal mix on an account changes (re-goaling), the account's blended risk/horizon profile changes, which **triggers a new portfolio recommendation** at the account level. The recommendation may suggest actual trades — but those are the *consequence* of the conceptual change, not the change itself.
+
+### 6.3b Default goal classification when client goals are undefined **[LOCKED — Day 3 afternoon §5.3]**
+
+When a client says "I just want to save" with no defined goals, the system needs a default rather than blocking on intake.
+
+**MP2.0 v1 default:** in the absence of defined goals, classify the funds as a split between:
+
+- **Emergency fund** (short-term, conservative, lump-sum shape with 0–3 year horizon)
+- **Retirement** (long-term, retirement-income shape using Part 4.3d duration formula)
+
+Fraser's framing: *"If someone won't tell us, we assume retirement + emergency fund, because in the absence of other information, that's what you're saving for."*
+
+**Regulatory wording constraint:** "savings" implies cash to regulators. Don't use bare "savings" as a goal name; use **"long-term savings"** or **"undefined goal"** with internal sub-categorization, or split into the explicit emergency/retirement defaults above. Owner: Lori + Fraser will determine the final regulator-friendly wording (open question #61).
+
+The advisor can override or refine the defaults at any time; this is a *starting point* when intake produces no goal signal, not a permanent assignment.
+
 ### 6.4 Account entity
 
 ```
@@ -470,7 +634,7 @@ Account {
   regulatory_objective: income | growth_and_income | growth   // Steadyhand 3-bucket
   regulatory_time_horizon: <3y | 3-10y | >10y
   regulatory_risk_rating: low | medium | high                 // mapped from blend
-  current_holdings: Holding[]                                  // sleeve allocations
+  current_holdings: Holding[]                                  // building-block-fund allocations
   contribution_room, contribution_history
   is_held_at_purpose: bool
 }
@@ -488,7 +652,12 @@ RiskInput {
     - sentiment_under_volatility
     - tax_sensitivity
     - external_holdings_dampener         // Part 4.6a; reduces score if disclosed
-  goals: { goal_id -> goal_risk_score }  // 1..5, single question per goal
+  household_confidence: 0.0..1.0         // confidence in the household score (Part 6.5.1)
+  goals: { goal_id -> {
+      score: 1..5,                       // single question per goal
+      confidence: 0.0..1.0
+  } }
+  rationale: { field -> str }            // per-field "why this score" — required for compliance
 }
 
 // Engine-derived per (goal, account) pair:
@@ -498,12 +667,33 @@ ResolvedRisk {
   goal_component: 1..5          // surfaced to advisor
   combined_score: 1..5          // surfaced to advisor; what the optimizer uses
   combined_percentile: int      // 5 | 15 | 25 | 35 | 45 (Part 4.3)
+  combined_confidence: 0.0..1.0 // worst of household + goal component confidences
+  needs_advisor_input: bool     // true when combined_confidence < threshold (default 0.7)
 }
 ```
 
 The engine's risk input for a given (goal, account) is `combine(household_score, goal_risk_score)`. Default combination function for v1: a documented weighted blend; the weights are a tunable parameter we expect to refine.
 
 The three components (`household_component`, `goal_component`, `combined_score`) are exposed to the advisor in the UI via an info icon / drill-down (Day 2 §1.3). All three are visible — the system does not hide the math.
+
+#### 6.5.1 Confidence indicators **[LOCKED — Day 3 morning]**
+
+Risk scores carry confidence values (0.0–1.0) reflecting the strength of evidence behind them — modeled on the Ike agent pattern. Below a configurable threshold (default **0.7**), the system flags the score as **needing advisor input** rather than presenting the score as if it were settled.
+
+Sources of confidence signal:
+
+- **Document evidence depth** — were multiple notes consistent? Did one note contradict three? Did the source explicitly mention risk tolerance or did the model infer from context?
+- **Recency** — recent observations weight higher than five-year-old notes
+- **Specificity** — "she's anxious about market drops" is higher-confidence than "she seems careful"
+- **Cross-source agreement** — KYC + meeting notes + statement behavior aligning is high-confidence; one source disagreeing flags lower
+
+Behavior:
+
+- `combined_confidence` is the worst (lowest) of `household_confidence` and the active goal's `confidence`
+- When `combined_confidence < 0.7`, the UI surfaces a "please confirm" prompt at the moment the advisor opens the goal-account view; the engine still produces output but visually marks it as low-confidence
+- Confidence does not affect the engine math itself — it affects the UX framing and the advisor's review priority
+
+**Compliance angle (Day 3 morning):** the score alone is insufficient — *"3 out of 10"* with no rationale fails both compliance and practical correction. Every risk score must come with a documented rationale (`rationale` field) that the advisor can read, verify, and override.
 
 ### 6.6 Behavioral / soft data — captured from meeting notes
 
@@ -519,21 +709,26 @@ These feed two systems:
 1. The household risk score (some of these are inputs).
 2. The reporting layer — to personalize tone and emphasis (see Part 8).
 
-### 6.7 The "5 atomic data points" question
+### 6.7 Onboarding inputs — document drop is primary, structured questionnaire is fallback **[LOCKED — Day 3 afternoon §4.1]**
 
-Fraser pushed during the offsite: what are the **fewest** data points required to run MP2.0?
+**The primary onboarding path is the document drop zone:** advisors upload all available client documents (meeting notes, statements, KYC, plans) and AI extracts structured data (Part 11). The **structured questionnaire** is the **secondary/fallback path** for edge cases where document extraction misses required fields.
 
-The answer landed at: more than 5, but the team should keep asking. Working draft of the **minimum viable inputs**:
+This reflects real-world advisor workflow: open-ended initial conversations come first; documents arrive afterward. **The structured intake form is not typically completed face-to-face** — making the structured form the primary path would be building for an advisor reality that doesn't exist.
+
+The system still defines a **minimum viable input set** that the engine requires to produce a portfolio recommendation. Whether these come from document extraction or structured fallback questions, the same set must be populated by Phase B exit:
 
 1. Household composition (1 or 2 people, ages)
 2. Total investable assets at Purpose
-3. At least one named goal with a target amount and target date
-4. Household risk score (composite of 3–4 questions)
-5. Goal necessity (1 question per goal)
-6. Account types and holdings
-7. Time horizon per goal
+3. At least one named goal — `goal_shape` (lump-sum / retirement-income / retirement-estate / other) drives duration; target dollar amount is **optional secondary input** per Part 4.3c
+4. Household risk tolerance (composite, with confidence indicator per Part 6.5.1)
+5. Goal necessity (1 question per goal — need / want / wish)
+6. Account types and holdings (Steadyhand-internal via CAT/Resource integration; external via document or conversational fallback per Part 4.6a)
+7. Time horizon per goal (derived from `goal_shape` + dates per Part 4.3d, not asked directly)
+8. Goal-to-account mapping for each `GoalAccountLink` with non-zero allocated amount
 
 If the system has these, it can produce a v1 portfolio. More data → better personalization. Less data → MP2.0 is still possible but degraded.
+
+The fallback questionnaire (open question #62) has not yet been finalized; Lori will share an HTML version for the team to revise before Phase B.
 
 ---
 
@@ -608,6 +803,27 @@ For any portfolio recommendation MP2.0 generates:
 **Why the distinction matters:** if the system recommends X and the advisor executes Y, the firm needs documented rationale. Pre-recommendation override produces a clean trail (the advisor changed an input, the engine reasoned to Y, the advisor approved Y). Post-recommendation override produces a different trail (the engine reasoned to X, the advisor declined, here's why). Both are legitimate; both must be captured.
 
 **Friction tension flagged at Day 2:** Steadyhand advisors already note every interaction (change of address, password reset, tax slip questions). Adding another mandatory note category is real friction. The override note should be inline in the recommendation review screen, not a separate workflow.
+
+### 7.5a Compliance burden raises the rebalancing threshold **[LOCKED — Day 3 afternoon §7.1]**
+
+Every new fund purchase under Steadyhand's MFDA/CIRO operating model triggers a fixed compliance burden:
+
+- **Fee disclosure** must be presented before purchase
+- **Fund fact sheet** must be delivered to the client
+- **Suitability documentation** must be captured
+
+This is per-trade, not per-rebalance — buying three new funds at once means three sets of disclosures. Combined with the trade-level consent rule (Part 8.10), the cost of any rebalance is a non-trivial advisor + client time investment.
+
+**Implication for the rebalancing trigger:** small drift may not be worth the operational cost. The system must define a **minimum rebalancing threshold** that combines:
+
+- **Percentage minimum** (default 5% absolute drift per fund or per asset class — refined from Part 4.4's "3–5%" default)
+- **Dollar minimum** (TBD — Fraser's follow-up; small accounts may have a different threshold than large ones)
+
+Drift below either threshold is logged but does not generate a "rebalance recommended" alert. **Owner: Fraser** (Day 3 afternoon §10 task list — define rebalancing trigger thresholds, % + $ minimums).
+
+**Future relief:** Day 3 afternoon discussed the possibility of MP2.0 becoming **fully discretionary** in some future state, which would dramatically reduce the per-trade compliance burden (advisor doesn't need explicit per-trade consent on a discretionary mandate). Out of v1 scope; flagged as a strategic option for v2+.
+
+**Every new fund purchase still requires fee disclosure and fund fact sheet delivery** even when the system is discretionary in future — that's a CRM 3 / regulatory requirement (Part 7.6), not an MFDA operational rule. The fund-fact-sheet flow ships with the trade-list UI in Part 8.10.
 
 ### 7.6 CRM 3 fee transparency
 
@@ -702,7 +918,20 @@ The confidence figure is `100% − optimization percentile` (Part 4.3). Optimizi
 
 The portal should detect significant events — address change, large deposit, large withdrawal — and proactively prompt a goal/plan review. Today this is reactive. In MP2.0 it's a Stage-6 trigger.
 
-### 8.7 The three-tab household / account / goal view **[LOCKED — Day 2 §2, the "wow" of the session]**
+### 8.6a Two distinct alert categories — "needs attention" lexical split **[LOCKED — Day 3 morning]**
+
+The team identified that *"needs attention"* was being used in the UI for two materially different concepts. They get distinct labels because they require distinct advisor responses:
+
+| Category | Source | Example | UI label (working) |
+|---|---|---|---|
+| **Data ingestion alerts** | Layer 1–4 of the extraction pipeline (Part 11) | Conflicting facts across documents; missing required fields; failed extraction; low-confidence risk score | *"Review needed"* — sits on the review workspace, blocks `engine_ready` until resolved |
+| **Portfolio / planning alerts** | Engine + monitoring layers post-commit | Goal off-track; significant drift after CMA update; fan-chart breach (Part 8.9); life event detected (Part 8.6) | *"Action recommended"* — sits on the dashboard / client list, prompts an advisor conversation |
+
+**Why the distinction matters.** A "review needed" alert means the system can't produce reliable output yet — the input is incomplete or inconsistent. An "action recommended" alert means the system has produced output and is signalling that the client's situation may have changed. Different urgency, different workflow, different audit trail.
+
+The exact UI strings are TBD with Lori (open question). The lexical separation is locked.
+
+### 8.7 The three-tab household / account / goal view **[LOCKED — Day 2 §2, sharpened Day 3 morning + Day 3 afternoon]**
 
 This is the front-end paradigm Day 2 identified as genuinely novel — *"nobody is doing this. I haven't seen a visual of an account that holds two different goals."* (Lori) Fraser's framing: *"We're redesigning how advisors view their client's book."*
 
@@ -716,11 +945,30 @@ The total client AUM (e.g., $1.28M) should be **sliceable three ways**, each vie
 
 **Pivot-table principle:** the grand total in the bottom-right corner is always $1.28M; only the slices change. Every view reconciles to the same household total — no "money goes missing" between views.
 
-**Fund / asset-class toggle:** within each tab, the advisor toggles between (a) a fund-level view (showing the actual sleeves/funds held) and (b) a look-through-to-asset-classes view (re-aggregating sleeve internals to show overall equity / fixed income / cash exposure). The latter is the natural lens for the "is the household risk profile aligned?" conversation.
+**Fund / asset-class toggle:** within each tab, the advisor toggles between (a) a fund-level view (showing the actual building-block funds held) and (b) a look-through-to-asset-classes view (re-aggregating fund internals to show overall equity / fixed income / cash exposure). The latter is the natural lens for the "is the household risk profile aligned?" conversation.
+
+**Visual specifics (Day 3 morning):**
+
+- *Vertical slices = accounts; color-coded goal allocations within each account.* Goals are color-coded **consistently across the entire UI** so the advisor can instantly see "~90% earmarked for retirement" without arithmetic.
+- *Hover for detail.* Hovering over a goal slice or account slice reveals the detailed portfolio allocation (fund-level blend, current vs. ideal — Part 8.8).
+- *Pivot.* The view flips between "accounts sliced by goals" and "goals sliced by accounts" — the same data, two readings. This *is* the visual pivot table the canon names; both directions are first-class.
+- *Composite at the account level.* The blended portfolio allocation visible at the account level is the composite of per-goal-account-link blends within that account (Part 4.3a roll-up).
+
+**Holdings views — Steadyhand internal vs. external [Day 3 afternoon §6.2]:**
+
+The view distinguishes Steadyhand-managed holdings from external holdings at every level of detail:
+
+| Source | Detail available | Notes |
+|---|---|---|
+| **Steadyhand internal** | Full detail: asset class, geography, fund-level breakdown | Morningstar data drives the breakdown (per Part 4.6a). This is the data the advisor can act on. |
+| **External holdings** | Asset-class view only (geography if available) | Sourced from client-provided statements or conversational fallback (per Part 4.6a). Fund-level detail is *not* shown — the system doesn't have it and shouldn't pretend to. |
+| **Combined view** | Total household AUM showing internal + external combined asset-class breakdown | Important for ensuring the overall household isn't overconcentrated. The combined view never shows fund-level detail (because external is asset-class only). |
+
+**Click-to-reveal pattern for external holdings (Day 3 afternoon §6.2).** External holdings are hidden by default behind a click-to-reveal control. This protects against the case where an advisor turns the screen toward a client and the screen shows the client's external (other-firm) holdings — a plausible privacy concern. The advisor explicitly opts in to revealing the external section.
 
 **Why this is the wow:** clients don't typically map goals to accounts mentally; advisors do, from meeting notes. The goal-view tab makes that mapping visual for the first time. Steadyhand notes already implicitly contain this mapping ("the $25k in the TFSA is for Emma's school"); MP2.0 surfaces it.
 
-### 8.8 Click-through workflow for setting a portfolio **[LOCKED — Day 2 §2.3]**
+### 8.8 Click-through workflow for setting a portfolio **[LOCKED — Day 2 §2.3 + Day 3 afternoon §6.3]**
 
 The advisor sets up a portfolio for an account through a structured click-through, not a free-form form fill:
 
@@ -730,20 +978,58 @@ The advisor sets up a portfolio for an account through a structured click-throug
 4. **For each goal-account combo, the system pulls the duration + risk inputs and recommends a portfolio.** The advisor sees *"we recommend this"* — **the efficient frontier and apex curves are NOT shown** (those live behind the admin-only view, Part 4.7). Just the recommendation, with the one-sentence justification (Part 8.5).
 5. **Repeat for each goal in that account.**
 6. **System merges the per-goal-account recommendations into the consolidated account portfolio**, possibly collapsing to a single fund-of-funds if optimal (Part 4.3b).
-7. **Client consents at the account level** (verbal or DocuSign per Part 7.5).
+7. **Client consents at the trade level** (Part 7.5 + Part 7.5a) — not just the end-state level. See Part 8.10.
 
-**Current vs. ideal allocation — both must be visible** (Day 2 §2.4). The view shows what the account currently holds **and** the recommended allocation, side-by-side. Don't only show the optimized output; that strips the context the advisor needs to have a conversation about why anything should change.
+**Current vs. ideal — comparison rules differ by client situation [Day 3 afternoon §6.3]:**
 
-### 8.9 The fan chart as longitudinal reporting primitive **[LOCKED — Day 2 §3.4]**
+| Client situation | Comparison view shown? | Rationale |
+|---|---|---|
+| **Existing client with current holdings** | Yes — current vs. ideal side-by-side, by asset class, by fund, by geography | The advisor needs context to discuss what changes and why. |
+| **New client (cash coming in)** | No — show only the ideal portfolio and allocate directly | There are no current holdings to compare against; a comparison view would be misleading. |
 
-The fan chart isn't only a "what might happen" projection at recommendation time — it's an ongoing reporting artifact:
+This is a UX-mode decision, not a permission rule: the same advisor uses both modes for different clients on the same day. The system detects "no current holdings" and switches modes automatically.
+
+### 8.9 The fan chart as longitudinal reporting primitive **[LOCKED — Day 2 §3.4 + Day 3 afternoon §6.4 sharpening]**
+
+The fan chart isn't only a "what might happen" projection at recommendation time — it's an ongoing reporting artifact and a household-level visualization in its own right.
+
+**Recommendation-time behavior (Day 2):**
 
 1. **Lock the fan at time zero** when the portfolio is set. The fan represents the engine's projection at that moment.
 2. **Place a dot on the chart at the goal date** (only when a dollar target is known — see Part 4.3c).
 3. **Over time, plot the actual portfolio value** moving through the fan.
 4. **Conversation trigger:** when actual value drops outside the bottom of the fan, the system flags this as a Stage-6 event prompting a plan review.
 
-This turns the fan from a one-time recommendation visual into a continuous "are we on track?" instrument — and gives the advisor a structured trigger for when to call the client, replacing today's reactive practice.
+**Household-level fan chart (Day 3 afternoon §6.4):**
+
+- Shows **current portfolio vs. optimized portfolio** projections *overlaid* on the same chart — two fans, one current, one optimized, with overlap regions visible. This makes "what would change if we rebalanced" a visual question, not a numeric one.
+- **Interactive on hover** — hovering at any year reveals the dollar values at each percentile band (P5, P25, P50, P75, P95) for both the current and optimized fans.
+- **Do not hard-anchor to a specific time horizon at the household level.** At the goal level, time horizons make sense (each goal has its own duration per Part 4.3d). At the household level they don't, because different goals have different horizons. The household chart shows a generic projection window, not a single goal's duration.
+- **Cap at life expectancy.** The chart can extend ~30 years but should cap at the client's life expectancy to avoid projecting beyond plausible timeframes for older clients.
+
+**Sophistication tiers map to fan chart presentation [Day 3 afternoon §6.4]:**
+
+| Tier (Part 8.4) | Fan chart shown |
+|---|---|
+| **Tier 1 (101-level)** | Just the median line. No bands, no percentiles. |
+| **Tier 2 (201-level)** | Median + outer bands (P5 / P95). |
+| **Tier 3 (301-level)** | Full percentile detail with hover values at all bands. |
+
+**Core principle:** even Tier 1 clients should see *some* concept of uncertainty. **Deterministic "you'll get 7%" projections are what MP2.0 is designed to replace** — single-line projections without uncertainty are not acceptable at any tier. The Tier 1 simplification reduces detail, not honesty.
+
+### 8.10 "Express as moves" — trade-level rebalancing UX **[LOCKED — Day 3 afternoon §6.3 + §7.1]**
+
+The recommendation engine produces an *end-state* portfolio (current → ideal). Compliance requires that **client consent be captured at the move level** — sell X shares of Fund A, buy Y shares of Fund B — not just at the end-state level (Part 7.5a).
+
+The **"Express as moves"** control on the comparison view (Part 8.8) generates the trade list:
+
+1. The advisor shows the client current vs. ideal side-by-side.
+2. On agreement to proceed (in principle), the advisor clicks **"Express as moves"**.
+3. The system computes the specific trades required to transition current → ideal: a sequence of sells and buys, with quantities and approximate values.
+4. The trade list appears below the comparison; the client consents per-trade or to the batch.
+5. Each consent is captured (verbal or DocuSign per Part 7.5) and feeds the audit trail.
+
+The trade list is the operational artifact that hits Stage 4 (execution — mocked in MVP per Part 3). For new-client cash-coming-in flows (Part 8.8), this control is replaced by an "Allocate" action that produces an initial-buy trade list directly from the ideal portfolio.
 
 ---
 
@@ -772,27 +1058,28 @@ This turns the fan from a one-time recommendation visual into a continuous "are 
 | **Audit log** | Separate Postgres table, append-only | LOCKED | Different system from observability — different retention, access, consumers |
 | **Local dev** | Docker Compose (Django + Postgres + Vite) | DEFAULT | Same container as deployment for consistency |
 
-### 9.2 Auth phasing **[LOCKED — tightened for advisor pilot]**
+### 9.2 Auth phasing **[LOCKED — production-grade foundation throughout]**
 
-Three phases, OIDC throughout so transitions are config swaps, not rewrites.
+Four phases (0 retired), OIDC-ready throughout so transitions are config swaps, not rewrites. **There is no "throwaway hardcoded admin" stage.** The implementation foundation is production-grade from the start; later phases layer on stronger controls without rebuilding the foundation.
 
 | Phase | Mechanism | Trigger to advance |
 |---|---|---|
-| **0 — Offsite scaffold** | Django built-in auth, single hardcoded admin | Internal team Day 1–2 only; never touches real advisor work |
-| **1 — Pilot (advisor-usable MVP)** | Django built-in auth with per-advisor accounts: forced password change on first login, password reset via email, session timeout (30 min), account lockout after 5 failed attempts, MFA via TOTP | First real advisor users beyond core team |
-| **2 — Internal scale** | Microsoft Entra SSO via OIDC | Broader Purpose advisor rollout |
-| **3 — Broader platform** | Auth0-backed user pool (OIDC) | DIY investors, third-party advisors, Advisor Center |
+| **A — Offsite foundation (current)** | Django built-in auth, per-advisor local accounts, **authenticated-by-default DRF**, advisor team scope, financial-analyst PII denial, kill-switch on engine generation | Phase A is current state |
+| **B — Pilot hardening** | Phase A foundation + **MFA (TOTP), password reset via email, session timeout (30 min), account lockout after 5 failed attempts**. Audit browser UI shipped. CMA admin boundary live. | First real advisor pilot users |
+| **C — Internal scale** | Microsoft Entra SSO via OIDC | Broader Purpose advisor rollout beyond pilot |
+| **D — Broader platform** | Auth0-backed user pool (OIDC) | DIY investors, third-party advisors, Advisor Center |
 
-**Phase 0 → Phase 1 is the offsite-end-to-pilot-start transition.** A single hardcoded admin is acceptable for internal scaffolding during the offsite. It is *not* acceptable for advisor pilot use. The pilot hardening window (Part 13.0) closes this gap before any Steadyhand IS logs in.
+**The Phase A → B transition is the critical pre-pilot gate.** Phase A is production-grade for internal team use (no shared accounts, no plaintext credentials, audit immutability via DB triggers, RBAC scoping enforced). Phase B layers on the controls that move it from "internal team" to "advisor pilot" — MFA, lockout, password reset, session policy, audit browser UI.
 
-**Permission framework (RBAC) is built in Phase 0, even if all checks pass.** Retrofitting authorization across every endpoint is the most error-prone refactor in any web app. Build the structure now; tighten the rules per phase. By Phase 1, RBAC enforces the actual roles in Part 7.2 — IS can recommend within Steadyhand fund set, cannot manage discretionarily, cannot give comprehensive financial planning advice.
+**Permission framework (RBAC) is in place from Phase A.** Authenticated-by-default DRF, advisor team scope (single shared scope for clients and review workspaces), and financial-analyst PII denial are built in. The structure is in place; Phase B tightens rules and adds roles.
 
 **Roles for v1 RBAC:**
 
-- **IS / Advisor** — sees only their assigned client book; cannot view other advisors' clients; cannot edit CMAs or view the efficient frontier; can override engine inputs (pre-recommendation) or annotate non-execution (post-recommendation) per Part 7.5
-- **IS Manager** — sees their team's books, plus override on assignments
-- **CMA Admin (Macro Insight Layer)** — restricted role for the CIO/strategist function; edits CMAs and views the efficient frontier per Part 4.7. Initially: 1–2 named individuals. All edits write to the audit log.
-- **Compliance** — read-only across all clients within Steadyhand; audit log visibility
+- **IS / Advisor** — sees clients in shared advisor team scope; cannot view financial-analyst surfaces with PII; cannot edit CMAs or view the efficient frontier; can override engine inputs (pre-recommendation) or annotate non-execution (post-recommendation) per Part 7.5
+- **IS Manager** — sees team's books plus override on assignments (Phase B)
+- **CMA Admin (Macro Insight Layer)** — restricted role for the CIO/strategist function; edits CMAs and views the efficient frontier per Part 4.7. Initially: 1–2 named individuals. All edits write to the audit log. (Phase B)
+- **Financial Analyst** — denied access to real-client PII surfaces; sees synthetic personas and aggregate metrics only
+- **Compliance** — read-only across all clients within Steadyhand; audit log visibility (Phase B)
 - **Engineering / Admin** — break-glass access, heavily logged
 
 User model is minimal and OIDC-ready: email-as-identity, no auth-method-specific fields. SSO transitions don't touch the user model.
@@ -835,6 +1122,20 @@ Every external system gets an interface defined now, with a mock implementation 
 
 Discipline: mock data lives in `integrations/<system>/mocks/`. Never leaks into engine code. This is the avoidance pattern for **the Trucon problem** — the single rigid integration whose failure cascades platform-wide.
 
+**Named external integrations for v1 — adapters to define now, mock for MVP, integrate later:**
+
+| System | Purpose | Status | Notes |
+|---|---|---|---|
+| **Croesus** | CRM source of meeting notes, KYC, household records | File-drop in MVP; API future | The system of record for client interactions. Manual file drop today; API integration is post-MVP. |
+| **CAT** | Trade execution and account-value source | **Named Day 3 morning; mock for MVP** | Real-time account values trump document-derived numbers (Day 3 §1: "facts trump notes"). When CAT says $32K and a meeting note says $30K, that's not a conflict — it's hierarchy. |
+| **Resource** | CRM system (Steadyhand) | **Named Day 3 morning; mock for MVP** | Provides factual household / account / contact data. Reconciliation layer prefers Resource facts over note-derived facts. |
+| **Custodian APIs** | Order placement, holdings sync | Out of MVP scope | Stage 4 (automated execution) is Phase 2+. |
+| **Conquest / Adviice / Planworth** | Planning tool exports | File-drop in MVP; API future | The system must accept inputs from any planning tool — adapters per source, mocked today. |
+| **Bedrock / Anthropic** | LLM extraction and styling | Real (Bedrock for real-PII; Anthropic synthetic-only) | Behind LLM client wrapper (Part 9.5). |
+| **PDF rendering** | Client-output PDFs | Deferred to week 2+ | WeasyPrint or similar (open question). |
+
+**The reconciliation hierarchy (Day 3 morning):** when document-derived facts conflict with system-of-record facts, **system-of-record wins**. The reconciliation layer (Part 11.4) treats this as priority resolution, not as a "needs review" conflict. Account values from CAT trump statement-extracted values; CRM-resident contact info trumps notes.
+
 #### 9.4.4 Three-layer data pipeline **[LOCKED]**
 
 For every data ingress (Croesus extracts now, APIs later), three stages with stored intermediate state:
@@ -860,11 +1161,16 @@ The reason for separation: Claude is great at extraction but non-deterministic; 
 Captures every meaningful action:
 - Document ingested (who, when, what, sha256)
 - Field extracted (run ID, prompt version, model version, source quote)
-- Field overridden by advisor (before/after, who, when)
-- Engine run (inputs, sleeve assumptions used, method + params, output, model version)
+- Field overridden by advisor (before/after, who, when, edit hash)
+- Engine run (inputs, fund assumptions used, method + params, output, model version)
 - Recommendation approved by client (when, by whom, via what channel)
+- Section approval and review-state commit (workspace ID, sections, advisor)
+- Kill-switch toggles (operator, before/after state, reason)
+- Disposal of real-PII artifacts (file ID, sha256, deletion timestamp, machine, operator)
 
-Schema is append-only Postgres with row-level immutability via trigger. UI for browsing the audit log is post-MVP; the writes happen now.
+**Schema is append-only Postgres with row-level immutability** via Django model guards plus backend-specific DB triggers (the protection survives an ORM bypass). The workspace timeline serializer redacts sensitive before/after values for UI consumers; the audit row preserves the full record for compliance review.
+
+**UI for browsing the audit log is a Phase B exit criterion**, not post-MVP — the writes happen now and the browser ships before pilot launch.
 
 ### 9.5 LLM client abstraction **[LOCKED]**
 
@@ -933,7 +1239,7 @@ mp20/
 ├── engine/                           # Pure Python, no Django imports. Pip-installable.
 │   ├── pyproject.toml
 │   ├── schemas.py                    # Pydantic: Household, Person, Goal, Account, etc.
-│   ├── sleeves.py                    # Sleeve universe constant
+│   ├── sleeves.py                    # Fund universe constant (file kept under legacy name; conceptually the building-block fund universe per Part 5 — the codebase identifier intentionally lags the product vocabulary to avoid churn)
 │   ├── frontier.py                   # Efficient frontier computation
 │   ├── optimizer.py                  # optimize() entrypoint
 │   ├── compliance.py                 # risk_rating(blend) → low|med|high
@@ -999,11 +1305,11 @@ mp20/
 
 ## PART 11 — EXTRACTION LAYER (FIVE-LAYER PIPELINE)
 
-The extraction layer is **in MVP scope and load-bearing for the pilot**. **Owner: Raj.** Source data: real Croesus exports manually copied by Lori (and pilot advisors, during Phase C) into `personas/<name>/raw/` — no API integration in MVP.
+The extraction layer is **production-grade software handling real client PII** as of 2026-04-29. Source data: real Croesus exports manually copied by Lori (and pilot advisors during Phase C) into `MP20_SECURE_DATA_ROOT` outside the repo, ingested via authenticated browser upload — no API integration in MVP.
 
-> **Real client PII is in scope for MP2.0 from day one.** The extraction pipeline processes real Steadyhand client documents — meeting notes accumulated over years, financial plans, account statements, transaction history — containing real names, real account numbers, real life details. This is not a synthetic-data build with a thin layer of redaction. Section 11.8 governs how real PII is handled operationally. **Section 11.8 is a hard prerequisite for the build, not an addendum to it. It must be read and signed off by Lori + Amitha (Purpose legal) before real client files land on any team machine.**
+> **Real client PII flows through this system from day one.** Section 11.8 documents the privacy regime that protects it. The regime is *defense-in-depth* (authenticated ingress, Bedrock ca-central-1 fail-closed routing, transient raw text, structured-only persistence with redacted evidence, hashed sensitive identifiers, immutable audit, RBAC scoping, bounded pilot population) — not pre-LLM pseudonymization, which was earlier specified but not implemented. Section 11.8.3 explains the substitution honestly. Lori + Amitha must confirm the authorization basis in writing if not already done.
 
-> **Operational dependency:** during Phase A the Croesus → file-drop pipeline depends on Lori as a person. Identify a backup who can copy files in her absence; have at least one fully synthetic persona that works without any real-data dependency, so the Wednesday Som demo is viable even if real data isn't available. During Phase C, pilot advisors copy files for their own clients; Lori's role shifts to triage and quality oversight.
+> **Operational dependency:** during Phase A the file-drop pipeline depends on Lori as a person. Identify a backup who can copy files in her absence; have at least one fully synthetic persona that works without any real-data dependency, so the Wednesday Som demo is viable even if real data isn't available. During Phase C, pilot advisors copy files for their own clients; Lori's role shifts to triage and quality oversight.
 
 ### 11.1 Layer 1 — Raw ingestion (immutable)
 
@@ -1075,26 +1381,60 @@ Every field carries its source quote (or, for inferred facts, an explicit marker
 
 ### 11.4 Layer 4 — Field reconciliation
 
-Per canonical field, sort Facts by `asserted_at` desc:
+Per canonical field, sort Facts by `asserted_at` desc, then resolve:
+
 - Most recent + highest confidence becomes the "current value"
 - All prior facts retained as history
 - Conflicts where recent values disagree with older ones are signal, not noise — surfaced in the review UI
 
-Naive most-recent-wins is sufficient for v1. Sophisticated reconciliation (confidence-weighted, conflict-resolution heuristics) is post-MVP.
+**Source-priority hierarchy (Day 3 morning) — facts trump notes.** When facts come from different source classes, source class beats recency:
 
-### 11.5 Layer 5 — Advisor review and approval
+1. **System-of-record facts** (CAT account values, Resource CRM data) — highest priority. Real-time, authoritative.
+2. **Structured documents** (KYC, statements) — medium priority. Authoritative for the moment they were generated.
+3. **Note-derived facts** (meeting notes, advisor observations) — lowest priority. Subjective and time-varying.
+
+When a CAT account value reads $32,400 and a four-week-old meeting note says $30,000, **the system silently uses $32,400** and does *not* surface this as a conflict. The note-derived value is logged in fact history but is not a competing claim — it's a stale snapshot. Reconciliation conflicts surface only when same-class sources disagree (e.g., two meeting notes giving different retirement ages, or two statements giving different account types).
+
+Naive most-recent-wins within a source class is sufficient for v1. Sophisticated reconciliation (confidence-weighted, conflict-resolution heuristics across classes) is post-MVP.
+
+### 11.5 Layer 5 — Advisor review, section approval, and the `engine_ready` gate
 
 The most important screen in the system. Side-by-side:
 
 - **Left:** source documents, clickable
-- **Right:** consolidated client state, organized by Part 6 schema (Household / Person / Goals / Accounts / Risk)
+- **Right:** consolidated client state, organized into review sections (Household, People, Accounts, Goals, Goal-Account Mapping, Risk)
 - Each field shows source quote + originating document; click jumps to source
 - Each field shows derivation method (extracted / inferred / defaulted) — extracted facts get visual priority; inferred facts get a "please confirm" marker
 - Conflicts shown inline ("retirement_age: 67 (Aug 2024 note) — older value 65 in Mar 2023 note")
-- All fields editable; edits logged with user + timestamp into audit log
-- "Approve" button writes the canonical `ClientState` consumed by the engine
+- All fields editable; edits logged with user + timestamp + edit hash into audit log
+- Approval is **per-section**, not whole-state — each section moves through `pending → approved` once its required fields are populated and resolved
 
-**Trust is earned or lost here.** Fields without provenance get re-done by the advisor — defeating the system's purpose.
+**Explicit advisor confirmation is a compliance requirement [Day 3 afternoon §4.2]:** even when AI extraction succeeds cleanly, advisors **always want to review** before commit, and **must explicitly confirm/agree** that the data is correct. The section-approval action is that confirmation; it is logged with operator + timestamp into the audit trail. Skipping the confirmation step is not an option, even when zero conflicts exist.
+
+**Three mockup states needed for the data-review screen [Day 3 afternoon §4.2]:**
+
+1. **Clean data** — extraction succeeded, no conflicts, no missing required fields. The screen reads as a "review and approve" pass-through; sections approve quickly.
+2. **Moderate conflicts** — a handful of fields have conflicts (DOB discrepancy, duplicate account entries, fat-finger errors in source documents). The advisor resolves each, captures override reasons, and approves.
+3. **Heavy conflicts** — extraction returned low-confidence results across many fields, multiple unresolved conflicts, missing critical inputs. The screen needs to remain navigable and not feel hopeless; the advisor works through systematically and the system tracks progress.
+
+All three are owed before pilot launch. **Owner: Nafal** (Day 3 afternoon §10 task list — build data review / conflict resolution screen).
+
+#### 11.5.1 The `engine_ready` gate **[LOCKED]**
+
+The reviewed client state has a derived `engine_ready` flag that is **true only when**:
+
+- All required fields are populated (no missing values in fields that block engine input)
+- All flagged conflicts are resolved (no field has competing values that the advisor hasn't picked between)
+- All required "unknowns" are addressed (no goal without a horizon, no account without a value, no goal-account mapping for a goal that has dollars allocated)
+
+`engine_ready` does *not* require all sections to be approved — an advisor can run the engine to preview output before final approval. But a **commit** of reviewed state into the canonical client tables (the act that creates a real `Household` record the engine queries against) requires both:
+
+1. `engine_ready == true`, **and**
+2. All required review sections in `approved` status
+
+This two-gate pattern (ready-to-run vs. ready-to-commit) means advisors can iterate on engine output during review without prematurely creating client records.
+
+**Trust is earned or lost here.** Fields without provenance get re-done by the advisor — defeating the system's purpose. The `engine_ready` gate exists to make sure the system never quietly produces output on incomplete inputs.
 
 ### 11.6 Document classification
 
@@ -1102,9 +1442,10 @@ Filename convention preferred: `{date}_{doctype}_{description}.{ext}`. When abse
 
 ### 11.7 Privacy posture for raw files **[LOCKED]**
 
-Original Croesus exports contain real client PII: names, dates of birth, addresses, SINs (sometimes), account numbers, employer names, beneficiaries, family details, health information, financial situation. The repository is structured on the assumption that **real PII never enters version control and never leaves authorized environments.**
+Original Croesus exports contain real client PII. The repository is structured on the assumption that **real PII never enters version control and never leaves authorized environments.**
 
-- Raw files in `personas/<name>/raw/` for any real-derived persona are gitignored at the repo root with explicit `**/raw/**` patterns. CI fails if files matching common PII signatures appear in a commit.
+- Real PII enters only through the authenticated browser upload to `MP20_SECURE_DATA_ROOT` outside the repository (Part 11.8.3). Repo-local upload paths are explicitly rejected.
+- The `.gitignore` at the repo root excludes `**/raw/**` patterns and the secure data root path; CI fails if files matching common PII signatures appear in a commit.
 - A scrub-pass utility flags potential PII (emails, SIN patterns, account numbers, phone numbers, full names) before any file enters a committed location. Files that fail the scrub pass cannot be committed.
 - Synthetic personas may have raw files committed (the Sandra & Mike Chen demo persona is one of these); real-derived personas may not.
 - A pre-commit hook on every team machine runs the scrub-pass utility automatically. The hook is part of the repo bootstrap (`make setup`), not an optional install.
@@ -1113,76 +1454,96 @@ Original Croesus exports contain real client PII: names, dates of birth, address
 
 This section governs the operational use of real Steadyhand client PII in the MP2.0 build. **Lori + Amitha (Purpose legal) must review and approve this section before any real client file is copied onto a team machine.** Operating outside this section is a compliance failure, not a process slip.
 
-#### 11.8.1 Authorization basis
+#### 11.8.1 Authorization basis **[OPEN — must be resolved retrospectively if not in writing]**
 
-Before real client data is used:
+Real client documents are flowing through the system as of 2026-04-29. Bedrock real-bundle runs in Compose have processed real Steadyhand client material. **The authorization basis for this must be confirmed in writing if it is not already.**
+
+Required:
 
 1. **Confirm the consent / authorization basis** under which Steadyhand can use real client documents for internal product development. Most likely covered under existing client agreements that permit internal use for service improvement, but this needs explicit confirmation in writing from Amitha.
 2. **Document the scope** — which clients, which document types, for what purpose, for how long. Narrow is better than broad.
 3. **Retain the authorization record** in a known location (project shared drive) with version, date, and signatories. Referenced by ID in the audit log.
 
-If this confirmation has not happened, **no real client files are copied onto any team machine.** The build proceeds on synthetic personas only until authorization is in place.
+If this confirmation has not happened, **stop adding new real-client material until it has.** Existing material continues to flow under the implicit "internal use for service improvement" basis, which is defensible but not as defensible as written authorization. The retrospective is the same conversation as the prospective; have it now.
 
 #### 11.8.2 Data minimization
 
 Use the smallest amount of real PII that proves the use case. Operating principle:
 
-- **During offsite build (before pilot):** 1–2 real-derived personas (from Lori's tier-2 client base) exercise the extraction pipeline against real document shape, accumulated-history meeting notes, and the complexity that synthetic personas can't realistically simulate. Synthetic personas (5) exercise breadth; real-derived (1–2) exercise depth. The Wednesday Som demo runs the synthetic backup persona alongside one real-derived tier-2 example (pseudonymized).
-- **During advisor pilot:** each pilot advisor loads files for their own client subset (not their full book). Pilot scope: **3–5 advisors, ~5–10 clients per advisor, total ~15–50 real-derived personas**. Pilot scope is bounded, documented, and reviewed at Week 2 of pilot use. The bound exists to limit blast radius if anything goes wrong, not to limit the system's usefulness.
+- **During offsite build (Phase A):** 1–2 real-derived personas (from Lori's tier-2 client base) exercise the extraction pipeline against real document shape, accumulated-history meeting notes, and the complexity that synthetic personas can't realistically simulate. The Wednesday Som demo defaults to the synthetic Sandra & Mike Chen persona; real-derived personas appear at that demo only with audience composition confirmed in advance.
+- **During IS validation (Phase B):** each IS works through their own real tier-2 clients — bounded by their own book and the team-scope RBAC.
+- **During advisor pilot (Phase C):** each pilot advisor loads files for their own client subset (not their full book). Pilot scope: **3–5 advisors, ~5–10 clients per advisor, total ~15–50 real-derived personas**. Pilot scope is bounded, documented, and reviewed at Week 2 of pilot use. The bound exists to limit blast radius if anything goes wrong, not to limit the system's usefulness.
 - For each real-derived persona, advisors copy only the document types needed: meeting notes file, most recent KYC, recent statement. Not the full client file.
-- The pseudonymization regime in 11.8.3 applies to all real-derived personas — both validation personas and advisor-pilot personas. Volume scales; controls don't change.
+- The privacy regime in 11.8.3 applies to all real-derived personas regardless of phase. Volume scales; controls don't change.
 
-#### 11.8.3 Pseudonymization at the boundary
+#### 11.8.3 Privacy regime — defense-in-depth, not boundary pseudonymization **[LOCKED — supersedes earlier v2.3 boundary-pseudonymization design]**
 
-Real PII enters the pipeline at Layer 1 (raw ingestion). Real names, addresses, account numbers and other directly-identifying fields are **pseudonymized at the Layer 2 → Layer 3 boundary** before structured fact extraction:
+> **Important honesty note.** Earlier versions of this canon (v2.1–v2.3) specified pseudonymization at the Layer 2 → Layer 3 boundary so that Bedrock would only ever see pseudonymized text. **That regime was not implemented.** Real client names and content currently transit to Bedrock. The implementation chose a different, defensible regime — defense-in-depth around real text — and the canon now reflects what is built. The substitution is acknowledged here so that no one operating from this canon believes a boundary-pseudonymization protection exists when it does not.
 
-- A per-persona pseudonym mapping is generated once and stored locally (encrypted, gitignored). Real "Marla Burnham" → "Persona_001" → display name "Sarah Lewis" (Daffy-Duck-style synthetic name).
-- Layer 3 (Claude extraction) sees pseudonymized text. Source quotes stored with extracted facts contain pseudonymized strings, not real names.
-- The reverse mapping exists only on authorized machines, encrypted at rest, never committed, never sent over the wire. It is used only in the Layer 5 advisor review UI when an authorized user toggles "show real identity."
-- During Phase A and Phase C, audiences see pseudonymized data only. The Wednesday Som demo runs primarily on the synthetic backup persona, with optional pseudonymized real-derived persona display only after pseudonymization is verified. Pilot advisors see their own pseudonymized real-derived personas. No real client name appears on any shared screen.
+The privacy regime that **is** in place:
 
-This protects against three failure modes simultaneously: PII leaking into git, PII transiting to the LLM provider, and PII being shoulder-surfed during launch events or pilot use.
+1. **Authenticated-only ingress.** Real PII enters only through the authenticated browser upload workflow with `MP20_SECURE_DATA_ROOT` set outside the repository. Hard-fail if the secure root is missing or repo-local. Hard-fail if Postgres is not the persistence layer.
+2. **Bedrock ca-central-1 fail-closed routing.** Real-derived extraction requires Bedrock environment configuration; missing Bedrock config is a fail-closed worker error. Real client text does transit to Bedrock — but only Bedrock in ca-central-1, under Purpose's AWS account, never to a US-resident endpoint, and never to Anthropic API direct. The LLM client wrapper routes by persona origin: `synthetic → Anthropic direct` or `Bedrock` per available config; `real_derived → Bedrock ca-central-1 only`. Misconfiguration is a deployment-blocker check.
+3. **Transient raw text.** The full raw extracted text from documents is held only long enough to extract structured facts; it is not persisted as a queryable column. The system of record after extraction is the structured fact table, not the raw text.
+4. **Structured-only persistence with minimally-redacted evidence.** Only structured facts, provenance/run metadata, and **minimally-redacted evidence quotes** are persisted. An evidence quote retains enough source phrasing to support advisor review and audit but redacts the most directly-identifying tokens.
+5. **Sensitive identifiers stored as hash + redacted display.** SIN, account numbers, and similar high-sensitivity identifiers are stored as a hash plus a redacted display string. The plaintext value does not enter the persisted database.
+6. **Workspace timeline sanitization.** The audit-visible workspace timeline serializer redacts sensitive before/after values from edit events; the audit row itself preserves the immutable record, but UI consumers see a sanitized projection.
+7. **Outside-repo storage with hard-fail validation.** `MP20_SECURE_DATA_ROOT` validation enforces that the directory exists, is outside the repo, and is reachable; failure mode is hard-fail at upload, not graceful degradation.
+8. **Bounded blast radius.** Pilot scope (3–5 advisors, ~5–10 clients per advisor, total ~15–50 real-derived personas) bounds exposure; a single team-scope grants advisors visibility to one another's review work but blocks financial-analyst access entirely.
+
+**What this regime protects against:**
+
+- PII committed to git (authenticated upload to outside-repo location; gitignore at repo root; hard-fail validation)
+- PII reaching a US-resident LLM endpoint (Bedrock ca-central-1 fail-closed routing)
+- PII persisted indefinitely in queryable form (transient raw text; structured-only persistence; redacted evidence)
+- High-sensitivity identifier exposure in DB or logs (hash + redacted display)
+- Audit log tampering (model guards plus DB triggers; append-only)
+- Unauthenticated read of any client surface (authenticated-by-default DRF; advisor team scope; financial-analyst denial)
+
+**What this regime does *not* protect against, and the team accepts:**
+
+- *Real names visible in Bedrock prompt logs (within Purpose AWS, ca-central-1).* Bedrock sees real text. The protection is the trust boundary (Purpose AWS, Canadian-resident, Bedrock service-level controls) rather than pre-LLM redaction. This is a deliberate trade-off: pre-LLM pseudonymization would have degraded extraction quality (quasi-identifiers leak; pseudonyms confuse the model on temporal references), and Bedrock under Purpose's AWS posture is judged a sufficient trust boundary by the team. **This judgment must be reviewed with Amitha (Purpose legal) before pilot expansion** (open question #24).
+- *Real names in advisor screen displays during demos and pilot use.* The Layer 5 review UI shows real client identity to the authorized advisor. RBAC enforces same-advisor visibility; financial analysts are denied. The Som demo posture is to use the synthetic backup persona; if a real-derived persona is shown, the audience composition is confirmed in advance (open question #29).
+- *Quasi-identifier leakage in extracted facts.* Employer, neighborhood, family situation, health detail are stored in structured facts and visible in the review UI. The structured shape limits casual exposure; access control limits authorized exposure. Active stripping is not implemented.
+
+**The team's standing position to defend this regime under audit:** *"Real Canadian client PII is processed only within Purpose's AWS account in ca-central-1, via Bedrock with fail-closed routing, with structured-only persistence, hashed sensitive identifiers, redacted evidence quotes, immutable audit, authenticated-and-RBAC-scoped access, and bounded pilot population. Pre-LLM pseudonymization was considered and not adopted because the residual quasi-identifier leakage made it security theater rather than meaningful protection; the Bedrock-under-Purpose-AWS trust boundary is the protection."*
+
+If Amitha or Purpose IT subsequently determines pre-LLM pseudonymization is required, that's a Phase B re-engineering item, not a runtime adjustment.
 
 #### 11.8.4 LLM provider posture under real PII **[LOCKED]**
 
-The v2.0 default of "Anthropic API direct in dev, Bedrock in prod" was set under synthetic-data assumptions. Real PII changes the calculus:
+- **Real-derived extraction: Bedrock in ca-central-1, fail-closed.** Missing Bedrock configuration is a worker error, not a fallback to Anthropic direct. Anthropic API direct is **not** a permitted destination for real client content.
+- **Synthetic-persona work: Anthropic API direct or Bedrock, by available config.** The synthetic Sandra & Mike Chen persona has no real-PII routing dependencies and can use either provider.
+- **The LLM client wrapper routes by `data_origin` flag.** `synthetic → Anthropic direct or Bedrock`; `real_derived → Bedrock ca-central-1 only`. Misconfiguration (real persona routed to direct API) is a deployment-blocker check.
+- **Bedrock fact extraction is JSON-validated with controlled repair.** Bedrock output is parsed against typed Pydantic schemas; controlled JSON repair attempts a small set of canonical fixes before failure; failures persist as failed-document state for retry. The repair logic is bounded and auditable; it does not silently rewrite output to make extraction "succeed."
 
-- **Even with pseudonymization at the Layer 2 → Layer 3 boundary, residual identifying detail remains.** Meeting notes contain employer names, neighborhood references, family member relationships, health details, and other quasi-identifiers that pseudonymization of names alone does not catch.
-- **Dev LLM provider for real-PII extraction: Bedrock in ca-central-1, not Anthropic API direct.** This keeps real Canadian client data inside Canadian-resident infrastructure under Purpose's AWS account from the moment the build begins handling real data — not deferred to "production." Bedrock enablement (Part 14 item 3) becomes a Day 1 blocking item the moment real PII is in scope, not a post-MVP item.
-- **Anthropic API direct remains acceptable for synthetic-persona work** (Sandra & Mike Chen, the four other synthetic personas). The LLM client wrapper (Part 9.5) routes per-persona based on a `data_origin` flag: `synthetic → anthropic_direct`, `real_derived → bedrock_ca_central_1`. Misconfiguration (real persona routed to direct API) is a deployment-blocker check, not a runtime warning.
-- **Document the position in writing** so the team can defend it under audit: "real Canadian client PII is processed only via AWS Bedrock in ca-central-1, under Purpose's AWS account, from the start of the build."
+#### 11.8.5 Storage and machine posture **[LOCKED]**
 
-#### 11.8.5 Storage and machine posture
+Machines and infrastructure that touch real PII must:
 
-Machines that touch real PII files (the offsite laptops, the staging server) must:
+- Validate `MP20_SECURE_DATA_ROOT` exists, is outside the repo, and is writable; hard-fail otherwise. Synthetic upload paths may use SQLite for tests; real-upload paths require Postgres.
+- Encrypt at rest (RDS with customer-managed KMS key in production; full-disk encryption on local machines).
+- Prevent project-directory sync to personal cloud storage (Dropbox, iCloud, personal Drive, OneDrive); the working directory is excluded from personal sync clients.
+- Run the pre-commit scrub-pass hook (Part 11.7) without exception. CI PII scanners are deferred but tracked (open question).
+- Use Purpose AWS ca-central-1 for any deployment touching real PII. **Render.com free tier and other US-resident hosts are not acceptable** even for staging. If a staging URL is needed before AWS staging is ready, it serves only synthetic personas.
 
-- Have full-disk encryption enabled and verified (`fdesetup status` / `lsblk -f` checks documented before files land).
-- Have screen-lock timeout ≤5 minutes.
-- Not sync the project directory to personal cloud storage (Dropbox, iCloud, personal Drive, OneDrive). The repo is on a known-clean working directory; personal sync clients excluded by path.
-- Store the per-persona pseudonym mapping in an encrypted vault (1Password, age-encrypted file, or equivalent), not in the repo and not in plain text on disk.
-- Run the pre-commit scrub-pass hook (from 11.7) without exception.
+#### 11.8.6 Retention and disposal **[LOCKED — local tooling exists]**
 
-The staging server (Part 9.6.2) is in Purpose's AWS account, ca-central-1, from the moment real PII is in scope. **Render.com free tier and other US-resident hosts are not acceptable for real PII**, even for staging. If the staging URL is needed before AWS staging is ready, it serves only synthetic personas.
-
-#### 11.8.6 Retention and disposal
-
-Real PII files have a defined lifespan in the build environment:
-
-- Raw files copied for the offsite are retained for the duration of MP2.0 active development against that data, then deleted from local machines and staging storage.
-- "Active development against that data" is reviewed at each version milestone (v2.x → v3.x). Default disposition at version-bump is deletion unless explicitly retained with a documented reason.
+- Raw files in `MP20_SECURE_DATA_ROOT` and structured facts have a defined lifespan tied to MP2.0 active development against that data.
+- Local artifact disposal is supported via `uv run python web/manage.py dispose_review_artifacts`, which also produces a disposal report.
 - Disposal is logged in the audit log: file ID, sha256, deletion timestamp, machine, operator. The audit trail outlives the file.
-- The pseudonym mapping is retained as long as the structured extracted facts are retained, so the audit chain remains queryable.
+- The team-level retention/disposal policy trigger (when does disposal run, by whom, on what cadence) is open and pending Lori + Amitha confirmation (open question #28).
 - **Lori is responsible for ensuring the original Steadyhand-side records are unaffected.** MP2.0 disposes of its working copies; the system of record remains in Croesus.
 
 #### 11.8.7 Demo audiences and pilot use
 
 The Wednesday Som demo, the Mon/Tue IS validation sessions, and the ongoing advisor pilot all involve people seeing the running system, with different stakes:
 
-- **Wednesday Som demo** — primary persona is the synthetic Sandra & Mike Chen; one optional pseudonymized real-derived tier-2 persona may be shown if pseudonymization has been verified. No real names appear during the presentation.
-- **Mon/Tue IS validation sessions** — each IS runs the system on their own real tier-2 clients (pseudonymized). Each IS sees only their own clients, RBAC-enforced.
-- **Pilot use (Phase C onward)** — each advisor sees their own pseudonymized real-derived personas. The Layer 5 review UI's "show real identity" toggle is enabled for the advisor on their own personas only, not on others'. RBAC enforces this at the API layer, not just the UI.
-- Screen recordings, screenshots, and slides made during the offsite or pilot retrospectives use pseudonymized data. Pre-rolled media reviewed for incidental PII leakage (window titles, file paths, browser tabs) before circulation.
-- If an advisor recognizes another advisor's client from quasi-identifiers (employer, neighborhood, family situation), that's a finding to log and tighten — not a "well, they figured it out" shrug. The pseudonym scheme exists because *quasi-identifiers leak*, and 11.8.3 should be revisited if this happens.
+- **Wednesday Som demo** — primary persona is the synthetic Sandra & Mike Chen. Real-derived personas are **not** shown in this demo unless the audience composition is confirmed and the persona's own client (or that client's advisor) is comfortable. Defaults to synthetic-only.
+- **Mon/Tue IS validation sessions** — each IS runs the system on their own real tier-2 clients. Each IS sees only their own clients, RBAC-enforced via advisor team scope. Other IS's clients are not visible.
+- **Pilot use (Phase C onward)** — each advisor sees their own real-derived personas. The Layer 5 review UI shows real client identity to the authorized advisor. RBAC enforces same-team-scope visibility; financial analysts are denied.
+- Screen recordings, screenshots, and slides made during the offsite or pilot retrospectives use synthetic personas. Pre-rolled media reviewed for incidental PII leakage (window titles, file paths, browser tabs) before circulation.
+- If an advisor recognizes another advisor's client from quasi-identifiers (employer, neighborhood, family situation), that's a finding to log and tighten — not a "well, they figured it out" shrug. Quasi-identifier handling is an open question (#27).
 
 #### 11.8.8 Incident response
 
@@ -1205,7 +1566,7 @@ This is a small team on a tight timeline. The way this team avoids incidents is 
 ```python
 def optimize(
     household: Household,
-    sleeve_universe: list[Sleeve],
+    sleeve_universe: list[Sleeve],     # legacy identifiers per Part 5 / Part 10 — conceptually the building-block fund universe
     method: OptimizationMethod = "percentile",  # Part 4.3
     constraints: Constraints | None = None,
 ) -> EngineOutput:
@@ -1214,20 +1575,20 @@ def optimize(
 
 `EngineOutput` contains:
 
-- **Per-link blends**: one optimized sleeve-weight vector per `GoalAccountLink` (Part 4.3a — the optimization unit is the goal × account cross). The `link_id` keys back to the household's `GoalAccountLink` set.
+- **Per-link blends**: one optimized fund-weight vector per `GoalAccountLink` (Part 4.3a — the optimization unit is the goal × account cross). The `link_id` keys back to the household's `GoalAccountLink` set.
 - **Per-account roll-up**: each account's consolidated holdings, weighted across the per-link blends within that account (Part 4.3a step 2).
-- **Per-account fund-of-funds collapse suggestion** (Part 4.3b): if the per-account roll-up closely matches an existing whole-portfolio fund (Founders, Builders, PACF, etc.), the engine recommends that fund instead of the sleeve list. Includes a "match score" so the UI can show why.
+- **Per-account fund-of-funds collapse suggestion** (Part 4.3b): if the per-account roll-up closely matches an existing whole-portfolio fund (Founders, Builders, PACF, etc.), the engine recommends that fund instead of the building-block-fund list. Includes a "match score" so the UI can show why.
 - **Household roll-up**: aggregated weighted blend across all accounts.
 - **Resolved risk per link**: `household_component`, `goal_component`, `combined_score`, `combined_percentile` — all surfaced to the UI per Part 4.2.
 - **Fan chart data per link**: 10th / 50th / 90th percentile portfolio value over the goal's time horizon. Fan locks at t=0 for longitudinal plotting (Part 8.9).
 - **Compliance risk rating** per account + household (low/med/high) per Part 7.4.
-- **Audit trace**: sleeve assumptions used (CMA snapshot ID, asset-class composition, tax-drag table version), frontier coordinates, method + params, prompt + model version where AI was involved, optimization timestamp.
+- **Audit trace**: fund assumptions used (CMA snapshot ID, asset-class composition, tax-drag table version), frontier coordinates, method + params, prompt + model version where AI was involved, optimization timestamp.
 
 The shape is per-link first, account second, household third. The UI consumes whichever level matches its current view (Part 8.7 three-tab toggle).
 
 ### 12.2 Schemas live in engine/
 
-Pydantic models for `Household`, `Person`, `Goal`, `GoalAccountLink` (many-to-many — central to the goal × account optimization unit, Part 4.3a), `Account`, `Holding`, `RiskInput`, `ResolvedRisk` (per-link three-component exposure, Part 6.5), `Sleeve`, `CMASnapshot` (sleeve return/vol/correlation/asset-class composition, versioned), `TaxDragTable` (per-fund / per-asset-class drag factors), `Allocation`, `LinkBlend` (per-link optimization output), `AccountRollup`, `EngineOutput`, `EngineRun`. Web layer imports from `engine.schemas`; engine never imports from web.
+Pydantic models for `Household`, `Person`, `Goal`, `GoalAccountLink` (many-to-many — central to the goal × account optimization unit, Part 4.3a), `Account`, `Holding`, `RiskInput`, `ResolvedRisk` (per-link three-component exposure, Part 6.5), `Sleeve` (legacy identifier; conceptually a building-block fund per Part 5), `CMASnapshot` (per-fund return/vol/correlation/asset-class composition, versioned), `TaxDragTable` (per-fund / per-asset-class drag factors), `Allocation`, `LinkBlend` (per-link optimization output), `AccountRollup`, `EngineOutput`, `EngineRun`. Web layer imports from `engine.schemas`; engine never imports from web.
 
 ### 12.3 The Claude artifact handoff process
 
@@ -1244,7 +1605,7 @@ Artifact code is treated as reference implementation, not production code. Re-im
 In actual pilot use, what's interactive vs. what's pre-computed?
 
 - **Interactive (live engine call):** advisor-initiated portfolio computation, what-if sliders, Layer 5 fact review and approval, "regenerate" actions on plain-language explanations.
-- **Pre-computed and cached:** initial engine outputs after a fresh persona load (computed once on persona ingestion, cached until a material change), fan charts (computed alongside engine output), baseline goal probabilities. Cache invalidates on plan change, persona reload, or sleeve-universe update.
+- **Pre-computed and cached:** initial engine outputs after a fresh persona load (computed once on persona ingestion, cached until a material change), fan charts (computed alongside engine output), baseline goal probabilities. Cache invalidates on plan change, persona reload, or fund-universe update.
 
 Engine + extraction calls are LLM-bound and slow — interactive sub-second response requires caching. For Phase A (Wednesday Som demo), the synthetic backup persona's outputs are pre-baked entirely. For Phase C (pilot use), the cache layer is real and tested. Build the cache abstraction in Phase A so Phase B doesn't need a refactor.
 
@@ -1254,35 +1615,50 @@ Async work: a Celery worker (Part 9.6.4) handles engine runs that exceed an inte
 
 ## PART 13 — MVP SCOPE, BUILD SEQUENCE, PILOT LAUNCH
 
-### 13.0 Three-phase delivery: scaffold → harden → pilot **[LOCKED — schedule per Day 2]**
+### 13.0 Three-phase delivery: scaffold → harden → pilot **[LOCKED — production-grade throughout]**
 
-The deliverable is a working MVP that 3–5 Steadyhand advisors will use with real clients (Part 1.6). The actual delivery has three phases:
+The deliverable is production-grade software for a controlled pilot population (Part 1.6). The actual delivery has three phases, all production-grade for their respective scope:
 
 | Phase | Timing | Output | Bar |
 |---|---|---|---|
-| **Phase A — Offsite scaffold** | Mon–Wed at offsite (3 days), with Thursday extension at offsite location and Friday cleanup at Purpose office available as buffer | Foundation: extraction pipeline, engine integration, end-to-end flow, Wednesday end-of-day demo to Som | Som-demo-grade. Stage-managed paths work. The Wednesday demo runs cleanly. |
-| **Phase B — Pilot hardening + IS validation** | Following Mon–Tue (IS team demos with real client data) plus ~1–2 weeks afterward | Auth Phase 1 (per-advisor accounts), error handling, edge-case coverage, feedback channel, pilot-mode disclaimer in UI, IS training, kill-switch | Advisor-usable. An IS can load a real tier-2 client, get sensible output, and know what to do if something looks wrong. |
-| **Phase C — Pilot launch + iteration** | Week 3 onward | 3–5 advisors actively using the system with their real clients. Weekly retros. Structured feedback intake. Defects triaged and fixed in batches. | Pilot-grade. Most reasonable advisor actions produce usable output or graceful failure. |
+| **Phase A — Offsite foundation** | Mon–Wed at offsite (3 days), with Thursday extension at offsite location and Friday cleanup at Purpose office available as buffer | Extraction pipeline, engine integration, end-to-end flow, secure-local review tranche, Wednesday end-of-day demo to Som | Production-grade for internal use. Real PII flows through authenticated upload + Bedrock ca-central-1 + structured-only persistence. Three pillars (ingestion, engine, reporting) functional. |
+| **Phase B — Pilot hardening + IS validation** | Following Mon–Tue (IS team validation with real client data) plus ~1–2 weeks afterward | MFA / lockout / password reset / session timeout layered onto the existing auth foundation. Compliance risk-rating mapping. CMA admin boundary. Pilot disclaimer. Feedback channel. Kill-switch tested. IS training. | Production-grade for advisor use. 3–5 advisors can log in, work with their own real clients, and produce defensible recommendations. |
+| **Phase C — Pilot launch + iteration** | Week 3 onward | 3–5 advisors actively using the system with their real clients. Weekly retros. Structured feedback intake. Defects triaged and fixed in batches. | Production-grade in active operation. Most reasonable advisor actions produce usable output or graceful failure. Output trustworthy enough that an advisor can use it to inform — not replace — their judgment. |
 
 **The Wednesday Som demo is the close of Phase A.** Phase B begins the following week, opening with IS team validation Monday/Tuesday using their own tier-2 client data. **Saranyaraj has an engineering hackathon Mon/Tue that week with partial availability** — Phase B day-1 capacity is reduced and that's a known constraint, not a surprise.
 
 Phase C begins when Phase B exit criteria (Section 13.0.1) are met.
 
+**What is *production-grade* about each phase, and what is added between phases:**
+
+| Concern | Phase A | Phase B addition | Phase C addition |
+|---|---|---|---|
+| Auth | Authenticated DRF, advisor team scope, financial-analyst PII denial, kill-switch | MFA, lockout, password reset, session timeout, audit browser UI | (steady state) |
+| PII handling | Authenticated upload, Bedrock ca-central-1 fail-closed, transient raw text, structured-only persistence, hashed sensitive IDs, redacted evidence quotes | Pseudonymization decision finalized with Amitha; CI PII scanners; encryption posture validation | Routine pilot disposal cadence |
+| Engine output | Goal-level placeholder | Per-link blends, account roll-up, fund-of-funds collapse, fan chart, compliance ratings | (refined per pilot feedback) |
+| UI | Phase 1 advisor shell + secure-local review workflow | Three-tab household/account/goal view, click-through assignment, current-vs-ideal allocation, fan chart, pilot disclaimer | Three-tier sophistication reporting refinements |
+| Audit | Append-only via DB triggers, sanitized timeline, edit hashes | Audit browser UI, full input-to-output trace UI | (steady state) |
+| RBAC | Advisor team scope, financial-analyst denial | CMA admin boundary, IS manager role | (steady state) |
+
 #### 13.0.1 Phase B exit criteria — the gate to pilot launch
 
 Pilot use cannot begin until **all** of the following are true:
 
-- Auth Phase 1 in production: per-advisor accounts, password reset, MFA, session timeout, lockout (Part 9.2)
-- Real-PII regime fully operational: Bedrock ca-central-1 routing for real-derived personas, pre-commit scrub-pass hook, Lori + Amitha written authorization (Part 11.8)
+- Auth Phase 1 in production: per-advisor accounts with **MFA, password reset, session timeout, lockout** layered onto the Phase A authenticated foundation
 - Compliance risk-rating mapping function deployed and reviewed (Part 7.4)
 - Pilot-mode disclaimer visible in UI on every recommendation: "Pilot output — review before sharing with clients. Not for use as standalone investment advice."
-- Audit log writes confirmed on every meaningful action including pre/post-recommendation overrides (Part 9.4.6, Part 7.5)
+- Audit log writes confirmed on every meaningful action including pre/post-recommendation overrides; **audit browser UI shipped** (Part 9.4.6, Part 7.5)
 - Feedback channel operational (Part 13.0.2) with at least one team member triaging
 - IS onboarding documentation written, reviewed by Lori, walked through with at least one pilot advisor
-- Kill-switch tested: a single config change can disable engine output platform-wide if a critical issue is discovered
-- Admin-only CMA + efficient frontier view exists and is properly access-restricted (Part 4.7)
-- IS team Mon/Tue demo session completed with structured findings logged
+- Kill-switch tested end-to-end: a single config change disables engine output platform-wide
+- **Admin-only CMA + efficient frontier view shipped and properly access-restricted** (Part 4.7)
+- IS team Mon/Tue demo session completed with structured findings logged and triaged
 - One full pilot-quality run on a real tier-2 client persona reviewed end-to-end by Lori, with no blocking findings
+- **Authorization basis from Lori + Amitha confirmed in writing** (Part 11.8.1) — including retrospective coverage of Phase A real-PII use
+- Engine output contract migrated from goal-level to per-link (Part 12.1)
+- **Correlation matrix integrated** into the optimization engine (Part 5.4 + Part 4.7.1). Without correlations the math cannot be meaningfully validated.
+- **Math validation completed** — Raj's backend optimizer pressure-tested against Fraser's reference model; equivalent efficient frontiers confirmed for matched inputs (Part 4.7.4).
+- **Frontend-backend integration completed** — Nafal's frontend wired to Raj's backend per Part 13.4 integration direction.
 
 **No advisor logs in until all of these are checked.** The list is the gate; no individual item is optional in the interest of moving faster.
 
@@ -1309,19 +1685,25 @@ Success of the pilot is **not** "advisors said they liked the demo." It is **adv
 
 If these aren't met, the pilot ends or extends with explicit revision; it doesn't quietly drift. Owner of the success-metric review: Fraser + Lori.
 
-### 13.1 The Wednesday Som demo and the IS validation week **[LOCKED]**
+### 13.1 The Wednesday Som demo, IS validation, and senior stakeholder demos **[LOCKED — refined Day 3 morning]**
 
 By the end of the offsite Wednesday, the team produces a **working MVP foundation** demonstrating the loop:
 
 **Stage 1 → Stage 2 → Stage 3 → Stage 5**
 
-The Wednesday end-of-day **demo to Som** is the close of Phase A. The audience is Som and any executive sponsors he brings. Thursday at the offsite location and Friday at Purpose office serve as buffer/cleanup if Phase A slipped.
+The offsite produces three sequential demonstration events, each with a different audience and purpose:
 
-The following **Monday and Tuesday** are the IS team validation sessions — Lori's investment specialists run the system end-to-end on **their own real tier-2 client data** (notes, accounts, goals). This is the structural beginning of Phase B and the most consequential testing event in the project: the first time the system meets real Steadyhand advisor practice on real Steadyhand client work. Findings are logged, prioritized, and feed Phase B hardening.
+| Event | Audience | Timing | Purpose |
+|---|---|---|---|
+| **Wednesday Som demo** | Som + executive sponsors | End of Day 3 (offsite) | Close of Phase A. Validates the foundation. Synthetic Sandra & Mike Chen as primary persona; real-derived persona only if audience composition supports it. |
+| **Mon/Tue IS validation** | Lori's investment specialists | Following week, Mon–Tue | Structural beginning of Phase B. IS team runs the system end-to-end on **their own real tier-2 client data**. Most consequential testing event in the project. |
+| **Senior Steadyhand stakeholder demo** | Senior Steadyhand leadership | Target 1–2 weeks after offsite | Phase B mid-window. Broader audience; runs on production-grade Phase B build with pilot disclaimer; gathers feedback that informs Phase C scoping. *"Notes on rough edges + product vision"* — Day 3 morning. |
 
-**Saranyaraj has an engineering hackathon Mon/Tue that week** with partial availability; Phase B day-1 engineering capacity is reduced. Plan around it.
+Thursday at the offsite location and Friday at Purpose office serve as buffer/cleanup if Phase A slipped during the offsite week.
 
-Pilot use (Phase C) begins after Phase B exit criteria (Section 13.0.1) are met — typically ~1–2 weeks after the IS validation sessions, depending on what they surface.
+**Saranyaraj has an engineering hackathon Mon/Tue** that following week with partial availability; Phase B day-1 engineering capacity is reduced. Plan around it.
+
+Pilot use (Phase C) begins after Phase B exit criteria (Section 13.0.1) are met — typically ~1–2 weeks after the senior stakeholder demo, depending on what Mon/Tue + senior-stakeholder findings surface.
 
 ### 13.2 Phase A build sequence — offsite scaffold (3 days, Mon–Wed) **[LOCKED]**
 
@@ -1330,6 +1712,8 @@ Phase A produces the foundation organized around **three pillars** (Day 2 framin
 1. **Ingestion layer** — robust extraction of client risk, goals, account mapping, time horizons from notes
 2. **Portfolio engine** — Fraser's optimizer plugged into the application, tested with real fund data
 3. **Reporting / dashboard** — *"Am I going to be okay?"* — the part nobody else has integrated
+
+**Demo prioritization principle (Day 3 morning, Fraser):** *"You could demo if we just had the middle one [portfolio construction] and we could mock the ingestion. But if we nail the ingestion but haven't done how it constructs it, there's nothing to demo."* If time slips and a tradeoff is forced, **the engine is the must-have; ingestion can be mocked; reporting can be cut to essentials.** A Som demo without a working engine is no demo at all.
 
 **UI polish, branding, and Purpose visual identity are explicitly deferred.** Usability for an advisor like Evan is the bar, not visual finish.
 
@@ -1341,15 +1725,15 @@ Phase A produces the foundation organized around **three pillars** (Day 2 framin
 - Repo with engine/extraction/integrations/web/frontend package boundaries
 - Django + DRF + Postgres skeleton; Docker Compose for local dev
 - React + Vite + Tailwind + shadcn/ui frontend skeleton talking to DRF
-- Pydantic schemas for Household / Person / Goal / Account / RiskInput / Sleeve / EngineOutput
-- Sleeve universe constant (six Steadyhand pure sleeves; placeholder return/vol/correlation)
+- Pydantic schemas for Household / Person / Goal / Account / RiskInput / Sleeve (legacy identifier; conceptually building-block fund) / EngineOutput
+- Fund universe constant (six Steadyhand building-block funds; placeholder return/vol/correlation)
 - Engine `optimize()` stub returning realistic-shaped output
 - One end-to-end "hello world": login → client list → client detail (empty)
 - LLM client wrapper (Anthropic provider for now)
 
 **Important but deferrable to Day 1 evening:**
-- Auth Phase 1 (single hardcoded admin) with OIDC-ready user model
-- Permission decorator on every view (all checks return true for now)
+- Authenticated DRF foundation (Phase A per Part 9.2) with OIDC-ready user model
+- Permission decorator on every view (advisor team scope; financial-analyst PII denial)
 - Audit log table with append-only trigger
 
 #### Day 1 afternoon — extraction Layers 1–3, one document type
@@ -1371,9 +1755,9 @@ Principle: get one document type flowing end-to-end before adding breadth.
 #### Day 2 morning — engine + full review UI
 
 - Drop Fraser/Nafal optimizer code into `engine/optimizer.py`; wrap in I/O contract
-- Sleeve universe with real numbers (or best-available placeholders — see Part 5.4)
+- Fund universe with real numbers (or best-available placeholders — see Part 5.4)
 - Wire engine to web app: approved client → "Generate portfolio" → engine call → result display
-- Result display: stacked bar / donut for blend, sleeve-level breakdown, explainability trace, risk-rating mapping
+- Result display: stacked bar / donut for blend, building-block-fund-level breakdown, explainability trace, risk-rating mapping
 - Layer 5 review UI: side-by-side documents + consolidated state
 - KYC + statement extraction added (Layer 2-3 expanded)
 - Layer 4 reconciliation (most-recent-wins, conflicts surfaced)
@@ -1392,7 +1776,7 @@ This session locked the architectural decisions captured throughout this canon (
 #### Day 3 (Wednesday) — Som demo close-out
 
 - Final integration polish on the three pillars (ingestion → engine → reporting)
-- Walk-through end-to-end on the demo persona (synthetic hero + at least one tier-2 real-client example, pseudonymized)
+- Walk-through end-to-end on the demo persona (synthetic Sandra & Mike Chen as primary; real-derived persona only with audience composition confirmed in advance per Part 11.8.7)
 - Final rehearsal on staging URL for the Som demo
 - **Phase B kickoff scoping** — concrete list of pilot-hardening items, owners, target dates; calendar the IS Mon/Tue session
 
@@ -1416,35 +1800,42 @@ Phase B owner: Raj + Fraser. Daily standup until Phase B exit. **Saranyaraj hack
 
 ### 13.3 Compression risks (named) **[LOCKED — refreshed Day 2]**
 
-- **Real-PII handling discipline slips under offsite pressure.** Highest-consequence operational risk. The pre-commit scrub-pass hook, the Bedrock-only routing for real personas, the encrypted disk requirement, and the gitignore patterns must be in place *before* any real file is copied. If they aren't, the build proceeds on synthetic personas only. Section 11.8 is not optional.
+- **Real-PII handling discipline slips under offsite pressure.** Highest-consequence operational risk. The pre-commit scrub-pass hook, the Bedrock-only routing for real-derived personas, the `MP20_SECURE_DATA_ROOT` outside-repo validation, the encrypted disk requirement, and the gitignore patterns must be in place *before* any real file is copied. The defense-in-depth regime (Part 11.8.3) is what protects this build; if any link weakens, real client material does not enter the system.
 - **Pilot retention risk.** If pilot software is bad, advisors don't come back. There's no second pitch. Phase B exit criteria exist for this reason; an under-baked pilot launch is worse than no pilot launch.
-- **The "false euphoria" risk** (Day 2, Fraser): *"the school play is three weeks away and like, guys, we're ready. I don't know my lines."* Phase A produces stage-managed paths that work for the Som demo. Phase B is when those paths break and need fixing for real IS use. Resist the urge to declare victory at Wednesday close.
+- **The "false euphoria" risk** (Day 2, Fraser): *"the school play is three weeks away and like, guys, we're ready. I don't know my lines."* Phase A produces a production-grade foundation that works for the Som demo on the synthetic persona. Phase B is when broader paths break and need fixing for real IS use across many client variants. Resist the urge to declare victory at Wednesday close.
 - **Saranyaraj hackathon Mon/Tue reduces Phase B day-1 capacity.** Known constraint; not a surprise. Front-load Phase B planning during Day 3 (Wednesday) so partial-availability days are productive.
 - **Mon/Tue IS validation finds large gaps.** This is the most consequential testing event in the project and almost certainly will surface real gaps. Plan for Phase B to extend if needed; do not pre-commit to a Phase C launch date until Mon/Tue findings are triaged.
 - **Support load underestimated.** 3–5 advisors using the system can generate more support traffic than 4 engineers can absorb mid-build. Phase B includes establishing the feedback channel + triage owner explicitly so this doesn't degrade into Slack DMs to Lori.
-- **Authorization basis for real-PII use unconfirmed.** If Lori + Amitha haven't signed off in writing before the offsite, real client files do not get copied. Build runs synthetic until cleared. This is a Day 0 blocking item.
-- **Bedrock enablement on Purpose's AWS account is unconfirmed.** Required before real PII is processed. If not enabled by Day 1, real-derived personas cannot be added to the pipeline that day. Treat as a standing item until confirmed (Part 14 item 3).
+- **Authorization basis for real-PII use unconfirmed in writing.** Real PII has been flowing through the system since Day 2 evening under implicit "internal use for service improvement" basis. Retrospective written confirmation from Lori + Amitha is now a Phase B exit blocker (Part 11.8.1, open question #24). Until the basis is documented, no expansion of real-PII volume beyond current pilot scope.
+- **Bedrock enablement on Purpose's AWS account formally unconfirmed.** Real-derived extraction has been routing through Bedrock ca-central-1 (compose runs verified through 2026-04-29). Formal IT confirmation that this is sanctioned org policy is still owed (Part 14 item 3, open question #25).
 - **Croesus export format unknown until Lori provides one.** Get one real meeting note before writing extraction prompts. 30 minutes of reading saves hours of building against assumptions.
 - **Engine code cleanliness unknown.** If Fraser/Nafal hand a clean function, integration is 30 minutes. If a Jupyter notebook with execution-order dependencies, half a day of refactoring. Read the code Day 1 evening.
-- **Auth Phase 0 → Phase 1 transition skipped.** Hardcoded admin works for offsite scaffold; cannot ship to advisors. Phase B exit criteria gate this.
+- **Phase A → B auth controls layered, not bolted on.** Phase A's authenticated-by-default DRF + advisor team scope + financial-analyst PII denial are the production-grade foundation; Phase B layers MFA / lockout / password reset / session timeout / audit browser UI on top (Part 9.2). If any of these layers regress to "we'll add it later," that's a Phase B exit failure, not a soft target.
 - **Lori-as-single-point-of-failure for data pipeline.** Identify a backup; ensure at least one fully synthetic persona is end-to-end functional without real-data dependency.
 - **CMA placeholder masquerading as real numbers.** If Part 5.4 unresolved by Wednesday Som demo, demo narrative must explicitly say "illustrative numbers." Pilot output (Phase C) cannot have placeholder math sitting under real-client recommendations.
 - **Three-tab view scope creep.** Day 2 identified the household/account/goal toggle as the single biggest "wow." It's also a nontrivial UI build. If running tight, the goal tab is the must-have novelty; account-tab and household-tab can launch with simpler cuts and iterate.
 - **Override note friction.** Steadyhand IS already note every interaction. Adding mandatory override notes risks fatigue. Inline the note capture; don't create a separate workflow.
 - **Bad-output incident in early pilot.** An advisor takes a wrong recommendation to a real client conversation. Mitigations: pilot-mode disclaimer, weekly retros, kill-switch, audit log enabling root-cause reconstruction. Cannot be eliminated; can be contained.
 
-### 13.4 Parallel work split — owners per Day 2 follow-ups
+### 13.4 Parallel work split — owners per Day 3 afternoon task allocation
 
-| Person | Owns (Day 2 task assignments) |
+**Integration direction [LOCKED — Day 3 afternoon §3]:** Raj's backend plugs into Nafal's frontend, **not** the other way around. Nafal's UI design elements are strong and become the presentation layer; Raj's heavy-backend (optimization engine, CMA management, document ingestion, audit trails, data reconciliation) wires in behind it. The Day 3 afternoon decision direction is *do not rebuild the frontend in Raj's backend*.
+
+When goal-to-account mapping completes in Nafal's frontend, it calls Raj's backend optimization engine to generate the ideal portfolio. The frontend renders current holdings, ideal portfolio, the comparison view (Part 8.8), and (eventually) the trade moves required to rebalance (Part 8.10). Client sophistication level (per Part 8.4) flows through to the reporting layer and defaults the level of detail shown.
+
+| Person | Owns (current) |
 |---|---|
-| **Saranyaraj** | Repo scaffold, Django + DRF, in-app AI ingestion layer (replacing the external Claude proxy), Fraser's optimizer plugged into the application, per-fund/per-asset-class tax drag stub, advisor override functionality with audit log, dynamic three-tier reporting with generative copy, restricted admin view for CMAs and frontier, Figma mockups (with team) for client report + account view at three sophistication levels, end-to-end demo run with Lori's team using real client data |
-| **Fraser** | Optimizer engine code (integration-ready before Day 3), fan chart visualization for outcome projection, household → account → goal view structure (with Lori, Nafal) |
-| **Nafal** | Finalize 5-point risk questionnaire and integrate with engine; sketch on household/account/goal view structure with Fraser, Lori |
-| **Lori** | Provide tier-2 client sample data (notes-based) for ingestion testing; sketch on household/account/goal view structure with Fraser, Nafal; persona selection; IS pilot training; "what good looks like" |
+| **Saranyaraj** | Integrate correlation matrix into optimization engine. Validate / pressure-test optimization math against Fraser's reference model (Part 4.7.4). Add chart visualizations to efficient-frontier output. Polish CMA UI and add correlation-matrix management (Part 4.7.1 draft/publish). Connect backend engine to frontend goal/account mapping (per integration direction above). Build reporting output layer (fan charts, comparison views per Part 8.9). Continue: CAT/Resource integration points mocked for MVP, tax drag schema, advisor override + audit. |
+| **Nafal** | Build data review / conflict resolution screen with three mockup states (Part 11.5). Enable goal-level risk-tolerance override with reason capture. Add goal-to-account mapping in onboarding UI. Implement re-goaling concept (Part 6.3a) — realign funds between goals, conceptual not money-movement. Configure reporting by client sophistication level (Part 8.4). Duplicate document/record detection mechanism. Share HTML questionnaire with team; revise ingestion questions. Prepare guided-walkthrough demo for stakeholder sessions (Part 13.5). |
+| **Fraser** | *Done:* client visualization concepts (account × goal views, pivot views). *In progress:* fan chart / success tracking visualization concepts; feeding sample investment-review data into prototype. **Define rebalancing trigger thresholds (% + $ minimums)** per Part 7.5a. **Produce 3-month roadmap alongside demo deliverable.** |
+| **Lori** | Upload all client documents (including external statements) to system. **Determine default goal classification wording for regulators** (Part 6.3b open question #61) with Fraser. User validation for UX mockups. Persona selection. IS pilot training material. Authorization-basis confirmation with Amitha (Part 11.8.1). |
+| **Team** | Record Teams transcripts for all collaborative sessions (this canon is downstream of those). Prepare guided-walkthrough demo for senior Steadyhand stakeholders — target 1–2 weeks (separate event from Wednesday Som demo, see Part 13.1). |
 
-Roughly halves wall-clock if handoffs are clean. The team is small enough that "parallel" is partial; pairing on big interfaces (e.g., the three-tab view) is preferred over strict ownership.
+Roughly halves wall-clock if handoffs are clean. The team is small enough that "parallel" is partial; pairing on big interfaces (e.g., the three-tab view, the goal-level risk logic, the integration boundary) is preferred over strict ownership.
 
-### 13.5 Wednesday Som demo flow **[LOCKED — Day 2 framing]**
+### 13.5 Demo flow **[LOCKED — Day 2 framing + Day 3 afternoon format/persona refinements]**
+
+**Format — guided walkthrough, not hands-on test [Day 3 afternoon §9.1]:** the team demos the system to stakeholders (showing real-life use cases, narrating the workflow, answering questions) rather than putting the prototype in untrained users' hands. The system is complex enough that without training, users would struggle, and a guided demo communicates the vision more effectively at this stage. Hands-on testing is reserved for the IS Mon/Tue validation session (where the audience *is* the trained user).
 
 The demo flow is the path Phase A optimizes for. Every screen serves a specific minute. Everything else is Phase B+.
 
@@ -1452,41 +1843,52 @@ The demo flow is the path Phase A optimizes for. Every screen serves a specific 
 1. INGESTION — drop a .docx of consolidated meeting notes
    → AI ingestion populates the structured client object
    → advisor reviews/validates the extraction (Layer 5 review UI)
+   → ingestion can be mocked / pre-loaded for the demo (Day 3 morning prioritization)
 
 2. HOUSEHOLD VIEW — "here's everything we manage for them"
-   → total AUM (e.g., $1.28M), no partitioning
+   → total AUM, no partitioning
    → toggle between funds / look-through-to-asset-classes (Part 8.7)
 
-3. DRILL INTO ACCOUNTS — same total, sliced by the four accounts
-   → click into one account ($80k non-reg)
-   → see its current holdings
+3. DRILL INTO ACCOUNTS — same total, sliced by accounts
+   → click into the dual-purpose RSP account
+   → see its current holdings (Steadyhand-internal funds, full detail)
 
 4. DRILL INTO GOALS — same total, sliced by goals
    → see the M:N goal-account mapping
-   → "the $25k in the TFSA is for Emma's school"
+   → demo case: RSP serving BOTH retirement AND first-home-buyers' plan
+     (~$60K of the RSP earmarked under FHBP for home purchase)
+     — most common dual-purpose Steadyhand scenario per Day 3 afternoon §5.1
 
-5. CLICK-THROUGH PORTFOLIO ASSIGNMENT — for the $80k non-reg account
-   → identify which goals it serves (click, click)
-   → assign proportions (50% education, 50% emergency)
+5. CLICK-THROUGH PORTFOLIO ASSIGNMENT — for the dual-purpose RSP
+   → identify the two goals it serves (retirement + FHBP home)
+   → assign proportions (e.g., $60K to home, remainder to retirement)
    → for each goal-account combo, system recommends a portfolio
+   → retirement goal: long horizon, balanced/growth blend
+   → FHBP goal: short horizon, conservative blend (cash-heavy as horizon nears)
    → no efficient frontier shown to advisor (admin-only)
    → just "we recommend this" with the one-sentence justification (Part 8.5)
-   → system merges the two into the consolidated account portfolio
-   → may collapse to a single fund-of-funds (Founders, Builders) if optimal
+   → system merges into the consolidated RSP portfolio
+   → may collapse to a single whole-portfolio fund (Founders, Builders) if optimal
 
 6. PORTFOLIO RECOMMENDATION VIEW
-   → current vs. ideal allocation, side-by-side
+   → current vs. ideal allocation, side-by-side (existing-client mode)
+   → "Express as moves" — trade list per Part 8.10
    → tier-appropriate explanation copy (Tier 1 / 2 / 3)
-   → fan chart locked at t=0, dot at goal date
+   → fan chart at the household level — current vs. optimized overlaid (Part 8.9)
 
 7. RETURN TO DASHBOARD — "am I going to be okay?"
    → integrated outcome view across all goals
    → the part nobody else has done
 ```
 
-For the Som demo this runs on a tier-2 client persona (real client documents, pseudonymized per Part 11.8.3) **and** on a fully synthetic backup persona. Pseudonymization is verified before any screen is shared.
+**Demo persona [Day 3 afternoon §9.2]:** a hypothetical couple with an **RSP that has both retirement and first-home goals** (the dual-purpose account scenario — most common real-world Steadyhand case). This is the demo case for senior Steadyhand stakeholder demos and is the hero scenario for the Wednesday Som demo. Sandra & Mike Chen (Part 13.6) remains the synthetic backup if a different persona is needed.
 
-For the IS Mon/Tue session this runs on the IS's own real tier-2 clients (each IS sees only their own clients, RBAC-enforced).
+**What's mocked vs. real for demos [Day 3 afternoon §9.2]:**
+
+- *Mocked / pre-loaded acceptable:* document ingestion (use personas with pre-loaded data), personalized after-fee returns (complex math, not essential to MP2.0 core)
+- *Must be real:* portfolio construction engine (Day 3 morning prioritization — *"if we nail the ingestion but haven't done how it constructs it, there's nothing to demo"*), goal-account mapping flow, recommendation output, comparison view, fan chart
+
+For the IS Mon/Tue session this runs on the IS's own real tier-2 clients (each IS sees only their own clients, RBAC-enforced via advisor team scope per Part 9.2). For the senior stakeholder demo (~1–2 weeks out), use the dual-purpose RSP persona with synthetic data unless the audience composition has been confirmed in advance.
 
 ### 13.6 Test personas — five synthetic clients for v1
 
@@ -1520,28 +1922,47 @@ Items below are out of scope for Phase A and Phase B. Some may move into scope d
 
 ## PART 14 — ITEMS TO CONFIRM WITH PURPOSE IT
 
-Before production deployment, get explicit answers. **If any item blocks Day 1, the build proceeds in a personal AWS sandbox with a clear migration path documented — except items marked [REAL-PII BLOCKER], which block real-PII use until resolved (build proceeds on synthetic personas only).**
+Before broader pilot expansion, get explicit answers. **REAL-PII BLOCKER items must be confirmed before pilot launch (Phase B exit); current implementation has been operating under implicit "internal use for service improvement" basis.**
 
 1. ECS namespace / IAM boundary / tagging convention for MP2.0 inside the existing AWS account
 2. Federation pattern: Entra → AWS SSO via SAML, or OIDC, or other
-3. **[REAL-PII BLOCKER]** Bedrock enablement in ca-central-1: turned on in the org, or requires Service Control Policy change. Required before real client PII enters the extraction pipeline (Part 11.8.4).
+3. **[REAL-PII BLOCKER — apparently resolved for ca-central-1; confirm formally]** Bedrock enablement in ca-central-1: implementation has been routing real-derived extraction through Bedrock; confirm this is sanctioned org policy and document the AWS account, IAM role, and service control posture.
 4. **[REAL-PII BLOCKER]** Data classification tier for client PII; storage and encryption requirements that flow from it. Confirms whether Part 9.3 / Part 11.8 defaults are sufficient or need tightening.
 5. Existing logging/observability stack: Elastic only, or also Datadog/Splunk; where audit logs need to be queryable
 6. Maintenance windows on the shared ECS-EC2 cluster (avoid Wednesday Som demo + Mon/Tue IS session + pilot-active-time node drains)
 7. Whether MP2.0 CI/CD can deploy autonomously or needs platform team approval per change
-8. **[REAL-PII BLOCKER]** Confirmation from Amitha (Purpose legal) of the authorization basis for using real Steadyhand client documents in product development (Part 11.8.1). If unwritten, get it in writing before any real file is copied.
+8. **[REAL-PII BLOCKER]** Confirmation from Amitha (Purpose legal) of the authorization basis for using real Steadyhand client documents in product development (Part 11.8.1). Real PII is currently flowing under implicit basis; **retrospective written confirmation is needed before broader pilot expansion**.
+9. **[REAL-PII BLOCKER]** Amitha sign-off on the defense-in-depth privacy regime in Part 11.8.3 in lieu of pre-LLM pseudonymization, or instruction to implement pseudonymization as a pre-pilot fix.
 
 ---
 
 ## PART 15 — OPEN QUESTIONS & DECISIONS PENDING
+
+### 15.0 Top priorities right now **[Living shortlist — 7 items]**
+
+The full open-questions table below has 68 entries spanning multiple horizons. This shortlist surfaces the items that are highest-leverage *as of this canon revision* — items where unblocking them unblocks substantial downstream work, or where leaving them open creates real risk. This list is meant to be re-read at each canon revision and rotated as items resolve.
+
+| Priority | Item | Why now | Owner | Refers to |
+|--:|---|---|---|---|
+| 1 | **Written authorization basis from Lori + Amitha** for real-PII use in product development | Real PII has been flowing under implicit basis since Day 2; retrospective written confirmation is now the single most important Phase B exit blocker. Without this, no broader pilot expansion. | Lori + Amitha | #24, Part 11.8.1 |
+| 2 | **Bedrock ca-central-1 enablement formally confirmed** with Purpose IT | Real-derived extraction is already routing through Bedrock ca-central-1 in the running implementation; formal IT confirmation that this is sanctioned org policy is still owed. Same Phase B exit blocker. | Saranyaraj + Purpose IT | #25, Part 14 item 3 |
+| 3 | **Correlation matrix integrated** into the optimization engine | Blocking dependency for math validation (Part 4.7.4). Without correlations, the engine output cannot be pressure-tested against Fraser's reference model, and no engine-driven pilot recommendations are defensible. | Saranyaraj | #56, Part 5.4 |
+| 4 | **Engine output contract migrated** from goal-level to per-link (`LinkBlend`, account roll-ups, fund-of-funds collapse, fan chart per link) | Current scaffold returns goal-level placeholders; canon Part 12.1 requires per-link first. Phase B exit blocker; upstream of UI work on the three-tab view. | Saranyaraj | #47, Part 12.1 |
+| 5 | **CAT and Resource API specifications** (mocked for MVP, integration later) | Without the real specs, the source-priority hierarchy in Part 11.4 (system-of-record > documents > notes) can't ship its real implementation; only its mocked behavior. Decisions about what the mock returns shape the production wire. | Saranyaraj + Steadyhand | #51, #52, Part 9.4.3 |
+| 6 | **Default goal classification regulator wording** — "savings" implies cash; alternatives like "long-term savings" or "undefined goal" | Required before real-client onboarding via Part 6.3b; affects every client whose intake produces no explicit goal. Small wording question, real downstream effect. | Lori + Fraser | #61, Part 6.3b |
+| 7 | **3-month roadmap** alongside the demo deliverable | Currently the canon documents Phase A → B → C without a calendar. Senior stakeholder demo (target ~1–2 weeks) is the venue for setting realistic expectations; the canon shouldn't be the source of date commitments without a roadmap to align against. | Fraser | #64, Part 13.1 |
+
+The numbered references (#NN) point into the 68-item table that follows. As items resolve, this shortlist rotates. Items that move from #1–7 into "RESOLVED" status are not silently removed from the table below — the audit trail of which items mattered when matters.
+
+### 15.1 Full open-questions table
 
 | # | Open question | Owner | Status |
 |--:|--------------|-------|--------|
 | 1 | Final method for risk-on-frontier (percentile / probability / utility) — Method 1 with 5/15/25/35/45 percentile mapping locked Day 2 | Saranyaraj + Fraser | LOCKED for v1 |
 | 2 | Specific weighting in the household × goal risk composite | Team | OPEN — document the function, parameterize for tuning |
 | 3 | Compliance risk-rating mapping function — exact thresholds | Lori + Saranyaraj | OPEN |
-| 4 | Bond-only sleeve launch path | Salman + Tom | OPEN — highest-leverage product-side gap |
-| 5 | Whether and how to model Founders Fund / Builders Fund (active layer) | Saranyaraj | LOCKED — leave as fund-of-funds collapse target (Part 4.3b), not modeled as sleeve |
+| 4 | Bond-only building-block fund launch path | Salman + Tom | OPEN — highest-leverage product-side gap |
+| 5 | Whether and how to model Founders Fund / Builders Fund (active layer) | Saranyaraj | LOCKED — leave as fund-of-funds collapse target (Part 4.3b), not modeled as a separate building-block fund |
 | 6 | Household-level risk handling when accounts blend differently | Team | RESOLVED Day 2 — optimization unit is goal × account (Part 4.3a); per-link risk uses combined score |
 | 7 | API integration with Conquest — feasibility for v2 | Saranyaraj | OPEN — v1 uses file/manual entry |
 | 8 | Goal-decomposition model — turning narrative goal ("retire well") into fungible $ targets | Team | DEFAULT — wants/needs/wishes split is the v1 approach; future-dollar targets are secondary input only (Part 4.3c) |
@@ -1551,36 +1972,60 @@ Before production deployment, get explicit answers. **If any item blocks Day 1, 
 | 12 | Whether goal-level questionnaire is one question or three | Lori + Fraser | RESOLVED Day 2 — single 5-point question per goal, with 5-point household composite |
 | 13 | How external (non-Purpose) assets enter the household view | Team | RESOLVED Day 2 — optional risk-tolerance dampener (Part 4.6a); not full simulation |
 | 14 | Testing protocol — internal IS feedback (Mon/Tue post-offsite) + Som demo Wednesday + advisor pilot | Lori + Saranyaraj | LOCKED |
-| 15 | Capital market assumptions source for sleeve return/vol/correlation inputs | Saranyaraj + Fraser | OPEN — required before Phase B exit. Now also tied to admin-only CMA editor (Part 4.7) |
+| 15 | Capital market assumptions source for fund return/vol/correlation inputs | Saranyaraj + Fraser | OPEN — required before Phase B exit. Now also tied to admin-only CMA editor (Part 4.7) |
 | 16 | Real meeting note shape (templated vs freeform, length, structure, date conventions) | Lori → Raj | OPEN — get one real note before finalizing extraction prompts |
-| 17 | Sleeve numerical inputs (real vs placeholder) for v1 | Saranyaraj + Nafal | OPEN — engine can stub initially; tax drag default 0 acceptable for v1 |
+| 17 | Building-block-fund numerical inputs (real vs placeholder) for v1 | Saranyaraj + Nafal | OPEN — engine can stub initially; tax drag default 0 acceptable for v1 |
 | 18 | Optimizer code handoff timing from Fraser/Nafal artifacts | Fraser, Nafal → Raj | LOCKED — integration-ready before Day 3 morning |
 | 19 | PDF rendering library for client outputs (WeasyPrint, ReportLab, headless Chrome) | Raj | DEFAULT — defer to week 2 |
 | 20 | Fast-forward simulator: pre-baked future states or live re-projection | Team | DEFAULT — pre-baked acceptable for Som demo; revisit for pilot iteration |
 | 21 | Reconciliation strategy beyond most-recent-wins | Team | OPEN — post-MVP refinement |
 | 22 | Frontend-comfortable person assignment for parallel build | Team | RESOLVED — small team, partial-parallel pairing on big interfaces (see Part 13.4) |
-| 23 | Lori's backup for file-pipeline operational dependency | Lori + team | OPEN — name before offsite kickoff |
-| 24 | Authorization basis for real-client-PII use in product development — written confirmation from Amitha | Lori + Amitha | OPEN — REAL-PII BLOCKER, must resolve before Day 0 |
-| 25 | Bedrock ca-central-1 enablement on Purpose's AWS account | Saranyaraj + Purpose IT | OPEN — REAL-PII BLOCKER, must resolve before real-derived personas enter pipeline |
-| 26 | Per-persona pseudonym mapping storage mechanism (1Password vs age-encrypted file vs other) | Raj | OPEN — pick before first real file is copied |
-| 27 | Quasi-identifier handling in pseudonymization (employer, neighborhood, family situation) — leave in or strip | Lori + Raj | OPEN — affects extraction quality; default is leave-in for v1 with explicit acknowledgment |
-| 28 | Real-PII retention period and disposal trigger | Team | DEFAULT — version-bump default, with explicit retain-with-reason exceptions |
-| 29 | Som demo audience and any quasi-identifier risk if real-client persona is shown | Lori | OPEN — confirm before Wednesday |
-| 30 | Identity of the 3–5 pilot advisors and their commitment to Phase C participation | Lori | OPEN — name and confirm before Som demo |
-| 31 | Phase B exit criteria — who signs off, how disagreements get resolved | Fraser + Lori + Raj | OPEN — agree at Day 3 close so Phase B runs cleanly |
+| 23 | Lori's backup for file-pipeline operational dependency | Lori + team | OPEN — name before broader pilot expansion |
+| 24 | Authorization basis for real-client-PII use in product development — written confirmation from Amitha | Lori + Amitha | OPEN — REAL-PII BLOCKER. Real PII has been flowing under implicit basis since Day 2; **retrospective written confirmation needed before Phase C pilot launch**. |
+| 25 | Bedrock ca-central-1 enablement on Purpose's AWS account | Saranyaraj + Purpose IT | PARTIALLY RESOLVED — implementation has been routing real-derived extraction through Bedrock; formal IT confirmation that this is sanctioned org policy is still required. |
+| 26 | Per-persona pseudonym mapping storage mechanism | Raj | RETIRED — boundary pseudonymization regime not implemented; superseded by defense-in-depth in Part 11.8.3 |
+| 27 | Quasi-identifier handling — leave in or strip | Lori + Raj | OPEN — current implementation leaves quasi-identifiers in structured facts; access control limits exposure. Strip-or-leave decision is part of the Amitha review (Q24). |
+| 28 | Real-PII retention period and disposal trigger | Team | PARTIALLY RESOLVED — local disposal command exists (`dispose_review_artifacts`); team-level cadence and trigger policy still open |
+| 29 | Som demo audience — show synthetic only or include a real-derived persona | Lori | OPEN — synthetic-only is the default; revisit before Wednesday only if a real-derived demo would meaningfully advance the conversation |
+| 30 | Identity of the 3–5 pilot advisors and their commitment to Phase C participation | Lori | OPEN — name and confirm before Phase B exit |
+| 31 | Phase B exit criteria sign-off — who signs and how disagreements resolve | Fraser + Lori + Raj | OPEN — agree before Phase B work begins in earnest |
 | 32 | Pilot-mode disclaimer wording — exact text on every recommendation screen | Lori + Amitha | OPEN — review before Phase B exit |
 | 33 | Feedback channel and triage owner | Team | OPEN — choose before Phase B exit |
 | 34 | IS pilot training material — written guide, walkthrough format | Lori | OPEN — drafted in Phase B |
 | 35 | Pilot success metrics — finalize the targets in Section 13.0.3 | Fraser + Lori | DEFAULT — current targets are working defaults |
 | 36 | Pilot duration and exit decision — when does Phase C end, what's the next phase | Fraser + Som | OPEN — 6-week working assumption |
-| 37 | True Plan ↔ Portfolio iterative recursion (Conquest Monte Carlo round-trip with optimizer) | Team | OPEN — mathematically attractive but expensive; v1 is single-pass, revisit later (Day 2 §9) |
+| 37 | True Plan ↔ Portfolio iterative recursion (Conquest Monte Carlo round-trip with optimizer) | Team | OPEN — mathematically attractive but expensive; v1 is single-pass, revisit later |
 | 38 | Real vs. nominal dollars in long-duration projections | Team | OPEN — acknowledged Day 2, unresolved |
 | 39 | Whether the client (vs. only the advisor) sees the goal-account three-tab view | Lori vs. Fraser | OPEN — Lori leans client-sees-only-the-report; Fraser leans client-sees-trimmed-version-of-dashboard. Resolve before Phase C |
 | 40 | User testing proxy strategy — non-engaged spouses as testers? | Team | OPEN — floated Day 2; needs concrete plan |
 | 41 | Articulating to clients the value of disclosing external holdings | Lori | OPEN — needed before pilot to drive disclosure rate |
-| 42 | The exact CMA admin permissions model (single role vs. tiered) | Saranyaraj + Lori | OPEN — Phase B work; admin-only flag is the v1 minimum |
-| 43 | Override note inline UX — how to capture without creating workflow fatigue | Saranyaraj + Lori | OPEN — Phase B design |
+| 42 | CMA admin permissions model (single role vs. tiered) | Saranyaraj + Lori | OPEN — Phase B work; admin-only flag is the v1 minimum |
+| 43 | Override note inline UX — how to capture without creating workflow fatigue | Saranyaraj + Lori | PARTIALLY RESOLVED — section approval with notes is implemented; pre/post-recommendation override UX is Phase B |
 | 44 | Match-score threshold for fund-of-funds collapse recommendation (Part 4.3b) | Saranyaraj + Fraser | OPEN — what % composition match triggers "use Founders instead" |
+| 45 | CI Playwright synthetic E2E execution — local Chromium install hung; CI installs before run | Raj | OPEN — verify CI runs synthetic E2E green before Phase B exit |
+| 46 | CI PII scanners (commit-time pattern detection) | Raj + Lori | OPEN — Phase B work; pre-commit scrub-pass exists locally |
+| 47 | Engine output contract migration from goal-level to per-link (`LinkBlend`, account roll-ups, fund-of-funds collapse, fan chart per link, compliance ratings) | Raj | OPEN — Phase B blocker. Current scaffold returns goal-level placeholders; canon Part 12.1 requires per-link first |
+| 48 | Risk scale code migration from 1-10 placeholder to 5-point snap-to-grid with 5/15/25/35/45 mapping | Raj | OPEN — Phase B work to align code with canon Part 4.2 |
+| 49 | Goal target_amount migration from required to optional secondary input | Raj | OPEN — Phase B; current Goal model requires it. Canon Part 4.3c says optional. |
+| 50 | UI vocabulary migration from low/med/high to cautious / balanced / growth-oriented in client-facing surfaces | Raj | OPEN — Phase B; current UI surfaces low/med/high in risk badges. Internal labels stay; client-facing copy changes. |
+| 51 | CAT API specification (trade execution / account values) | Saranyaraj + Steadyhand | OPEN — mock for MVP per Day 3; integration spec needed for post-MVP. |
+| 52 | Resource API specification (CRM / Steadyhand) | Saranyaraj + Steadyhand | OPEN — mock for MVP per Day 3; integration spec needed for post-MVP. |
+| 53 | Confidence-threshold value for risk-score "needs advisor input" flag | Saranyaraj + Lori | DEFAULT — 0.7 working default per Day 3 §2; tune in Phase B based on observed false-positive rate. |
+| 54 | "Needs attention" UI string final wording — separating data-ingestion alerts from portfolio/planning alerts | Lori + Nafal | OPEN — lexical split locked Part 8.6a; exact strings TBD. |
+| 55 | Goal duration formula for edge cases — couples with different retirement dates, phased retirements, multi-generational goals | Fraser + Nafal | DEFAULT — split into multiple goals per Part 4.3d; revisit when edge cases hit real client data. |
+| 56 | CMA correlation matrix storage format (decomposed linear arrays per Day 3 — confirm DB schema) | Saranyaraj | OPEN — Phase B work alongside CMA admin portal. |
+| 57 | Demo-vs-mock split for senior Steadyhand stakeholder demo (target 1–2 weeks) — what runs real, what runs mocked | Fraser + Saranyaraj | OPEN — engine real, ingestion may still be mocked per Day 3 prioritization. |
+| 58 | Alignment with Purpose Engineering Director on React-based Advisor Center foundation — when do MP2.0 modules snap into that platform | Fraser + Engineering Director | OPEN — Phase B/C strategic conversation per Part 1.7. |
+| 59 | Stale-portfolio UX — auto-update with delta panel vs. hover-over delta vs. pure stale flag | Saranyaraj + Nafal | OPEN — Day 3 afternoon §1.3 left this for post-UI-integration finalization; current default is pure stale flag with manual regenerate. |
+| 60 | Trade-level consent UX (per-trade vs. batch confirmation in the "Express as moves" flow) | Saranyaraj + Lori | OPEN — Phase B; the audit trail must capture consent at the move level per Part 7.5a, but UI affordance is open. |
+| 61 | Default goal classification wording for regulators — "savings" implies cash; alternatives like "long-term savings" or "undefined goal" | Lori + Fraser | OPEN — Day 3 afternoon §5.3 task list item. Resolution before pilot use. |
+| 62 | Fallback structured questionnaire — final HTML form for missing-fields fallback path (Part 6.7) | Nafal | OPEN — Day 3 afternoon §10 task list item; will share with team for revision. |
+| 63 | Rebalancing trigger thresholds (% + $ minimums) per Part 7.5a | Fraser | OPEN — Day 3 afternoon §10 task list item. Compliance burden raises threshold above naive 5% drift. |
+| 64 | 3-month roadmap deliverable alongside demo | Fraser | OPEN — Day 3 afternoon §10 task list item. |
+| 65 | Risk band labels — final discipline on "low / low-medium / medium / medium-high / high" vs. "cautious / conservative-balanced / balanced / balanced-growth / growth-oriented" in client-facing UI | Lori + Nafal | OPEN — Day 3 afternoon §2.3 surfaced ambiguity; v2.5 supersedes (#54) but Day 3 afternoon noted both vocabularies were discussed; finalize before pilot. |
+| 66 | Personalized after-fee returns — when to add (deferred per Day 3 afternoon §2.2; Steadyhand fee-reduction program makes per-client computation complex) | Saranyaraj + Lori | OPEN — not v1 scope; revisit before broader pilot expansion. |
+| 67 | Duplicate / phantom record prevention — backend logic to detect and link duplicate household records when documents are dropped | Nafal | OPEN — Day 3 afternoon §4.3 task list item. Near-term: persona-based demo; future: require uploads against existing client/household ID. |
+| 68 | Householding consent withdrawal flow — UX when one partner of a couple withdraws consent post-pilot | Lori + Saranyaraj | OPEN — Part 6.1 covers the data model; UX flow is Phase B. |
 
 ---
 
@@ -1593,21 +2038,21 @@ Use these terms precisely. Inconsistency confuses the team and the build.
 | Term | Definition |
 |------|------------|
 | **MP2.0** | Model Portfolios 2.0 — this initiative |
-| **Sleeve fund (or Sleeve)** | A standardized, single-mandate building-block fund. Sleeves are the molecules. 8–12 in the universe. |
-| **Atom** | Underlying security held inside a sleeve (an individual stock or bond). Clients/advisors don't operate at this level. |
-| **Blend** | The personalized mix of sleeves driven by a client's plan. The painting. |
-| **Blend ratios** | The specific percentages of each sleeve in a client's blend. |
-| **Macro Insight Layer** | The CIO/strategist function that updates sleeve internals (atoms) based on macro views. Independent of client blends. |
+| **Building-block fund** | A standardized, single-mandate fund used as a constituent of personalized blends. The "molecules" of the system. 8–12 in the universe. Replaces the retired "sleeve" / "sleeve fund" terminology (Day 3 afternoon §2.1). See Part 2.2. |
+| **Atom** | Underlying security held inside a building-block fund (an individual stock or bond). Clients/advisors don't operate at this level; the Macro Insight Layer does. |
+| **Blend** | The personalized mix of building-block funds driven by a client's plan. The painting. |
+| **Blend ratios** | The specific percentages of each building-block fund in a client's blend. |
+| **Macro Insight Layer** | The CIO/strategist function that updates the internals of building-block funds (atoms) based on macro views. Independent of client blends. |
 | **Living Financial Plan** | The continuously-updated model of the household's situation. Source of truth for blends. Not a document. |
-| **Paint mixing** | Fraser's analogy: sleeves are paints, blend is the painting, atoms are the pigments. |
+| **Paint mixing** | Fraser's analogy: building-block funds are paints, blend is the painting, atoms are the pigments. |
 | **Frontier** | The efficient frontier — set of optimal portfolios in (volatility, return) space. |
 | **Glide path** | The trajectory of a blend toward lower-risk (cash) as a goal nears its target date. |
 | **Necessity score** | Per-goal: 1=wish, 3=want, 5=need. Drives goal-level risk score. |
-| **Risk descriptor (client-facing)** | "Cautious / Conservative-balanced / Balanced / Balanced-growth / Growth-oriented." Use this vocabulary in any client-visible copy. *"Low / medium / high"* is held internally for engine math and compliance, not surfaced to clients. See Part 4.2 / Day 2 §6.2. |
-| **Household risk score** | Composite score capturing investment knowledge, behavior, capacity. |
-| **Goal risk score** | Per-goal: how essential is this specific goal? |
+| **Risk descriptor (client-facing)** | "Cautious / Conservative-balanced / Balanced / Balanced-growth / Growth-oriented." Pilot UI defaults to this vocabulary in client-visible copy. *"Low / medium / high"* is held internally for engine math and compliance; client-facing exposure is open (Day 3 afternoon §2.3 surfaced ambiguity, open question #65). See Part 4.2. |
+| **Household risk tolerance** | Composite score capturing investment knowledge, behavior, capacity. Property of the household (Day 3 afternoon §2.3 lexical discipline). |
+| **Goal-level riskiness** | Per-goal: how essential is this goal, plus portion of household AUM allocated. Property of the position/portfolio (Day 3 afternoon §2.3). |
 | **Wants and needs (and wishes)** | Goal categorization. Some constructs use 3 levels; we currently merge to 2. |
-| **Whole-portfolio fund** | A multi-asset fund-of-funds, like Founders or PACF. Distinct from a sleeve. |
+| **Whole-portfolio fund** | A multi-asset fund-of-funds (Founders, Builders, PACF, etc.) that may serve as a fund-of-funds collapse target when an optimization output closely matches its composition. Distinct from a building-block fund. |
 | **MAT** | Mission-Aligned Team — the 5-person offsite group. |
 | **One Purpose** | Internal vision: integrated wealth experience across Purpose's businesses. |
 | **CRM 3** | Canadian fee/disclosure regulation requiring full FER + advisor fee disclosure. |
@@ -1664,6 +2109,38 @@ Use these terms precisely. Inconsistency confuses the team and the build.
 | **Tax-drag table** | Per-fund (or per-asset-class within fund) drag factors, applied to expected return only when the fund sits in a taxable account. Default 0 = feature disabled. See Part 4.5. |
 | **External-holdings dampener** | Optional input that reduces the household risk score when external (non-Purpose) holdings are disclosed and skew higher-risk. Simple modifier, not full simulation. See Part 4.6a. |
 | **The "false euphoria" risk** | Fraser's Day 2 framing: the offsite team feels closer to done than it is — *"the school play is three weeks away and like, guys, we're ready. I don't know my lines."* The Phase A → Phase B transition exists to correct for this. |
+| **`engine_ready`** | Derived flag on the reviewed client state. True when all required fields are populated, all flagged conflicts are resolved, and all required unknowns are addressed. Required for engine output, but not sufficient for committing reviewed state to client tables (which also requires section approval). See Part 11.5.1. |
+| **Section approval** | Per-section status (Household / People / Accounts / Goals / Mapping / Risk) on the reviewed state. `engine_ready + all required sections approved` is the gate to committing reviewed state into the client tables. |
+| **Defense-in-depth privacy regime** | The privacy approach actually implemented (Part 11.8.3): authenticated ingress + Bedrock ca-central-1 fail-closed routing + transient raw text + structured-only persistence + redacted evidence quotes + hashed sensitive identifiers + immutable audit + RBAC + bounded population. *Replaces* the boundary-pseudonymization approach earlier specified but not implemented. |
+| **Boundary pseudonymization (retired)** | The v2.1–v2.3 design where real names would be replaced with pseudonyms before Bedrock saw the text. Not implemented; superseded by defense-in-depth (Part 11.8.3). The substitution is acknowledged so no one operates from a false assumption that pre-LLM redaction exists. |
+| **Structured-only persistence** | After extraction, only structured facts, run metadata, and minimally-redacted evidence quotes are persisted. The full raw extracted text is transient. Sensitive identifiers are stored as hash + redacted display, not plaintext. |
+| **Hashed sensitive identifier** | High-sensitivity identifier (SIN, account number) stored as a hash plus a redacted display string; plaintext does not enter the persisted DB. |
+| **Workspace timeline sanitization** | The audit-visible workspace timeline serializer redacts sensitive before/after values for UI consumers. The audit row itself preserves the full immutable record. |
+| **`MP20_SECURE_DATA_ROOT`** | Environment variable that must point to a directory outside the repository where real-PII upload artifacts land. Hard-fail if missing or repo-local. |
+| **`MP20_ENGINE_ENABLED`** | Kill-switch environment variable. When false, blocks portfolio generation while leaving intake and review available. Toggling generates an audit event. |
+| **`data_origin` flag** | Per-persona attribute (`synthetic` or `real_derived`) routing LLM calls — synthetic to Anthropic API direct or Bedrock per available config; real-derived to Bedrock ca-central-1 only. Misconfiguration is a deployment-blocker check. |
+| **Advisor team scope** | RBAC model where advisors share a single team scope for clients and review workspaces. Financial analysts are denied real-client PII surfaces. Implemented in Phase A. |
+| **Link-or-create commit** | The reviewed-state commit pattern: either link to an existing household (matching is advisory; commit can pick or override) or create a new household. The internal generated household ID is the unique key; matching is suggestion-grade. |
+| **Goal shape** | The category of a goal that drives its duration formula: `lump_sum`, `retirement_estate`, `retirement_income`, or `other`. See Part 4.3d. |
+| **Goal duration framework** | Fraser's three-pattern framework for computing optimization time horizon from goal shape: lump-sum = years until needed; retirement estate = years to retirement + full retirement years; retirement income = years to retirement + half of retirement years. See Part 4.3d. |
+| **Confidence indicator (risk)** | A 0.0–1.0 value attached to risk scores reflecting evidence strength. Below threshold (default 0.7), the system flags `needs_advisor_input`. Modeled on the Ike agent pattern. See Part 6.5.1. |
+| **CAT** | External integration: trade execution and account-value source. Mocked for MVP per Day 3. Real account values trump document-derived values in reconciliation. |
+| **Resource** | External integration: Steadyhand CRM. Mocked for MVP per Day 3. CRM-resident facts trump note-derived facts. |
+| **Source-priority hierarchy** | Reconciliation rule: system-of-record facts (CAT, Resource) > structured documents (KYC, statements) > note-derived facts. Cross-class mismatches resolve silently to the higher-priority source, not as conflicts. See Part 11.4. |
+| **"Needs attention" lexical split** | UI rule separating *"Review needed"* alerts (data-ingestion: conflicts, missing fields, low confidence) from *"Action recommended"* alerts (portfolio/planning: drift, off-track goals, life events). Different urgency, different workflow. See Part 8.6a. |
+| **Goal-based lens** | MP2.0's strategic positioning per Part 1.7 — the system is a goal-based overlay on top of foundational platforms (Advisor Center), not a parallel rebuild. The differentiator is the goal × account cross-reference and portfolio construction engine. |
+| **Senior Steadyhand stakeholder demo** | Target ~1–2 weeks after offsite. Distinct from the Wednesday Som demo (executive sponsor) and the Mon/Tue IS validation (working session). Audience is broader Steadyhand leadership; runs on Phase B build. See Part 13.1. |
+| **Building-block fund** | See strategic glossary entry (16.1) — the standardized constituent of personalized blends. Code-side identifiers (`Sleeve` Pydantic class, `sleeves.py`) are intentionally left under their legacy names per Part 10 to avoid churn; the *concept* is "building-block fund." |
+| **Whole-portfolio fund** | A multi-mandate fund-of-funds (Founders, Builders, PACF, etc.) that may serve as a fund-of-funds collapse target when an optimization output closely matches its composition. Distinct from a building-block fund. See Part 2.2 and Part 4.3b. |
+| **Re-goaling / goal realignment** | The conceptual relabel-or-reapportion of dollars between goals within an account. **Not money movement.** Vocabulary discipline locked: never use "reallocation," "transfer," or "move money" for this operation. Triggers a new portfolio recommendation because the account's blended risk/horizon profile changes. See Part 6.3a. |
+| **Stale portfolio** | A previously-generated portfolio whose underlying CMA snapshot is no longer current. Marked `is_stale = true` rather than auto-regenerated; advisor must click "regenerate" to compute against the published snapshot. See Part 4.7.3. |
+| **Draft / publish CMA workflow** | The state model for CMA edits: create draft → edit → save draft → publish. Drafts are private to the editing Financial Analyst; publish atomically writes a `CMASnapshot`, triggers audit, triggers propagation. See Part 4.7.1. |
+| **"Express as moves"** | UI control on the comparison view that generates the specific trade list (sells/buys with quantities) required to transition current → ideal allocation. Required because client consent is captured at the trade level, not the end-state level. See Part 8.10. |
+| **Householding consent** | Signed consent from each household member required before the system rolls up their accounts under a single household view. Privacy among couples is real; consent can be withdrawn. See Part 6.1. |
+| **Financial Analyst (CMA editor)** | The role with create/edit/save-draft/publish access to CMAs and view access to the efficient frontier. Distinct from the financial-analyst role's denial of real-client PII surfaces — same role name, two scopes. Day 3 afternoon §1.1. |
+| **Trailing returns vs. portfolio returns** | "Portfolio returns" is the demo-friendly term per Day 3 afternoon §2.2; "trailing returns" is more technical. Trailing returns are not strictly required for MP2.0's forward-looking construction but matter for advisor / client conversations. Personalized after-fee returns are deferred (Steadyhand fee-reduction program makes per-client computation complex). |
+| **Risk tolerance vs. riskiness** | Lexical discipline per Day 3 afternoon §2.3 — *"risk tolerance"* applies to a person/household; *"riskiness"* applies to a position/portfolio. Both terms used in canon with this discipline. See Part 4.2. |
+| **Time horizon is not a risk-score component** | Anti-double-counting rule per Day 3 afternoon §5.4. Time horizon and risk score are orthogonal optimizer inputs. Including time horizon in the risk score would push the blend conservative twice for the same maturity. See Part 4.2. |
 
 ---
 
@@ -1692,6 +2169,14 @@ Source documents available in the project:
 ## PART 18 — DOCUMENT VERSIONING
 
 This file should be revised whenever a material decision changes. Track changes inline; archive prior versions.
+
+- **v2.7 (Apr 30, 2026)** — **Internal consistency pass.** No new external session input; this revision is a self-review against v2.6 finding and fixing internal inconsistencies that the rapid v2.5 → v2.6 cadence had introduced. **Sleeves → funds rename completed cleanly:** the v2.6 rename had left ~20 leftover references that contradicted the new vocabulary. Surgical fixes to Part 1 TOC entry, Part 1.3 Harness IC reference, Part 3 customer journey Stage 3 row, Part 4.1 efficient frontier core math, Part 4.3b fund-of-funds collapse rule, Part 4.4 cash building-block header, Part 4.6 v2+ gaps, Part 6.4 Account schema comment, Part 9.4.6 audit-log line, Part 12.1 engine I/O contract prose (code identifiers `Sleeve` Pydantic class and `sleeves.py` deliberately kept under their legacy names per a new explanatory note in Part 10 — code identifiers don't need to track product vocabulary changes; the canon now says so), Part 12.2 schema list, Part 12.4 cache invalidation, Part 13.2 Day 1 morning + Day 2 morning build sequence, open questions #4 / #5 / #15 / #17. **Strategic glossary reconciled with engineering glossary:** the strategic glossary at 16.1 still defined "Sleeve fund / Atom / Blend / Blend ratios / Macro Insight Layer / Paint mixing / Whole-portfolio fund" using sleeve vocabulary, while the engineering glossary at 16.2 had already been updated — the two glossaries were actively contradicting each other (the most serious internal inconsistency). The strategic glossary now uses building-block-fund vocabulary throughout; the engineering glossary's redundant "Building-block fund" entry was simplified to a cross-reference. **Phase 0 / hardcoded-admin residue cleared:** v2.4 had retired Phase 0 entirely, but the Day 1 morning build sequence still said "Auth Phase 1 (single hardcoded admin)" and the compression-risks list still flagged "Auth Phase 0 → Phase 1 transition skipped" as a risk. Both fixed. **Pseudonymization residue cleared from Day 3 (Wednesday) Som demo close-out:** v2.4 retired boundary pseudonymization in favor of defense-in-depth, but the demo close-out line still said "real-client example, pseudonymized." Replaced with the actual Part 11.8.7 audience-composition rule. **Authorization-basis and Bedrock compression-risk items updated** to reflect post-Day-2 reality (real PII has been flowing since Day 2 evening; retrospective written confirmation needed) rather than the pre-offsite framing. **Added one structural improvement: Part 15.0 "Top priorities right now"** — a 7-item shortlist surfacing the highest-leverage items from the 68-question table (written authorization basis #24, Bedrock formal confirmation #25, correlation matrix integration #56, engine output contract migration #47, CAT/Resource API specs #51-52, default goal regulator wording #61, 3-month roadmap #64). The shortlist rotates as items resolve; the full table is preserved unchanged at 15.1 for audit-trail continuity.
+
+- **v2.6 (Apr 29, 2026)** — **Day 3 afternoon lock-ins integrated.** Major terminology change: **"sleeves" retired in favor of "funds"** (Day 3 afternoon §2.1) — Part 2.2 (architecture), Part 5 (was "Sleeve Universe", now "Fund Universe"), Part 4.7, and engineering-glossary references updated. The conceptual distinction between *building-block funds* (the standardized constituents) and *whole-portfolio funds* (Founders, Builders, fund-of-funds collapse targets) is preserved with new vocabulary; the paint-mixing analogy stays as a teaching device. Added 5 architectural sharpenings to Part 4.7 CMA admin section: draft/publish state model (4.7.1), Financial Analyst as the authorized CMA editor role, **stale-portfolio state pattern** (`is_stale=true`, advisor must click "regenerate" — does not auto-regenerate; per Day 3 afternoon §1.3), chart visualization in v1 CMA UI, and a new Part 4.7.4 establishing math validation against Fraser's reference model as a Phase B blocker (correlation matrix integration is its prerequisite). Sharpened Part 4.2 risk modeling with three Day 3 afternoon refinements: lexical distinction between household-level "risk tolerance" and goal-level "riskiness" (§2.3); goal-level risk now includes portion-of-AUM allocated to the goal (§5.4); explicit lock that **time horizon is NOT a component of the risk score** (§5.4) — anti-double-counting, since time horizon is a separate orthogonal optimizer input via the duration framework (Part 4.3d). Softened the v2.5 "low/med/high never to clients" rule to reflect Day 3 afternoon's open discussion: both internal-numeric and named-band vocabularies acceptable; pilot UI defaults to descriptors but the discipline is open (#65). Added Part 6.1 householding consent fields and consent-form requirement (Day 3 afternoon §7.2). Added Part 6.3a on **re-goaling as conceptual overlay** — vocabulary discipline locked: use "re-goaling"/"goal realignment", **never** "reallocation"/"transfer"/"move money". Added Part 6.3b on default goal classification when client goals are undefined: emergency fund + retirement split per Fraser; "savings" wording avoided per regulator constraint. Re-anchored Part 6.7 onboarding around document-drop primary, structured questionnaire fallback (Day 3 afternoon §4.1) — reflects real advisor workflow where conversations precede documents. Sharpened Part 4.6a external-holdings methodology: statement upload (preferred) → conversational fallback → balanced-allocation default; Morningstar drives Steadyhand-internal breakdowns; AI auto-classification of external statements is v2+ vision. Sharpened Part 8.7 with Steadyhand-internal vs. external holdings detail rules: full detail for Steadyhand, asset-class-only for external, click-to-reveal pattern for external (privacy when advisor turns screen toward client). Added Part 8.8 current-vs-ideal comparison rules: existing clients see comparison; new clients with cash skip comparison. Refined Part 8.9 fan chart: household-level current-vs-optimized overlay; interactive hover at P5/25/50/75/95; **no household-level time horizon hard-anchor** (different goals have different horizons); cap at life expectancy; Tier 1/2/3 sophistication mapping (101 = median only / 201 = median + outer bands / 301 = full detail). Added new Part 8.10 **"Express as moves"** — trade-level rebalancing UX required because client consent must be captured at the trade level (Part 7.5a), not the end-state level. Added Part 7.5a: compliance burden raises rebalancing trigger threshold; fee disclosure + fund fact sheet on every new fund purchase; future-state full-discretionary option flagged as v2+. Added explicit advisor confirmation requirement and three-mockup-state framing (clean / moderate conflicts / heavy conflicts) to Part 11.5 data review screen. Updated Part 13: demo format = guided walkthrough (not hands-on test) per §9.1; demo persona refined to RSP+FHBP dual-purpose (most common Steadyhand scenario per §5.1). Added correlation-matrix integration, math validation, and frontend-backend integration as Phase B exit criteria (Part 13.0.1). Locked integration direction in Part 13.4: **Raj's backend plugs into Nafal's frontend**, not vice versa (§3). Updated Part 13.4 task allocation per Day 3 afternoon assignments. Added 10 new open questions (#59–68) and 12 new vocabulary terms.
+
+- **v2.5 (Apr 29, 2026)** — **Day 3 morning lock-ins integrated.** Added Part 1.7 on platform alignment: MP2.0 is the goal-based lens layered on the Advisor Center foundation (which the Purpose Engineering Director is rebuilding in React), not a parallel rebuild. Added Part 4.3d on goal duration computation per Fraser's framework — three patterns (lump-sum / retirement-estate / retirement-income), with concrete formulas and the bond-duration analogy for retirement income. Added `goal_shape` to Goal entity (Part 6.3); duration is derived per optimization run, not stored. Sharpened Part 4.7 CMA admin section with operational detail: monthly-or-event update cadence, propagation across all portfolios with drift detection, advisor-routed alerts ("17 accounts >5% off optimal"), Steadyhand CIO decision authority, no auto-rebalance, correlation matrices stored as decomposed linear arrays. Added confidence indicators to risk schemas (Part 6.5.1): 0.0–1.0 confidence on household and goal scores, with default 0.7 threshold below which the system flags `needs_advisor_input`; rationale field required for compliance. Added Part 8.6a on the "needs attention" lexical split — *Review needed* (data ingestion) vs. *Action recommended* (portfolio/planning); different urgency, different workflow. Sharpened Part 8.7 with Day 3 visualization details: vertical-slice accounts with color-coded goal allocations consistently used across the UI; hover for detail; bidirectional pivot. Added named external integrations to Part 9.4.3: **CAT** (trade execution / account values) and **Resource** (Steadyhand CRM); both mocked for MVP, both with adapter interfaces defined now. Added source-priority hierarchy to Part 11.4: system-of-record > structured documents > note-derived facts; cross-class mismatches resolve silently rather than surfacing as conflicts. Sharpened Phase A demo prioritization in Part 13.2: engine is the must-have, ingestion can be mocked, reporting can be cut to essentials — *"if we nail the ingestion but haven't done how it constructs it, there's nothing to demo."* Refined Part 13.1 to distinguish three demo events: Wednesday Som demo, Mon/Tue IS validation, and senior Steadyhand stakeholder demo (target 1–2 weeks). Updated Part 13.4 task allocation per Day 3 morning. Added 9 new open questions and 9 new vocabulary terms covering CAT, Resource, goal shape, duration framework, confidence indicators, source-priority, "needs attention" split, goal-based lens, senior stakeholder demo. The boundary-pseudonymization correction from v2.4 stands; Day 3 morning §8 recap referenced older "demo-grade" language but v2.4's production-grade reframe is preserved deliberately.
+
+- **v2.4 (Apr 29, 2026)** — **Reframed as production-grade software with limited users; reconciled canon with implementation reality.** The "MVP / demo-grade scaffold" framing in v2.2/2.3 produced the wrong mental model — the implementation has been production-grade from day one because real PII has been flowing since Day 2 evening. Part 1.6 retires the "demo-grade" language; Phase A is now production-grade for internal use, with Phase B layering on additional controls (MFA, lockout, password reset, audit browser, CMA admin boundary) for advisor-pilot use. **Major honesty correction in Part 11.8.3:** the boundary-pseudonymization regime specified in v2.1–v2.3 was not implemented; the actual privacy regime is defense-in-depth (authenticated ingress + Bedrock ca-central-1 fail-closed + transient raw text + structured-only persistence + redacted evidence + hashed sensitive identifiers + immutable audit + RBAC + bounded population). Real names do transit to Bedrock; the protection is the trust boundary (Purpose AWS, Canadian-resident, Bedrock service-level controls). The substitution is documented so no one operates from a false assumption. Part 11.8.1 updated to reflect that real PII has already been in use since Day 2 (under implicit "internal use" basis); retrospective written confirmation from Amitha is now a Phase B exit blocker. Auth phasing (Part 9.2) restructured: Phase 0 (hardcoded admin) retired; Phase A current state is authenticated DRF + advisor team scope + financial-analyst PII denial + kill-switch (production-grade for internal team). Phase B adds MFA / lockout / password reset / session timeout / audit browser UI / CMA admin boundary. Phase B exit criteria (Part 13.0.1) tightened to require retrospective Amitha sign-off, audit browser UI shipped, CMA admin boundary live, engine output contract migrated to per-link. Added `engine_ready` gate concept (Part 11.5.1) — a derived flag on reviewed state, separate from section approval; together they gate committing reviewed state into client tables. Updated Part 9.4.6 audit log with the additional events the implementation captures (section approval, kill-switch toggles, disposal, edit hashes); audit browser UI moves from "post-MVP" to Phase B exit criterion. Part 14 (IT confirmations) sharpened: Bedrock ca-central-1 partially resolved (in active use, formal IT confirmation still owed); two new REAL-PII BLOCKER items added covering Amitha's defense-in-depth review. Open questions: 26 retired (boundary pseudonymization), 25 / 28 / 43 partially resolved, 6 new added covering Phase B engineering migrations (engine output, risk scale code, target_amount optionality, vocabulary, CI E2E, CI PII scanners). Added 12 new vocabulary terms.
 
 - **v2.3 (Apr 28, 2026)** — **Day 2 afternoon design lock-ins integrated.** Major architectural decisions captured: optimization unit is goal × account cross (Part 4.3a), 5-point risk scale mapped to 5/15/25/35/45 percentile range with snap-to-grid output (Part 4.2/4.3), three-component risk exposure surfaced to advisor (Part 4.2), tax-drag schema with per-fund/per-asset-class factors (Part 4.5), recommended portfolio always sits on the frontier with fund-of-funds collapse for execution (Part 4.3b), future-dollar targets are secondary input only (Part 4.3c), external holdings as risk-tolerance dampener moves in-scope (Part 4.6a), CMA admin layer with restricted access sharpens the Macro Insight Layer (Part 4.7). Added two major new UX sections: three-tab household/account/goal view (Part 8.7) and click-through portfolio assignment workflow (Part 8.8) — the "single biggest wow" of the session. Added longitudinal fan chart mechanic (Part 8.9). Restructured Part 8.4 as three sophistication tiers (Tier 1/2/3) with behavioral bucketing composing within tiers. Added concrete sentence templates for "why this portfolio?" (Part 8.5). Added pre-recommendation vs. post-recommendation override patterns (Part 7.5). Added CMA Admin role to RBAC (Part 9.2). Schedule corrected: **Wednesday Som demo** (not Friday); IS team validation Mon/Tue following week (Saranyaraj hackathon partial-availability called out). Refactored Part 13 build sequence to add Day 3 (Wednesday) close-out and revise Phase B sketch. Replaced 8-segment Sandra & Mike storyboard with Day-2 demo flow (drop notes → ingestion → household/account/goal drill → portfolio recommendation → "am I going to be okay?" output). Updated EngineOutput contract to be per-link first (Part 12.1). Vocabulary update: client-facing copy uses cautious / balanced / growth-oriented, not low/medium/high (Day 2 §6.2). Resolved 5 open questions (composite risk, goal-questionnaire, external assets, frontend assignment, demo-grade-vs-pilot-grade); added 8 new ones from Day 2 (recursion, real/nominal, client-vs-advisor view, external disclosure, CMA admin permissions, override UX, fund-of-funds match threshold, user-testing proxy). Added 17 new vocabulary terms covering Day 2 design.
 
