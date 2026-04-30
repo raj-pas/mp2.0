@@ -268,3 +268,29 @@
   `scripts/test-python-postgres.sh`,
   `npm run build`, and
   `npm run e2e:synthetic`.
+
+## 2026-04-30 — Extraction Package + Advisor Review Hardening Implemented
+
+- Moved live extraction responsibilities out of `web/api/review_processing.py`
+  into the canonical `extraction/` package: adaptive classification,
+  deterministic parsers, Bedrock prompt routing/JSON repair, typed fact
+  candidates, normalization, and field-specific reconciliation helpers.
+- Rewired the review worker so Django owns orchestration, persistence, retry,
+  audit, and queue state while `extraction/` owns parsing/classification/fact
+  generation behavior.
+- Added classifier/parser/extraction metadata to document processing state,
+  ignored system files such as `.DS_Store` before job creation, and made fact
+  replacement atomic after successful extraction so failed retries preserve
+  prior good facts.
+- Added advisor-readable fact labels/sections, field-source metadata, an audited
+  redacted evidence endpoint, and goal-risk explainability metadata in
+  PortfolioRun recommendation explanations.
+- Cleaned agent memory to retire stale boundary-pseudonymization instructions
+  and added `docs/agent/extraction-coverage.md` as the PII-free coverage matrix.
+- Verification passed:
+  `uv run ruff check .`,
+  `uv run ruff format --check .`,
+  `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run pytest`,
+  `DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 uv run python web/manage.py makemigrations --check --dry-run`,
+  `npm run build`, and
+  `PLAYWRIGHT_BASE_URL=http://localhost:5173 npm run e2e:synthetic`.

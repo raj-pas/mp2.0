@@ -85,6 +85,36 @@ def test_sensitive_scalar_fact_value_is_hash_and_display_only() -> None:
     assert sanitized["hash"] != "12345ABC"
 
 
+@pytest.mark.django_db
+def test_evidence_endpoint_audits_redacted_fact_access() -> None:
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(label="Evidence review", owner=user)
+    document = models.ReviewDocument.objects.create(
+        workspace=workspace,
+        original_filename="notes.txt",
+        extension="txt",
+        file_size=1,
+        sha256="evidence",
+        document_type="meeting_note",
+    )
+    fact = models.ExtractedFact.objects.create(
+        workspace=workspace,
+        document=document,
+        field="goals[0].name",
+        value="Retirement",
+        evidence_quote="Retirement goal discussed.",
+        extraction_run_id="evidence",
+    )
+
+    response = client.get(reverse("review-fact-evidence", args=[workspace.external_id, fact.id]))
+
+    assert response.status_code == 200
+    assert response.json()["redacted"] is True
+    assert AuditEvent.objects.filter(action="review_evidence_viewed").exists()
+
+
 def test_bedrock_config_fails_closed(monkeypatch) -> None:
     monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
     monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
@@ -164,6 +194,32 @@ def test_authenticated_upload_deduplicates_and_enqueues(tmp_path, settings) -> N
     assert response.status_code == 200
     assert len(response.json()["duplicates"]) == 1
     assert workspace.documents.count() == 1
+
+
+@pytest.mark.django_db
+def test_upload_ignores_system_files_before_job_creation(tmp_path, settings) -> None:
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(
+        label="System file review",
+        owner=user,
+        data_origin=models.ReviewWorkspace.DataOrigin.SYNTHETIC,
+    )
+
+    response = client.post(
+        reverse("review-workspace-upload", args=[workspace.external_id]),
+        {"files": [SimpleUploadedFile(".DS_Store", b"noise")]},
+        format="multipart",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ignored"] == [{"filename": ".DS_Store", "reason": "system_file"}]
+    assert workspace.documents.count() == 0
+    assert workspace.processing_jobs.count() == 0
+    workspace.refresh_from_db()
+    assert workspace.status == models.ReviewWorkspace.Status.DRAFT
 
 
 @pytest.mark.django_db

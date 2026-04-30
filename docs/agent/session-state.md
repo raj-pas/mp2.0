@@ -11,7 +11,7 @@ and analyst CMA/frontier workflow.
 
 ## Current Goal
 
-Use the existing scaffold as the base for the canon v2.3 build sequence while
+Use the existing scaffold as the base for the canon v2.7 build sequence while
 moving real-data intake through a secure local review gate and generated
 portfolio recommendations through durable PortfolioRun records:
 
@@ -23,6 +23,9 @@ portfolio recommendations through durable PortfolioRun records:
   fails loudly
 - secure browser multi-file upload into `MP20_SECURE_DATA_ROOT` outside the repo
 - Postgres-backed worker queue and parser/extraction pass
+- canonical `extraction/` package for adaptive classification, deterministic
+  parsing, Bedrock prompt routing, structured fact validation, normalization,
+  and field-specific source authority helpers
 - reviewed client state, missing-field checklist, section approval, matching,
   and versioned commit to current household tables
 - advisor-grade editable review sections with provenance snippets, conflict and
@@ -33,7 +36,8 @@ portfolio recommendations through durable PortfolioRun records:
   disposal/report command
 - Default CMA v2 fixtures, analyst-only CMA Workbench draft/edit/publish/audit,
   Chart.js efficient frontier view, PortfolioRun hashes/traces/history,
-  advisor explainability, and a Household/Account/Goal portfolio console
+  advisor explainability, goal-risk audit metadata, and a Household/Account/Goal
+  portfolio console
 
 Canon v2.3 still raises the next bar:
 
@@ -119,9 +123,9 @@ Implemented pieces:
   Every tab reconciles to the same PortfolioRun output, with fund-level direct
   weights first and asset/geography look-through metadata available for whole
   funds when present.
-- Extraction/review is a hardened secure-local scaffold. It is not yet the full
-  five-layer canon system and still needs IS validation, richer temporal
-  reconciliation, pseudonymization, and CI PII checks.
+- Extraction/review is a hardened secure-local scaffold being moved into the
+  canonical `extraction/` package. It still needs IS validation, richer temporal
+  reconciliation, coverage-matrix hardening, and CI PII checks.
 - Real client PII must only enter through the authenticated browser upload with
   `MP20_SECURE_DATA_ROOT` outside the repo. Do not copy real contents into agent
   memory, repo files, CI, or logs.
@@ -138,7 +142,8 @@ Implemented pieces:
 - Household and goal risk are both 1-5. The specific weighting for the future
   household x goal composite is still open and should remain parameterized.
 - Extraction/LLM routing enforces Bedrock env for real-derived facts and keeps
-  raw text transient, but pseudonymization and CI PII checks are pending.
+  raw text transient. Boundary pseudonymization is retired by the canon's
+  defense-in-depth decision; CI PII checks remain pending.
 - Audit log is append-only and PortfolioRun stores input/output/CMA/run-signature
   hashes plus technical trace. Portfolio lifecycle events are append-only and
   advisor audit export is sanitized.

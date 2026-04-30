@@ -8,6 +8,36 @@ from typing import Any
 
 from django.db import transaction
 from django.utils import timezone
+from extraction.normalization import (
+    bool_value as normalized_bool_value,
+)
+from extraction.normalization import (
+    int_or_default as normalized_int_or_default,
+)
+from extraction.normalization import (
+    json_number as normalized_json_number,
+)
+from extraction.normalization import (
+    normalize_fact_value as canonical_normalize_fact_value,
+)
+from extraction.normalization import (
+    normalize_key,
+    risk_value_is_contract_score,
+)
+from extraction.normalization import (
+    number as normalized_number,
+)
+from extraction.normalization import (
+    risk_score as canonical_risk_score,
+)
+from extraction.reconciliation import (
+    advisor_label,
+    conflicts_for_facts,
+    current_facts_by_field,
+    fact_sort_key,
+    field_section,
+    semantic_entity_key,
+)
 
 from web.api import models
 from web.api.access import linkable_households
@@ -22,18 +52,6 @@ ENGINE_REQUIRED_SECTIONS = [
     "goal_account_mapping",
     "risk",
 ]
-
-SOURCE_PRIORITY = {
-    "statement": 10,
-    "crm_export": 20,
-    "kyc": 25,
-    "planning": 30,
-    "intake": 35,
-    "meeting_note": 40,
-    "spreadsheet": 45,
-    "other": 90,
-    "unknown": 100,
-}
 
 ALLOWED_ENGINE_ACCOUNT_TYPES = {
     "RRSP",
@@ -156,7 +174,7 @@ def section_blockers(state: dict[str, Any], section: str) -> list[dict[str, str]
                 {
                     "kind": "conflict",
                     "section": section,
-                    "label": f"Unresolved conflict: {field}",
+                    "label": f"Unresolved conflict: {advisor_label(field)}",
                 }
             )
     for unknown in state.get("unknowns") or []:
@@ -524,21 +542,16 @@ def engine_payload_from_reviewed_state(state: dict[str, Any]) -> dict[str, Any]:
 
 def _current_facts(workspace: models.ReviewWorkspace) -> dict[str, models.ExtractedFact]:
     facts = list(workspace.extracted_facts.select_related("document"))
-    grouped: dict[str, list[models.ExtractedFact]] = {}
-    for fact in facts:
-        grouped.setdefault(fact.field, []).append(fact)
-
-    current: dict[str, models.ExtractedFact] = {}
-    for field, field_facts in grouped.items():
-        current[field] = sorted(field_facts, key=_fact_sort_key)[0]
-    return current
+    return current_facts_by_field(facts)
 
 
 def _fact_sort_key(fact: models.ExtractedFact) -> tuple[int, int, float]:
-    source_priority = SOURCE_PRIORITY.get(fact.document.document_type, 100)
-    confidence_priority = {"high": 0, "medium": 1, "low": 2}.get(fact.confidence, 3)
-    asserted = fact.asserted_at or date.min
-    return (source_priority, confidence_priority, -asserted.toordinal())
+    return fact_sort_key(
+        fact.field,
+        fact.document.document_type,
+        fact.confidence,
+        fact.asserted_at or date.min,
+    )
 
 
 def _value(current_facts: dict[str, models.ExtractedFact], field: str, default: Any) -> Any:
@@ -565,15 +578,15 @@ def _indexed_items(
 
 def _normalize_reviewed_relationships(state: dict[str, Any]) -> None:
     for index, person in enumerate(state["people"], start=1):
-        person.setdefault("id", _safe_external_id("review_person", person.get("name"), index))
+        person.setdefault("id", semantic_entity_key("review_person", person, index))
 
     for index, account in enumerate(state["accounts"], start=1):
-        account.setdefault("id", _safe_external_id("review_account", account.get("type"), index))
+        account.setdefault("id", semantic_entity_key("review_account", account, index))
         if "account_number" in account:
             account.setdefault("source_account_identifier", account["account_number"])
 
     for index, goal in enumerate(state["goals"], start=1):
-        goal.setdefault("id", _safe_external_id("review_goal", goal.get("name"), index))
+        goal.setdefault("id", semantic_entity_key("review_goal", goal, index))
         goal.setdefault("goal_risk_score", 3)
 
     first_account_id = state["accounts"][0]["id"] if state["accounts"] else None
@@ -586,8 +599,12 @@ def _normalize_reviewed_relationships(state: dict[str, Any]) -> None:
     for link in state["goal_account_links"]:
         if "goal_id" not in link and link.get("goal_name"):
             link["goal_id"] = goals_by_name.get(_normalize(str(link["goal_name"])), first_goal_id)
-        link.setdefault("goal_id", first_goal_id)
-        link.setdefault("account_id", first_account_id)
+        if "goal_id" not in link and first_goal_id:
+            link["goal_id"] = first_goal_id
+            link["advisor_confirmation_required"] = True
+        if "account_id" not in link and first_account_id:
+            link["account_id"] = first_account_id
+            link["advisor_confirmation_required"] = True
 
 
 def _safe_external_id(prefix: str, value: Any, index: int) -> str:
@@ -628,23 +645,7 @@ def _source_summary(workspace: models.ReviewWorkspace) -> list[dict[str, Any]]:
 
 
 def _conflicts(workspace: models.ReviewWorkspace) -> list[dict[str, Any]]:
-    conflicts: list[dict[str, Any]] = []
-    grouped: dict[str, list[models.ExtractedFact]] = {}
-    for fact in workspace.extracted_facts.all():
-        grouped.setdefault(fact.field, []).append(fact)
-    for field, facts in grouped.items():
-        values = {str(_normalize_fact_value(field, fact.value)) for fact in facts}
-        if len(values) > 1:
-            conflicts.append(
-                {
-                    "field": field,
-                    "values": sorted(values),
-                    "count": len(facts),
-                    "fact_ids": [fact.id for fact in facts],
-                    "resolved": False,
-                }
-            )
-    return conflicts
+    return conflicts_for_facts(workspace.extracted_facts.select_related("document"))
 
 
 def _field_sources(
@@ -654,6 +655,8 @@ def _field_sources(
     return {
         field: {
             "fact_id": fact.id,
+            "field_label": advisor_label(field),
+            "section": field_section(field),
             "document_id": fact.document_id,
             "document_name": fact.document.original_filename,
             "document_type": fact.document.document_type,
@@ -662,6 +665,12 @@ def _field_sources(
             "source_location": fact.source_location,
             "evidence_quote": fact.evidence_quote,
             "extraction_run_id": fact.extraction_run_id,
+            "classifier_route": fact.document.processing_metadata.get("classifier", {}).get(
+                "route", ""
+            ),
+            "schema_hints": fact.document.processing_metadata.get("classifier", {}).get(
+                "schema_hints", []
+            ),
         }
         for field, fact in current_facts.items()
         if fact.workspace_id == workspace.id
@@ -673,112 +682,31 @@ def _missing(section: str, label: str) -> dict[str, str]:
 
 
 def _number(value: Any) -> Decimal:
-    try:
-        if value in {None, ""}:
-            return Decimal("0")
-        if isinstance(value, str):
-            cleaned = value.replace(",", "")
-            cleaned = re.sub(r"[^0-9.\-]", "", cleaned)
-            if not cleaned or cleaned in {"-", ".", "-."}:
-                return Decimal("0")
-            return Decimal(cleaned)
-        return Decimal(str(value))
-    except Exception:
-        return Decimal("0")
+    return normalized_number(value)
 
 
 def _json_number(value: Any) -> int | float:
-    number = _number(value)
-    if number == number.to_integral_value():
-        return int(number)
-    return float(number)
+    return normalized_json_number(value)
 
 
 def _normalize_fact_value(field: str, value: Any) -> Any:
-    lowered = field.lower()
-    if any(
-        token in lowered
-        for token in (
-            "current_value",
-            "account_value",
-            "market_value",
-            "target_amount",
-            "funded_amount",
-            "allocated_amount",
-            "allocation_value",
-            "contribution_room",
-        )
-    ):
-        return _json_number(value)
-    if any(token in lowered for token in ("household_score", "risk_score", "goal_risk_score")):
-        return _risk_score(value, default=3)
-    if any(token in lowered for token in ("horizon", "age", "necessity_score")):
-        return _int_or_default(value, 0)
-    if any(token in lowered for token in ("missing_holdings_confirmed", "is_held_at_purpose")):
-        return _bool_value(value)
-    if isinstance(value, str) and re.fullmatch(r"\d{1,2}/\d{1,2}/\d{2,4}", value.strip()):
-        month, day, year = value.strip().split("/")
-        year_number = int(year)
-        if year_number < 100:
-            year_number += 1900 if year_number > 30 else 2000
-        return f"{year_number:04d}-{int(month):02d}-{int(day):02d}"
-    return value
+    return canonical_normalize_fact_value(field, value)
 
 
 def _bool_value(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return _normalize(value) in {"yes", "true", "confirmed", "missing", "not_available", "na"}
-    return bool(value)
+    return normalized_bool_value(value)
 
 
 def _int_or_default(value: Any, default: int) -> int:
-    try:
-        if value in {None, ""}:
-            return default
-        if isinstance(value, str):
-            match = re.search(r"-?\d+", value)
-            if match:
-                return int(match.group(0))
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+    return normalized_int_or_default(value, default)
 
 
 def _risk_score(value: Any, *, default: int) -> int:
-    if isinstance(value, str):
-        normalized = _normalize(value)
-        qualitative_scores = {
-            "very_low": 1,
-            "low": 2,
-            "cautious": 2,
-            "conservative": 2,
-            "medium": 3,
-            "moderate": 3,
-            "balanced": 3,
-            "medium_risk": 3,
-            "high": 4,
-            "growth": 4,
-            "growth_oriented": 4,
-            "very_high": 5,
-        }
-        if normalized in qualitative_scores:
-            return qualitative_scores[normalized]
-    score = _int_or_default(value, default)
-    if score > 5:
-        score = ((score + 1) // 2) if score <= 10 else 5
-    return max(1, min(score, 5))
+    return canonical_risk_score(value, default=default)
 
 
 def _risk_value_is_contract_score(value: Any) -> bool:
-    try:
-        number = Decimal(str(value))
-    except Exception:
-        return False
-    if number != number.to_integral_value():
-        return False
-    return Decimal("1") <= number <= Decimal("5")
+    return risk_value_is_contract_score(value)
 
 
 def _create_household_from_state(
@@ -906,17 +834,8 @@ def _target_date(goal_state: dict[str, Any]) -> date:
 
 
 def _normalize(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", " ".join(value.lower().split())).strip("_")
+    return normalize_key(value)
 
 
 def _field_belongs_to_section(field: str, section: str) -> bool:
-    prefixes = {
-        "household": ("household",),
-        "people": ("people", "person"),
-        "accounts": ("accounts", "holdings"),
-        "goals": ("goals",),
-        "goal_account_mapping": ("goal_account_links", "goal_account_mapping"),
-        "risk": ("risk",),
-    }
-    normalized = field.replace("[", ".").lower()
-    return any(normalized.startswith(prefix) for prefix in prefixes.get(section, (section,)))
+    return field_section(field) == section

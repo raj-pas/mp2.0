@@ -1038,7 +1038,46 @@ function RecommendationCard({ recommendation }: { recommendation: LinkRecommenda
         ))}
       </div>
       <DiagnosticsBanner recommendation={recommendation} />
+      <GoalRiskExplanation recommendation={recommendation} />
     </div>
+  );
+}
+
+function GoalRiskExplanation({ recommendation }: { recommendation: LinkRecommendation }) {
+  const audit = recommendation.explanation?.goal_risk_audit as
+    | Record<string, unknown>
+    | undefined;
+  if (!audit) {
+    return null;
+  }
+  const goalInputs = (audit.goal_inputs ?? {}) as Record<string, unknown>;
+  const accountLink = (audit.account_link ?? {}) as Record<string, unknown>;
+  const cma = (audit.cma ?? {}) as Record<string, unknown>;
+  return (
+    <details className="mt-3 rounded-md bg-[#fbfaf5] px-3 py-2 text-xs text-slate-700">
+      <summary className="cursor-pointer font-semibold">Goal risk explanation</summary>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        <div>
+          <div className="font-semibold text-slate-500">Risk inputs</div>
+          <div>Household risk {String(audit.household_risk_score ?? "not set")}/5</div>
+          <div>Goal risk {String(audit.goal_risk_score ?? recommendation.goal_risk_score)}/5</div>
+          <div>Frontier percentile p{String(audit.frontier_percentile ?? recommendation.frontier_percentile)}</div>
+        </div>
+        <div>
+          <div className="font-semibold text-slate-500">Goal and account</div>
+          <div>{String(goalInputs.goal_name ?? recommendation.goal_name)}</div>
+          <div>Horizon {String(goalInputs.horizon_years ?? recommendation.horizon_years)} years</div>
+          <div>
+            {String(accountLink.account_type ?? recommendation.account_type)} ·{" "}
+            {formatCurrency(Number(accountLink.allocated_amount ?? recommendation.allocated_amount))}
+          </div>
+        </div>
+      </div>
+      <div className="mt-2 text-slate-500">
+        CMA {String(cma.snapshot_id ?? "")} v{String(cma.version ?? "")} · hash{" "}
+        {String(cma.hash ?? "").slice(0, 12)}
+      </div>
+    </details>
   );
 }
 

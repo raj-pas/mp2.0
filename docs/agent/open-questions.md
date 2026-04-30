@@ -15,8 +15,7 @@ real-derived outputs.
 | Written authorization basis for using real Steadyhand client documents in product development | Lori + Amitha | REAL-PII BLOCKER before any real file is copied |
 | Bedrock ca-central-1 enablement on Purpose AWS account | Saranyaraj + Purpose IT | REAL-PII BLOCKER before real-derived extraction |
 | Purpose data-classification tier for client PII | Purpose IT | REAL-PII BLOCKER; validates or tightens storage/logging defaults |
-| Per-persona pseudonym mapping storage mechanism | Raj | Must be chosen before first real file |
-| Quasi-identifier handling during pseudonymization | Lori + Raj | Affects extraction quality and privacy risk |
+| Defense-in-depth privacy sign-off in lieu of boundary pseudonymization | Lori + Amitha + Purpose IT | Canon-locked implementation path; formal sign-off still needed before pilot expansion |
 | Real-PII retention/disposal trigger | Team | Local version-bump disposal/report command exists; legal/IT policy trigger still open |
 | Som/IS demo audience handling for quasi-identifiers | Lori | Confirm before any real-derived persona is shown |
 | Lori backup for the Croesus/file-drop data path | Lori + team | Needed before offsite kickoff / Phase A execution |

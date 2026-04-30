@@ -156,12 +156,14 @@ export function fetchReviewWorkspace(id: string): Promise<ReviewWorkspace> {
 export function uploadReviewDocuments(id: string, files: FileList): Promise<{
   uploaded: Array<{ filename: string; document_id: number }>;
   duplicates: Array<{ filename: string; document_id: number }>;
+  ignored: Array<{ filename: string; reason: string }>;
 }> {
   const formData = new FormData();
   Array.from(files).forEach((file) => formData.append("files", file));
   return request<{
     uploaded: Array<{ filename: string; document_id: number }>;
     duplicates: Array<{ filename: string; document_id: number }>;
+    ignored: Array<{ filename: string; reason: string }>;
   }>(`/api/review-workspaces/${id}/upload/`, {
     method: "POST",
     body: formData,
@@ -182,6 +184,27 @@ export function retryReviewDocument(workspaceId: string, documentId: number): Pr
 
 export function fetchReviewFacts(id: string): Promise<ExtractedFact[]> {
   return request<ExtractedFact[]>(`/api/review-workspaces/${id}/facts/`);
+}
+
+export function fetchReviewEvidence(
+  workspaceId: string,
+  factId: number,
+): Promise<{
+  fact_id: number;
+  field: string;
+  source_page: number | null;
+  source_location: string;
+  evidence_quote: string;
+  redacted: boolean;
+}> {
+  return request<{
+    fact_id: number;
+    field: string;
+    source_page: number | null;
+    source_location: string;
+    evidence_quote: string;
+    redacted: boolean;
+  }>(`/api/review-workspaces/${workspaceId}/facts/${factId}/evidence/`);
 }
 
 export function patchReviewState(

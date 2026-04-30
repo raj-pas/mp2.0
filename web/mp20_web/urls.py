@@ -83,6 +83,11 @@ urlpatterns = [
         name="review-workspace-facts",
     ),
     path(
+        "api/review-workspaces/<str:workspace_id>/facts/<int:fact_id>/evidence/",
+        views.ReviewFactEvidenceView.as_view(),
+        name="review-fact-evidence",
+    ),
+    path(
         "api/review-workspaces/<str:workspace_id>/state/",
         views.ReviewWorkspaceStateView.as_view(),
         name="review-workspace-state",

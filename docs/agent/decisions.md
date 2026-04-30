@@ -101,8 +101,13 @@ authoritative when more detail is needed.
   engine numbers. AI may style the narrative but cannot invent numbers.
 - Pre-recommendation overrides adjust inputs and rerun the engine; post-
   recommendation overrides require an inline rationale note.
-- Real-derived personas require pseudonymization, Bedrock ca-central-1 routing,
-  and legal/IT authorization before any real PII enters the build environment.
+- Boundary pseudonymization is retired for the current tranche. Real-derived
+  extraction uses the canon defense-in-depth regime: authenticated ingress,
+  Bedrock ca-central-1 fail-closed routing, transient raw text, structured-only
+  persistence, hashed sensitive identifiers, redacted evidence quotes, immutable
+  audit, RBAC, secure-root retention/disposal, and bounded pilot population.
+  If legal/IT later requires pre-LLM pseudonymization, that is a Phase B
+  re-engineering project, not a partial runtime toggle.
 
 ## Architecture Defaults
 
@@ -123,9 +128,10 @@ authoritative when more detail is needed.
 - Visible household/goal risk score labels should stay numeric 1-5. Qualitative
   low/medium/high vocabulary is reserved for source facts or compliance/internal
   mapping and should not be used as the advisor-facing construction score.
-- Current extraction/review is a secure-local scaffold, not full canon Layer 1-5:
-  richer source review, temporal reconciliation, IS validation, pseudonymization,
-  retention/disposal, and CI PII checks are still needed.
+- Current extraction/review is being moved into `extraction/` as the canonical
+  Layer 1-5 package. Remaining Phase B hardening is richer IS validation,
+  temporal reconciliation, retention/disposal policy sign-off, and CI PII
+  checks. Boundary pseudonymization is not part of this tranche.
 - Current audit log has append-only protection, sanitized timeline events, and
   an advisor audit drawer/export for portfolio runs. Full compliance audit
   browser UI remains deferred.
@@ -136,6 +142,6 @@ authoritative when more detail is needed.
 ## Deferred
 
 - Staging deployment.
-- Full pseudonymization workflow and CI PII scanners.
+- CI PII scanners and encryption-posture validation.
 - Real Croesus, Conquest, custodian, or LLM integrations.
 - Audit browser UI.

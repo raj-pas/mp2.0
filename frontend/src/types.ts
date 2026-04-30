@@ -386,6 +386,7 @@ export type ReviewedClientState = {
   unknowns: Array<Record<string, unknown> | string>;
   conflicts: Array<Record<string, unknown>>;
   source_summary: Array<Record<string, unknown>>;
+  field_sources: Record<string, Record<string, unknown>>;
   readiness: Readiness;
 };
 
@@ -431,6 +432,8 @@ export type ExtractedFact = {
   document_name: string;
   document_type: string;
   field: string;
+  field_label: string;
+  section: string;
   value: unknown;
   asserted_at: string | null;
   confidence: string;

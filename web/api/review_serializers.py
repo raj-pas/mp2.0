@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
+from extraction.reconciliation import advisor_label, field_section
 from rest_framework import serializers
 
 from web.api import models
@@ -97,6 +98,8 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
     document_id = serializers.IntegerField(source="document.id")
     document_name = serializers.CharField(source="document.original_filename")
     document_type = serializers.CharField(source="document.document_type")
+    field_label = serializers.SerializerMethodField()
+    section = serializers.SerializerMethodField()
 
     class Meta:
         model = models.ExtractedFact
@@ -106,6 +109,8 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
             "document_name",
             "document_type",
             "field",
+            "field_label",
+            "section",
             "value",
             "asserted_at",
             "confidence",
@@ -117,6 +122,12 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
             "is_current",
             "created_at",
         ]
+
+    def get_field_label(self, obj: models.ExtractedFact) -> str:
+        return advisor_label(obj.field)
+
+    def get_section(self, obj: models.ExtractedFact) -> str:
+        return field_section(obj.field)
 
 
 class SectionApprovalSerializer(serializers.ModelSerializer):

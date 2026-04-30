@@ -52,6 +52,10 @@ def test_generate_portfolio_runs_engine_and_writes_audit() -> None:
         "engine_output.link_first.v2"
     )
     assert payload["output"]["link_recommendations"]
+    risk_audit = payload["output"]["link_recommendations"][0]["explanation"]["goal_risk_audit"]
+    assert risk_audit["scale"] == "1-5"
+    assert risk_audit["cma"]["hash"] == payload["cma_hash"]
+    assert risk_audit["account_link"]["link_id"]
     assert payload["input_hash"]
     assert payload["output_hash"]
     assert payload["cma_hash"]

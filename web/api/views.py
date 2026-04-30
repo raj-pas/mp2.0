@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
@@ -15,6 +16,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from engine import optimize
 from engine.frontier import compute_frontier
+from extraction.schemas import SYSTEM_FILENAMES
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -305,6 +307,12 @@ class GeneratePortfolioView(APIView):
             "run_signature": run_signature,
             "provenance_warnings": provenance_warnings,
         }
+        _attach_goal_risk_explainability(
+            payload,
+            input_snapshot=input_snapshot,
+            cma_snapshot=cma_snapshot,
+            cma_hash=cma_hash,
+        )
         try:
             _validate_v2_manifest(payload["run_manifest"])
         except ValueError as exc:
@@ -338,6 +346,9 @@ class GeneratePortfolioView(APIView):
         )
         goals = {goal.external_id: goal for goal in household.goals.all()}
         accounts = {account.external_id: account for account in household.accounts.all()}
+        payload_recommendations = {
+            item.get("link_id"): item for item in payload.get("link_recommendations", [])
+        }
         links = {
             link.external_id: link
             for link in models.GoalAccountLink.objects.filter(
@@ -363,7 +374,9 @@ class GeneratePortfolioView(APIView):
                     allocation.model_dump(mode="json") for allocation in recommendation.allocations
                 ],
                 current_comparison=recommendation.current_comparison.model_dump(mode="json"),
-                explanation=recommendation.explanation,
+                explanation=payload_recommendations.get(recommendation.link_id, {}).get(
+                    "explanation", recommendation.explanation
+                ),
                 warnings=recommendation.warnings,
             )
         event_type = (
@@ -818,7 +831,11 @@ class ReviewWorkspaceUploadView(APIView):
 
         uploaded: list[dict] = []
         duplicates: list[dict] = []
+        ignored: list[dict] = []
         for uploaded_file in files:
+            if Path(uploaded_file.name).name.lower() in SYSTEM_FILENAMES:
+                ignored.append({"filename": uploaded_file.name, "reason": "system_file"})
+                continue
             content = uploaded_file.read()
             digest = sha256_bytes(content)
             existing = workspace.documents.filter(sha256=digest).first()
@@ -848,16 +865,21 @@ class ReviewWorkspaceUploadView(APIView):
             models.ProcessingJob.objects.create(workspace=workspace, document=document)
             uploaded.append({"filename": uploaded_file.name, "document_id": document.id})
 
-        workspace.status = models.ReviewWorkspace.Status.PROCESSING
-        workspace.save(update_fields=["status", "updated_at"])
+        if uploaded:
+            workspace.status = models.ReviewWorkspace.Status.PROCESSING
+            workspace.save(update_fields=["status", "updated_at"])
         record_event(
             action="review_documents_uploaded",
             entity_type="review_workspace",
             entity_id=workspace.external_id,
             actor=_actor(request),
-            metadata={"uploaded_count": len(uploaded), "duplicate_count": len(duplicates)},
+            metadata={
+                "uploaded_count": len(uploaded),
+                "duplicate_count": len(duplicates),
+                "ignored_count": len(ignored),
+            },
         )
-        return Response({"uploaded": uploaded, "duplicates": duplicates})
+        return Response({"uploaded": uploaded, "duplicates": duplicates, "ignored": ignored})
 
 
 class ReviewDocumentRetryView(APIView):
@@ -902,6 +924,39 @@ class ReviewWorkspaceFactsView(APIView):
         workspace = _workspace_for_user(workspace_id, request.user)
         facts = workspace.extracted_facts.select_related("document")
         return Response(ExtractedFactSerializer(facts, many=True).data)
+
+
+class ReviewFactEvidenceView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, workspace_id: str, fact_id: int):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        workspace = _workspace_for_user(workspace_id, request.user)
+        fact = get_object_or_404(workspace.extracted_facts.select_related("document"), pk=fact_id)
+        record_event(
+            action="review_evidence_viewed",
+            entity_type="review_workspace",
+            entity_id=workspace.external_id,
+            actor=_actor(request),
+            metadata={
+                "workspace_id": workspace.external_id,
+                "fact_id": fact.id,
+                "field": fact.field,
+                "document_id": fact.document_id,
+                "redacted": True,
+            },
+        )
+        return Response(
+            {
+                "fact_id": fact.id,
+                "field": fact.field,
+                "source_page": fact.source_page,
+                "source_location": fact.source_location,
+                "evidence_quote": fact.evidence_quote,
+                "redacted": True,
+            }
+        )
 
 
 class ReviewWorkspaceStateView(APIView):
@@ -1162,6 +1217,52 @@ def _record_portfolio_event(
         note=note,
         metadata=metadata or {},
     )
+
+
+def _attach_goal_risk_explainability(
+    payload: dict,
+    *,
+    input_snapshot: dict,
+    cma_snapshot: models.CMASnapshot,
+    cma_hash: str,
+) -> None:
+    goals = {goal["id"]: goal for goal in input_snapshot.get("goals", [])}
+    accounts = {account["id"]: account for account in input_snapshot.get("accounts", [])}
+    household = input_snapshot.get("household", {})
+    for recommendation in payload.get("link_recommendations", []):
+        goal = goals.get(recommendation.get("goal_id"), {})
+        account = accounts.get(recommendation.get("account_id"), {})
+        explanation = recommendation.setdefault("explanation", {})
+        explanation["goal_risk_audit"] = {
+            "scale": "1-5",
+            "household_risk_score": household.get("household_risk_score"),
+            "goal_risk_score": recommendation.get("goal_risk_score"),
+            "frontier_percentile": recommendation.get("frontier_percentile"),
+            "goal_inputs": {
+                "goal_id": recommendation.get("goal_id"),
+                "goal_name": recommendation.get("goal_name") or goal.get("name"),
+                "target_date": goal.get("target_date"),
+                "horizon_years": recommendation.get("horizon_years"),
+                "necessity_score": goal.get("necessity_score"),
+            },
+            "account_link": {
+                "link_id": recommendation.get("link_id"),
+                "account_id": recommendation.get("account_id"),
+                "account_type": recommendation.get("account_type") or account.get("type"),
+                "allocated_amount": recommendation.get("allocated_amount"),
+            },
+            "cma": {
+                "snapshot_id": cma_snapshot.external_id,
+                "version": cma_snapshot.version,
+                "hash": cma_hash,
+            },
+            "constraints": [
+                "MP2.0 1-5 risk scale",
+                "Goal risk maps to an efficient-frontier percentile",
+                "Portfolio run uses committed construction data only",
+            ],
+            "warnings": recommendation.get("warnings", []),
+        }
 
 
 def _portfolio_provenance_hashes(household: models.Household) -> tuple[str, str, list[str]]:

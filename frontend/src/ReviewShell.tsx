@@ -345,7 +345,8 @@ function UploadPanel({ workspace, onChanged }: { workspace: ReviewWorkspace; onC
         </Button>
         {mutation.data ? (
           <div className="rounded-md bg-mist px-3 py-2 text-sm text-slate-700">
-            Uploaded {mutation.data.uploaded.length}; duplicates {mutation.data.duplicates.length}.
+            Uploaded {mutation.data.uploaded.length}; duplicates {mutation.data.duplicates.length}
+            {mutation.data.ignored?.length ? `; ignored ${mutation.data.ignored.length} system file(s)` : ""}.
           </div>
         ) : null}
         {mutation.error ? <ErrorLine message={mutation.error.message} /> : null}
@@ -458,7 +459,7 @@ function FactPanel({ facts }: { facts: ExtractedFact[] }) {
           facts.map((fact) => (
             <div className="px-4 py-3 text-sm" key={fact.id}>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-semibold">{fact.field}</span>
+                  <span className="font-semibold">{fact.field_label || labelForField(fact.field)}</span>
                 <span className="rounded-full bg-mist px-2 py-1 text-xs font-semibold uppercase text-slate-600">
                   {fact.confidence}
                 </span>
@@ -468,6 +469,7 @@ function FactPanel({ facts }: { facts: ExtractedFact[] }) {
               </div>
               <div className="mt-2 text-xs text-slate-500">
                 {fact.document_name} {fact.source_location ? `- ${fact.source_location}` : ""}
+                {fact.field ? ` · ${fact.field}` : ""}
               </div>
             </div>
           ))
@@ -909,7 +911,9 @@ function AdvisorReviewPanel({
             <div className="text-xs font-bold uppercase tracking-wider text-[#775b0b]">Conflicts</div>
             {state.conflicts.map((conflict, index) => (
               <div className="rounded-md bg-white px-3 py-2 text-sm" key={`${stringValue(conflict.field)}-${index}`}>
-                <div className="font-semibold">{stringValue(conflict.field)}</div>
+                <div className="font-semibold">
+                  {stringValue(conflict.label, labelForField(stringValue(conflict.field)))}
+                </div>
                 <div className="mt-1 text-xs text-slate-500">{Array.isArray(conflict.values) ? conflict.values.join(" / ") : "Multiple values"}</div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Button
@@ -1107,7 +1111,7 @@ function StateSummary({ state }: { state: ReviewedClientState }) {
           <div className="space-y-2">
             {state.conflicts.map((conflict, index) => (
               <div className="rounded-md bg-[#fff1c7] px-3 py-2 text-sm text-[#775b0b]" key={index}>
-                {stringValue(conflict.field, "conflict")}
+                {stringValue(conflict.label, labelForField(stringValue(conflict.field, "conflict")))}
               </div>
             ))}
           </div>
@@ -1278,6 +1282,10 @@ function normalizeState(state: Partial<ReviewedClientState>): ReviewedClientStat
     unknowns: state.unknowns ?? [],
     conflicts: state.conflicts ?? [],
     source_summary: state.source_summary ?? [],
+    field_sources:
+      (state as Partial<ReviewedClientState> & {
+        field_sources?: Record<string, Record<string, unknown>>;
+      }).field_sources ?? {},
     readiness: normalizeReadiness(state.readiness, undefined),
   };
 }
@@ -1307,6 +1315,23 @@ function statusBadgeColor(status: string): string {
 
 function humanize(value: string): string {
   return value.replace(/_/g, " ");
+}
+
+function labelForField(field: string): string {
+  const labels: Record<string, string> = {
+    "household.display_name": "Household name",
+    "household.household_type": "Household type",
+    "risk.household_score": "Household risk score",
+  };
+  if (labels[field]) {
+    return labels[field];
+  }
+  return field
+    .replace(/\[\d+\]/g, "")
+    .replace(/[._]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^./, (character) => character.toUpperCase());
 }
 
 function stringValue(value: unknown, fallback = ""): string {
@@ -1348,8 +1373,7 @@ function removeAt<T>(items: T[], index: number): T[] {
 }
 
 function sourceMap(state: ReviewedClientState): Map<string, Record<string, unknown>> {
-  const raw = state as ReviewedClientState & { field_sources?: Record<string, Record<string, unknown>> };
-  return new Map(Object.entries(raw.field_sources ?? {}));
+  return new Map(Object.entries(state.field_sources ?? {}));
 }
 
 function labelForId(items: Array<Record<string, unknown>>, id: unknown, fallback: string): string {

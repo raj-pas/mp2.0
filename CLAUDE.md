@@ -41,7 +41,7 @@ implemented on `main`:
 - `MP20_ENGINE_ENABLED` kill-switch for recommendation generation
 - repo-persistent agent memory
 
-The working canon is now v2.3. It reframes the next work as Phase A/B/C:
+The working canon is now v2.7. It reframes the next work as Phase A/B/C:
 
 - Phase A: offsite scaffold and Som-demo-grade foundation.
 - Phase B: pilot hardening and IS validation before any advisor pilot use.
@@ -99,11 +99,12 @@ implementation backlog.
   CMA Workbench/frontier workflow. Canon still requires the full household/account/goal
   three-tab pivot, fund vs asset-class toggle, pilot disclaimer surfaces, and
   richer current-vs-ideal visuals.
-- PII guardrails are partial: secure-root validation, Bedrock fail-closed routing,
-  transient raw text, redacted evidence quotes, and sensitive-ID hash/display
-  exist. Retention/disposal tooling exists for local raw artifacts. Scrub-pass
-  hooks, pseudonymization storage, CI PII checks, and encryption posture
-  validation are still pending.
+- PII guardrails use the canon defense-in-depth regime: secure-root validation,
+  Bedrock ca-central-1 fail-closed routing, transient raw text, redacted evidence
+  quotes, sensitive-ID hash/display, authenticated/RBAC-scoped app access, and
+  retention/disposal tooling for local raw artifacts. Boundary pseudonymization
+  is explicitly retired for this tranche; CI PII checks and encryption posture
+  validation remain Phase B hardening.
 
 ## Build Commands
 

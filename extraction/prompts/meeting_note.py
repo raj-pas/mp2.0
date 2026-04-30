@@ -1,7 +1,8 @@
-"""Prompt placeholder for meeting-note extraction.
+"""Meeting-note extraction prompt metadata.
 
-Phase 2 should turn the canon's temporal Fact[T] extraction guidance into a
-structured-output prompt here.
+Meeting notes are split into factual extraction and behavioral synthesis.
+Behavioral context must stay under `behavioral_notes.*` unless an advisor maps
+it to a canonical engine/review field.
 """
 
-PROMPT_VERSION = "meeting_note_phase2_placeholder"
+PROMPT_VERSION = "meeting_note_review_facts_v1"
