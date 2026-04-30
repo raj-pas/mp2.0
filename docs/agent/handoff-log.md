@@ -1259,3 +1259,114 @@ item #12 marked resolved.
 4. **Goal-allocation Compare toggle** (Current/Ideal/Compare) —
    shipped as a single 3-column table for now; the toggle that
    collapses to one view at a time is R10 polish.
+
+## 2026-04-30 — Pre-R5 wizard smoke
+
+**Status:** ✅ Wizard commit + external-holdings CRUD contracts verified live; no code fixes needed.
+
+Targeted ~20-min smoke before R5 build to de-risk the wizard endpoints
+specifically. R4's broader curl-probe round had already paid off
+(caught 4 bugs); R5's surface is narrower but the wizard commit is a
+complex atomic payload we'd never live-touched.
+
+### Wizard commit (`POST /api/households/wizard/`)
+
+Canonical request shape verified:
+
+```json
+{
+  "display_name": "Smith Household",
+  "household_type": "single",
+  "members": [{"name": "Smoke Smith", "dob": "1975-04-15"}],
+  "notes": "...",
+  "risk_profile": {"q1": 5, "q2": "B", "q3": ["career"], "q4": "B"},
+  "accounts": [
+    {"account_type": "RRSP", "current_value": "120000.00", "custodian": "Steadyhand"}
+  ],
+  "goals": [
+    {
+      "name": "Retirement",
+      "target_date": "2045-12-31",
+      "necessity_score": 5,
+      "target_amount": "1500000.00",
+      "legs": [{"account_index": 0, "allocated_amount": "120000.00"}]
+    }
+  ],
+  "external_holdings": [
+    {
+      "name": "Old broker", "value": "75000.00",
+      "equity_pct": "60.00", "fixed_income_pct": "30.00",
+      "cash_pct": "5.00", "real_assets_pct": "5.00"
+    }
+  ]
+}
+```
+
+Notes for R5 wizard frontend:
+
+- Account types: `["RRSP","TFSA","RESP","RDSP","FHSA","Non-Registered","LIRA","RRIF","Corporate"]`
+- `legs[].account_index` is a 0-based pointer into the `accounts[]`
+  array (NOT an external_id). The server resolves to the newly-
+  created account.
+- `external_holdings[].equity_pct + fixed_income_pct + cash_pct +
+  real_assets_pct` MUST equal 100; serializer rejects otherwise.
+- `target_amount` is optional; `necessity_score` is required (1-5).
+- Decimal fields take string payloads (`"120000.00"`); zod schema
+  should serialize numbers via `.toString()` or accept numeric
+  strings.
+
+Response: `{household_id: <UUID>, household_score_1_5: <1-5>}`. The
+`household_id` is a UUID (e.g. `0780a7a0-a692-4dc1-8b48-00fc30df4228`),
+NOT a slug like `hh_smith` — this differs from `load_synthetic_personas`
+which uses human-readable slugs. R5 wizard frontend must:
+
+1. Save `mp20_last_client_id = household_id`
+2. Navigate to `/` (HouseholdRoute reads from rememberedClientId)
+3. Cache invalidation via `queryClient.invalidateQueries({queryKey:["clients"]})`
+
+Atomic creation verified — Household + Person + Accounts + Goals +
+GoalAccountLinks + RiskProfile + ExternalHolding rows all created in
+one transaction (locked decision #30). Owner = current advisor user.
+AuditEvent `household_wizard_committed` fires once (locked decision #37).
+Worked example: Q1=5/Q2=B/Q3=1/Q4=B → tolerance 45 / capacity 50 /
+Balanced household → score 3 (matches Hayes worked example codified
+in R0).
+
+### External-holdings CRUD (`/api/households/{id}/external-holdings/...`)
+
+All four operations work:
+
+- `GET /api/households/{hh}/external-holdings/` → array of
+  `{id, name, value, equity_pct, fixed_income_pct, cash_pct,
+  real_assets_pct, created_at, updated_at}`
+- `POST /api/households/{hh}/external-holdings/` → returns the
+  created row (same shape)
+- `PATCH /api/households/{hh}/external-holdings/{hid}/` → returns
+  the updated row
+- `DELETE /api/households/{hh}/external-holdings/{hid}/` → 204
+
+⚠ **PATCH gotcha**: the `name` field has `default=""` on the
+serializer; PATCHing without `name` resets it to `""` rather than
+preserving. R5 wizard step 4 frontend should ALWAYS send the full
+payload on edit (i.e., treat PATCH as PUT). Or backend should be
+updated to use `partial=True` in the view. Filed as a small follow-up;
+not blocking R5 if the frontend handles it.
+
+### RiskProfile population state
+
+Only the wizard path populates the new R1 `RiskProfile` model;
+`load_synthetic_personas` predates R1 and seeds the legacy
+`Household.household_risk_score` (canon 1-5) directly without
+populating Q1-Q4 / T / C / anchor on the RiskProfile row. Sandra/
+Mike Chen has `household_risk_score=3` but no RiskProfile row.
+
+This validates R4's deferred decision: the RiskSlider derivation
+breakdown is correctly disabled for households without a RiskProfile
+row. R7 fixture regeneration (locked decision #19) populates
+RiskProfile for the synthetic personas; R5 wizard populates it for
+new households organically.
+
+### No code fixes needed for R5 build
+
+All contracts match what R5's wizard frontend will send. The PATCH
+gotcha is documented; everything else is a green-light.
