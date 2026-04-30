@@ -79,6 +79,19 @@ CMA_AUDIT_ACTIONS = {
 }
 
 
+class CMAValidationError(ValueError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "cma_validation_failed",
+        diagnostics: dict | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.diagnostics = diagnostics or {}
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 class LocalLoginView(APIView):
     authentication_classes = []
@@ -598,28 +611,30 @@ class CMASnapshotDetailView(APIView):
         if snapshot.status != models.CMASnapshot.Status.DRAFT:
             return Response({"detail": "Only draft CMA snapshots can be edited."}, status=400)
 
-        before_hash = _hash_json(_cma_audit_payload(snapshot))
-        before_payload = _cma_audit_payload(snapshot)
         try:
-            _apply_cma_patch(snapshot, request.data)
+            with transaction.atomic():
+                before_hash = _hash_json(_cma_audit_payload(snapshot))
+                before_payload = _cma_audit_payload(snapshot)
+                _apply_cma_patch(snapshot, request.data)
+                snapshot.refresh_from_db()
+                after_payload = _cma_audit_payload(snapshot)
+                after_hash = _hash_json(_cma_audit_payload(snapshot))
+                record_event(
+                    action="cma_snapshot_updated",
+                    entity_type="cma_snapshot",
+                    entity_id=snapshot.external_id,
+                    actor=_actor(request),
+                    metadata={
+                        "version": snapshot.version,
+                        "before_hash": before_hash,
+                        "after_hash": after_hash,
+                        "updated_fields": sorted(request.data.keys()),
+                        **_cma_diff(before_payload, after_payload),
+                    },
+                )
         except ValueError as exc:
-            return Response({"detail": str(exc)}, status=400)
+            return Response(_cma_validation_error_payload(exc), status=400)
         snapshot.refresh_from_db()
-        after_payload = _cma_audit_payload(snapshot)
-        after_hash = _hash_json(_cma_audit_payload(snapshot))
-        record_event(
-            action="cma_snapshot_updated",
-            entity_type="cma_snapshot",
-            entity_id=snapshot.external_id,
-            actor=_actor(request),
-            metadata={
-                "version": snapshot.version,
-                "before_hash": before_hash,
-                "after_hash": after_hash,
-                "updated_fields": sorted(request.data.keys()),
-                **_cma_diff(before_payload, after_payload),
-            },
-        )
         return Response(CMASnapshotSerializer(snapshot).data)
 
 
@@ -662,7 +677,7 @@ class CMASnapshotPublishView(APIView):
         try:
             _validate_cma_snapshot(snapshot)
         except ValueError as exc:
-            return Response({"detail": str(exc)}, status=400)
+            return Response(_cma_validation_error_payload(exc), status=400)
 
         with transaction.atomic():
             models.CMASnapshot.objects.exclude(pk=snapshot.pk).filter(
@@ -682,18 +697,18 @@ class CMASnapshotPublishView(APIView):
                 reason_code="cma_snapshot_published",
                 metadata={"cma_snapshot_id": snapshot.external_id, "version": snapshot.version},
             )
-        record_event(
-            action="cma_snapshot_published",
-            entity_type="cma_snapshot",
-            entity_id=snapshot.external_id,
-            actor=_actor(request),
-            metadata={
-                "version": snapshot.version,
-                "publish_note": publish_note,
-                "stale_portfolio_run_count": stale_count,
-                "snapshot_hash": _hash_json(_cma_audit_payload(snapshot)),
-            },
-        )
+            record_event(
+                action="cma_snapshot_published",
+                entity_type="cma_snapshot",
+                entity_id=snapshot.external_id,
+                actor=_actor(request),
+                metadata={
+                    "version": snapshot.version,
+                    "publish_note": publish_note,
+                    "stale_portfolio_run_count": stale_count,
+                    "snapshot_hash": _hash_json(_cma_audit_payload(snapshot)),
+                },
+            )
         return Response(CMASnapshotSerializer(snapshot).data)
 
 
@@ -712,7 +727,7 @@ class CMAFrontierView(APIView):
         try:
             payload = _cma_frontier_payload(snapshot)
         except ValueError as exc:
-            return Response({"detail": str(exc)}, status=400)
+            return Response(_cma_validation_error_payload(exc), status=400)
         return Response(payload)
 
 
@@ -1597,11 +1612,20 @@ def _validate_cma_snapshot(snapshot: models.CMASnapshot) -> None:
             if abs(value - correlations[(col_id, row_id)]) > Decimal("0.00001"):
                 raise ValueError("Correlation matrix must be symmetric.")
     matrix = _snapshot_matrix(eligible_funds, correlations)
-    compute_frontier(
-        [float(fund.expected_return) for fund in eligible_funds],
-        [float(fund.volatility) for fund in eligible_funds],
-        matrix,
-    )
+    try:
+        compute_frontier(
+            [float(fund.expected_return) for fund in eligible_funds],
+            [float(fund.volatility) for fund in eligible_funds],
+            matrix,
+        )
+    except ValueError as exc:
+        if "positive definite" in str(exc):
+            raise CMAValidationError(
+                "correlation matrix must be positive definite",
+                code="correlation_matrix_not_positive_definite",
+                diagnostics=_positive_definite_diagnostics(snapshot, eligible_funds, correlations),
+            ) from exc
+        raise
 
 
 def _snapshot_correlation_lookup(snapshot: models.CMASnapshot) -> dict[tuple[str, str], Decimal]:
@@ -1618,6 +1642,79 @@ def _snapshot_matrix(
     return [
         [float(correlations[(row.fund_id, column.fund_id)]) for column in funds] for row in funds
     ]
+
+
+def _positive_definite_diagnostics(
+    snapshot: models.CMASnapshot,
+    eligible_funds: list[models.CMAFundAssumption],
+    correlations: dict[tuple[str, str], Decimal],
+) -> dict:
+    matrix = _snapshot_matrix(eligible_funds, correlations)
+    min_cholesky_pivot, failing_index = _cholesky_min_pivot(matrix)
+    baseline = (
+        models.CMASnapshot.objects.filter(status=models.CMASnapshot.Status.ACTIVE)
+        .exclude(pk=snapshot.pk)
+        .prefetch_related("fund_assumptions", "correlations")
+        .first()
+    )
+    changed_pairs = []
+    if baseline is not None:
+        baseline_correlations = _snapshot_correlation_lookup(baseline)
+        fund_by_id = {fund.fund_id: fund for fund in eligible_funds}
+        for row_index, row in enumerate(eligible_funds):
+            for column in eligible_funds[row_index + 1 :]:
+                pair = (row.fund_id, column.fund_id)
+                baseline_value = baseline_correlations.get(pair)
+                if baseline_value is None:
+                    continue
+                current_value = correlations[pair]
+                if abs(current_value - baseline_value) > Decimal("0.00001"):
+                    changed_pairs.append(
+                        {
+                            "row_fund_id": row.fund_id,
+                            "row_fund_name": fund_by_id[row.fund_id].name,
+                            "col_fund_id": column.fund_id,
+                            "col_fund_name": fund_by_id[column.fund_id].name,
+                            "current": str(current_value),
+                            "suggested": str(baseline_value),
+                            "source": "active_snapshot",
+                            "source_snapshot_id": baseline.external_id,
+                            "source_version": baseline.version,
+                        }
+                    )
+    changed_pairs.sort(
+        key=lambda item: abs(Decimal(item["current"]) - Decimal(item["suggested"])),
+        reverse=True,
+    )
+    return {
+        "eligible_fund_ids": [fund.fund_id for fund in eligible_funds],
+        "min_cholesky_pivot": min_cholesky_pivot,
+        "failing_fund_id": eligible_funds[failing_index].fund_id
+        if failing_index is not None
+        else "",
+        "failing_fund_name": eligible_funds[failing_index].name
+        if failing_index is not None
+        else "",
+        "suggested_pairs": changed_pairs[:8],
+    }
+
+
+def _cholesky_min_pivot(matrix: list[list[float]]) -> tuple[float, int | None]:
+    size = len(matrix)
+    lower = [[0.0 for _ in range(size)] for _ in range(size)]
+    min_pivot = float("inf")
+    for row in range(size):
+        for column in range(row + 1):
+            subtotal = sum(lower[row][k] * lower[column][k] for k in range(column))
+            if row == column:
+                pivot = matrix[row][row] - subtotal
+                min_pivot = min(min_pivot, pivot)
+                if pivot <= 1e-10:
+                    return pivot, row
+                lower[row][column] = pivot**0.5
+            else:
+                lower[row][column] = (matrix[row][column] - subtotal) / lower[column][column]
+    return min_pivot, None
 
 
 def _cma_frontier_payload(snapshot: models.CMASnapshot) -> dict:
@@ -1798,6 +1895,16 @@ def _audit_event_payload(event: AuditEvent) -> dict:
             if key in metadata
         },
     }
+
+
+def _cma_validation_error_payload(exc: ValueError) -> dict:
+    if isinstance(exc, CMAValidationError):
+        return {
+            "detail": str(exc),
+            "code": exc.code,
+            "diagnostics": exc.diagnostics,
+        }
+    return {"detail": str(exc)}
 
 
 def _hash_json(value: object) -> str:

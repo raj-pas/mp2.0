@@ -59,7 +59,12 @@ test("financial analyst can use the CMA Workbench", async ({ page }) => {
   await expect(page.getByRole("button", { name: /Save Draft/i })).toBeEnabled();
 
   await page.getByRole("button", { name: /Correlations/i }).click();
-  await page.getByLabel(/SH Equity to SH Income correlation/i).first().fill("0.6");
+  await page.getByLabel(/SH Builders to SH Equity correlation/i).first().fill("0.792");
+  await expect(page.getByText(/not positive definite/i)).toBeVisible();
+  await expect(page.getByText(/SH Builders ↔ SH Equity/i).first()).toBeVisible();
+  await page.getByRole("button", { name: /Restore SH Builders ↔ SH Equity/i }).click();
+  await expect(page.getByText(/not positive definite/i)).toHaveCount(0);
+  await page.getByLabel(/SH Equity to SH Income correlation/i).first().fill("0.61");
   await page.getByRole("button", { name: /Save Draft/i }).click();
   await expect(page.getByRole("button", { name: /Save Draft/i })).toBeEnabled();
 
@@ -80,6 +85,7 @@ test("financial analyst can use the CMA Workbench", async ({ page }) => {
   await page.getByRole("button", { name: /Snapshots/i }).click();
   await page.getByLabel(/Publish note/i).fill("E2E analyst publish note.");
   await page.getByRole("button", { name: /^Publish$/i }).click();
+  await expect(page.getByRole("button", { name: /^Publish$/i })).toHaveCount(0);
   await expect(page.getByText(/E2E analyst publish note/i).first()).toBeVisible();
 
   await page.getByRole("button", { name: /Audit/i }).click();

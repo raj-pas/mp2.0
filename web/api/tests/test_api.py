@@ -311,6 +311,44 @@ def test_cma_one_global_draft_invalid_save_publish_note_frontier_and_audit_api()
 
 
 @pytest.mark.django_db
+def test_invalid_positive_definite_cma_save_returns_diagnostics_and_rolls_back() -> None:
+    call_command("seed_default_cma")
+    client = _authenticated_client(role="financial_analyst")
+    active = models.CMASnapshot.objects.get(status=models.CMASnapshot.Status.ACTIVE)
+    draft_response = client.post(
+        reverse("cma-snapshot-list"), {"copy_from_snapshot_id": active.external_id}
+    )
+    draft_payload = draft_response.json()
+    correlations = draft_payload["correlations"]
+    for item in correlations:
+        if {item["row_fund_id"], item["col_fund_id"]} == {"sh_builders", "sh_equity"}:
+            item["correlation"] = "0.79200"
+
+    response = client.patch(
+        reverse("cma-snapshot-detail", args=[draft_payload["external_id"]]),
+        {"correlations": correlations},
+        format="json",
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["code"] == "correlation_matrix_not_positive_definite"
+    assert payload["diagnostics"]["suggested_pairs"][0]["row_fund_id"] == "sh_builders"
+    assert payload["diagnostics"]["suggested_pairs"][0]["col_fund_id"] == "sh_equity"
+    assert payload["diagnostics"]["suggested_pairs"][0]["current"] == "0.79200"
+    assert payload["diagnostics"]["suggested_pairs"][0]["suggested"] == "0.82200"
+
+    draft = models.CMASnapshot.objects.get(external_id=draft_payload["external_id"])
+    saved_value = models.CMACorrelation.objects.get(
+        snapshot=draft,
+        row_fund_id="sh_builders",
+        col_fund_id="sh_equity",
+    ).correlation
+    assert str(saved_value) == "0.82200"
+    assert not AuditEvent.objects.filter(action="cma_snapshot_updated").exists()
+
+
+@pytest.mark.django_db
 def test_seed_default_cma_is_canonical_and_old_command_absent() -> None:
     call_command("seed_default_cma")
 

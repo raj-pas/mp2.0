@@ -49,6 +49,26 @@ const percent = new Intl.NumberFormat("en-CA", {
   maximumFractionDigits: 1,
 });
 
+const MATRIX_PIVOT_TOLERANCE = 1e-10;
+const NEAR_SINGULAR_PIVOT_WARNING = 1e-4;
+
+type MatrixPairSuggestion = {
+  rowId: string;
+  rowName: string;
+  colId: string;
+  colName: string;
+  current: string;
+  suggested: string;
+  source: "saved_draft" | "active_snapshot";
+};
+
+type MatrixHealth = {
+  status: "valid" | "near_singular" | "invalid";
+  message: string;
+  minPivot: number;
+  suggestions: MatrixPairSuggestion[];
+};
+
 export function CmaWorkbench() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<WorkbenchTab>("snapshots");
@@ -66,9 +86,13 @@ export function CmaWorkbench() {
   const active = snapshots.data?.find((snapshot) => snapshot.status === "active") ?? null;
   const draft = snapshots.data?.find((snapshot) => snapshot.status === "draft") ?? null;
   const selectedSnapshot = workingDraft ?? draft ?? active;
+  const matrixHealth = useMemo(
+    () => (workingDraft ? correlationMatrixHealth(workingDraft, [draft, active]) : null),
+    [workingDraft, draft, active],
+  );
   const validationMessages = useMemo(
-    () => (workingDraft ? validateDraft(workingDraft) : []),
-    [workingDraft],
+    () => (workingDraft ? validateDraft(workingDraft, matrixHealth) : []),
+    [workingDraft, matrixHealth],
   );
   const savedPreviewSnapshot = draft ?? active;
   const frontier = useQuery({
@@ -219,11 +243,20 @@ export function CmaWorkbench() {
         <CorrelationsTab
           snapshot={selectedSnapshot}
           validationMessages={validationMessages}
+          matrixHealth={matrixHealth}
           isDraft={Boolean(workingDraft)}
           isSaving={saveDraftMutation.isPending}
           onSave={() => workingDraft && saveDraftMutation.mutate(workingDraft)}
           onUpdateCorrelation={(rowId, colId, value) =>
             setWorkingDraft((current) => updateCorrelation(current, rowId, colId, value))
+          }
+          onRestorePair={(pair) =>
+            setWorkingDraft((current) =>
+              updateCorrelation(current, pair.rowId, pair.colId, pair.suggested),
+            )
+          }
+          onRestorePairs={(pairs) =>
+            setWorkingDraft((current) => restoreCorrelationPairs(current, pairs))
           }
         />
       ) : null}
@@ -412,24 +445,44 @@ function AssumptionsTab({
 function CorrelationsTab({
   snapshot,
   validationMessages,
+  matrixHealth,
   isDraft,
   isSaving,
   onSave,
   onUpdateCorrelation,
+  onRestorePair,
+  onRestorePairs,
 }: {
   snapshot: CMASnapshot | null;
   validationMessages: string[];
+  matrixHealth: MatrixHealth | null;
   isDraft: boolean;
   isSaving: boolean;
   onSave: () => void;
   onUpdateCorrelation: (rowId: string, colId: string, value: string) => void;
+  onRestorePair: (pair: MatrixPairSuggestion) => void;
+  onRestorePairs: (pairs: MatrixPairSuggestion[]) => void;
 }) {
   if (!snapshot) {
     return <EmptyPanelText label="No CMA snapshot available" />;
   }
+  const changedPairKeys = new Set(
+    matrixHealth && matrixHealth.status !== "valid"
+      ? matrixHealth.suggestions.flatMap((pair) => [
+          `${pair.rowId}:${pair.colId}`,
+          `${pair.colId}:${pair.rowId}`,
+        ])
+      : [],
+  );
   return (
     <WorkbenchPanel icon={<Database size={17} />} title="Correlations">
       <ValidationPanel messages={validationMessages} />
+      <MatrixHealthPanel
+        health={matrixHealth}
+        isDraft={isDraft}
+        onRestorePair={onRestorePair}
+        onRestorePairs={onRestorePairs}
+      />
       <div className="overflow-x-auto">
         <table className="min-w-[980px] border-separate border-spacing-0 text-sm">
           <thead>
@@ -459,7 +512,11 @@ function CorrelationsTab({
                     <td className="border-t border-slate-100 p-1" key={colFund.fund_id}>
                       <input
                         aria-label={`${rowFund.name} to ${colFund.name} correlation`}
-                        className="h-9 w-24 rounded-md border border-slate-200 px-2 text-right outline-none focus:border-spruce disabled:bg-slate-50"
+                        className={`h-9 w-24 rounded-md border px-2 text-right outline-none focus:border-spruce disabled:bg-slate-50 ${
+                          changedPairKeys.has(`${rowFund.fund_id}:${colFund.fund_id}`)
+                            ? "border-[#d39b55] bg-[#fff8eb]"
+                            : "border-slate-200"
+                        }`}
                         disabled={!isDraft || diagonal}
                         onChange={(event) =>
                           onUpdateCorrelation(
@@ -489,6 +546,63 @@ function CorrelationsTab({
         </div>
       ) : null}
     </WorkbenchPanel>
+  );
+}
+
+function MatrixHealthPanel({
+  health,
+  isDraft,
+  onRestorePair,
+  onRestorePairs,
+}: {
+  health: MatrixHealth | null;
+  isDraft: boolean;
+  onRestorePair: (pair: MatrixPairSuggestion) => void;
+  onRestorePairs: (pairs: MatrixPairSuggestion[]) => void;
+}) {
+  if (!health) {
+    return null;
+  }
+  const tone =
+    health.status === "valid"
+      ? "border-[#cce4dd] bg-[#eef8f5] text-[#1f6b5d]"
+      : health.status === "near_singular"
+        ? "border-[#f2d49b] bg-[#fff8eb] text-[#775b0b]"
+        : "border-[#f0bda8] bg-[#ffe0d2] text-[#7d3b20]";
+  return (
+    <div className={`mb-4 rounded-md border px-3 py-3 text-sm ${tone}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="font-semibold">{health.message}</div>
+          <div className="mt-1 opacity-85">
+            Minimum Cholesky pivot: {health.minPivot.toExponential(3)}
+          </div>
+        </div>
+        {isDraft && health.suggestions.length > 1 ? (
+          <Button onClick={() => onRestorePairs(health.suggestions)}>Restore Changed Pairs</Button>
+        ) : null}
+      </div>
+      {health.status !== "valid" && health.suggestions.length ? (
+        <div className="mt-3 space-y-2">
+          <div className="font-semibold">Changed eligible pairs to review</div>
+          {health.suggestions.map((pair) => (
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-white/70 px-3 py-2 text-slate-800"
+              key={`${pair.rowId}:${pair.colId}:${pair.suggested}`}
+            >
+              <span>
+                {pair.rowName} ↔ {pair.colName}: {pair.current} → {pair.suggested}
+              </span>
+              {isDraft ? (
+                <Button onClick={() => onRestorePair(pair)}>
+                  Restore {pair.rowName} ↔ {pair.colName}
+                </Button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -819,6 +933,16 @@ function updateCorrelation(
   };
 }
 
+function restoreCorrelationPairs(
+  snapshot: CMASnapshot | null,
+  pairs: MatrixPairSuggestion[],
+): CMASnapshot | null {
+  return pairs.reduce(
+    (current, pair) => updateCorrelation(current, pair.rowId, pair.colId, pair.suggested),
+    snapshot,
+  );
+}
+
 function correlationValue(snapshot: CMASnapshot, rowId: string, colId: string): string {
   return (
     snapshot.correlations.find(
@@ -827,7 +951,124 @@ function correlationValue(snapshot: CMASnapshot, rowId: string, colId: string): 
   );
 }
 
-function validateDraft(snapshot: CMASnapshot): string[] {
+function correlationMatrixHealth(
+  snapshot: CMASnapshot,
+  comparisonSnapshots: Array<CMASnapshot | null>,
+): MatrixHealth {
+  const eligibleFunds = snapshot.fund_assumptions.filter((fund) => fund.optimizer_eligible);
+  if (eligibleFunds.length < 2) {
+    return {
+      status: "invalid",
+      message: "At least two optimizer-eligible funds are required before matrix health can run.",
+      minPivot: Number.NaN,
+      suggestions: [],
+    };
+  }
+  const matrix = eligibleFunds.map((rowFund) =>
+    eligibleFunds.map((colFund) =>
+      Number(correlationValue(snapshot, rowFund.fund_id, colFund.fund_id)),
+    ),
+  );
+  const cholesky = choleskyRowsHealth(matrix);
+  const suggestions = changedCorrelationPairs(snapshot, comparisonSnapshots, eligibleFunds);
+  if (!cholesky.valid) {
+    return {
+      status: "invalid",
+      message: "Optimizer-eligible correlation matrix is not positive definite.",
+      minPivot: cholesky.minPivot,
+      suggestions,
+    };
+  }
+  if (cholesky.minPivot < NEAR_SINGULAR_PIVOT_WARNING) {
+    return {
+      status: "near_singular",
+      message: "Correlation matrix is valid but close to singular.",
+      minPivot: cholesky.minPivot,
+      suggestions,
+    };
+  }
+  return {
+    status: "valid",
+    message: "Correlation matrix is valid for optimizer use.",
+    minPivot: cholesky.minPivot,
+    suggestions,
+  };
+}
+
+function choleskyRowsHealth(matrix: number[][]): { valid: boolean; minPivot: number } {
+  const size = matrix.length;
+  const lower = Array.from({ length: size }, () => Array.from({ length: size }, () => 0));
+  let minPivot = Number.POSITIVE_INFINITY;
+  for (let row = 0; row < size; row += 1) {
+    for (let column = 0; column <= row; column += 1) {
+      let subtotal = 0;
+      for (let index = 0; index < column; index += 1) {
+        subtotal += lower[row][index] * lower[column][index];
+      }
+      if (row === column) {
+        const pivot = matrix[row][row] - subtotal;
+        minPivot = Math.min(minPivot, pivot);
+        if (!Number.isFinite(pivot) || pivot <= MATRIX_PIVOT_TOLERANCE) {
+          return { valid: false, minPivot: pivot };
+        }
+        lower[row][column] = Math.sqrt(pivot);
+      } else {
+        lower[row][column] = (matrix[row][column] - subtotal) / lower[column][column];
+      }
+    }
+  }
+  return { valid: true, minPivot };
+}
+
+function changedCorrelationPairs(
+  snapshot: CMASnapshot,
+  comparisonSnapshots: Array<CMASnapshot | null>,
+  eligibleFunds: CMASnapshot["fund_assumptions"],
+): MatrixPairSuggestion[] {
+  for (const baseline of comparisonSnapshots) {
+    if (!baseline || !hasSameFundIds(baseline, snapshot)) {
+      continue;
+    }
+    const baselineSource = baseline.status === "draft" ? "saved_draft" : "active_snapshot";
+    const suggestions: MatrixPairSuggestion[] = [];
+    for (let rowIndex = 0; rowIndex < eligibleFunds.length; rowIndex += 1) {
+      const rowFund = eligibleFunds[rowIndex];
+      for (const colFund of eligibleFunds.slice(rowIndex + 1)) {
+        const current = correlationValue(snapshot, rowFund.fund_id, colFund.fund_id);
+        const suggested = correlationValue(baseline, rowFund.fund_id, colFund.fund_id);
+        if (Math.abs(Number(current) - Number(suggested)) > 0.00001) {
+          suggestions.push({
+            rowId: rowFund.fund_id,
+            rowName: rowFund.name,
+            colId: colFund.fund_id,
+            colName: colFund.name,
+            current,
+            suggested,
+            source: baselineSource,
+          });
+        }
+      }
+    }
+    if (suggestions.length) {
+      return suggestions
+        .sort(
+          (left, right) =>
+            Math.abs(Number(right.current) - Number(right.suggested)) -
+            Math.abs(Number(left.current) - Number(left.suggested)),
+        )
+        .slice(0, 8);
+    }
+  }
+  return [];
+}
+
+function hasSameFundIds(left: CMASnapshot, right: CMASnapshot): boolean {
+  const leftIds = left.fund_assumptions.map((fund) => fund.fund_id).sort();
+  const rightIds = right.fund_assumptions.map((fund) => fund.fund_id).sort();
+  return leftIds.length === rightIds.length && leftIds.every((id, index) => id === rightIds[index]);
+}
+
+function validateDraft(snapshot: CMASnapshot, matrixHealth: MatrixHealth | null): string[] {
   const messages: string[] = [];
   const eligibleCount = snapshot.fund_assumptions.filter((fund) => fund.optimizer_eligible).length;
   if (eligibleCount < 2) {
@@ -868,6 +1109,9 @@ function validateDraft(snapshot: CMASnapshot): string[] {
         messages.push("Correlation matrix must be symmetric.");
       }
     }
+  }
+  if (eligibleCount >= 2 && matrixHealth?.status === "invalid") {
+    messages.push("Optimizer-eligible correlation matrix must be positive definite.");
   }
   return uniqueMessages(messages);
 }
