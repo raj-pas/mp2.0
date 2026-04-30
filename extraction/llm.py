@@ -17,6 +17,9 @@ from extraction.prompts.meeting_note import PROMPT_VERSION as MEETING_PROMPT_VER
 from extraction.prompts.statement import PROMPT_VERSION as STATEMENT_PROMPT_VERSION
 from extraction.schemas import BedrockFactsPayload, ClassificationResult, FactCandidate
 
+MAX_IMAGE_BLOCK_BYTES = 4_500_000
+MAX_VISUAL_REQUEST_BYTES = 18_000_000
+
 PROMPT_VERSION_BY_TYPE = {
     "kyc": KYC_PROMPT_VERSION,
     "statement": STATEMENT_PROMPT_VERSION,
@@ -56,7 +59,7 @@ def bedrock_config_from_env(default_region: str = "ca-central-1") -> BedrockConf
     )
 
 
-def json_payload_from_model_text(content: str) -> dict[str, Any]:
+def json_payload_from_model_text(content: str) -> Any:
     normalized = content.strip()
     normalized = re.sub(r"^```(?:json)?\s*", "", normalized)
     normalized = re.sub(r"\s*```$", "", normalized)
@@ -68,8 +71,21 @@ def json_payload_from_model_text(content: str) -> dict[str, Any]:
             return json.loads(repaired)
         except json.JSONDecodeError:
             pass
-        start = normalized.find("{")
-        end = normalized.rfind("}")
+        object_start = normalized.find("{")
+        object_end = normalized.rfind("}")
+        array_start = normalized.find("[")
+        array_end = normalized.rfind("]")
+        use_array = (
+            array_start != -1
+            and array_end != -1
+            and (object_start == -1 or array_start < object_start)
+        )
+        if use_array:
+            start = array_start
+            end = array_end
+        else:
+            start = object_start
+            end = object_end
         if start == -1 or end == -1 or end <= start:
             raise ValueError("Bedrock extraction did not return valid JSON.") from exc
         try:
@@ -100,7 +116,12 @@ def extract_text_facts_with_bedrock(
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
-    return facts_from_bedrock_response(response, extraction_run_id)
+    return facts_from_bedrock_response(
+        response,
+        extraction_run_id,
+        client=client,
+        model=config.model,
+    )
 
 
 def extract_visual_facts_with_bedrock(
@@ -130,7 +151,15 @@ def extract_visual_facts_with_bedrock(
         max_tokens=4096,
         messages=[{"role": "user", "content": [*image_blocks, {"type": "text", "text": prompt}]}],
     )
-    return facts_from_bedrock_response(response, extraction_run_id), overflow
+    return (
+        facts_from_bedrock_response(
+            response,
+            extraction_run_id,
+            client=client,
+            model=config.model,
+        ),
+        overflow,
+    )
 
 
 def fact_extraction_prompt(
@@ -175,9 +204,44 @@ def fact_extraction_prompt(
     )
 
 
-def facts_from_bedrock_response(response, extraction_run_id: str) -> list[FactCandidate]:  # noqa: ANN001
+def facts_from_bedrock_response(  # noqa: ANN001
+    response,
+    extraction_run_id: str,
+    *,
+    client=None,
+    model: str | None = None,
+) -> list[FactCandidate]:
     content = "".join(block.text for block in response.content if hasattr(block, "text"))
-    payload = json_payload_from_model_text(content)
+    try:
+        return facts_from_model_text(content, extraction_run_id)
+    except ValueError:
+        if client is None or model is None:
+            raise
+    repair_response = client.messages.create(
+        model=model,
+        max_tokens=4096,
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    "Convert the following extraction response into JSON only with shape "
+                    '{"facts":[{"field":"...","value":...,"confidence":"high|medium|low",'
+                    '"derivation_method":"extracted|inferred|defaulted","source_location":"...",'
+                    '"source_page":null,"evidence_quote":"short quote","asserted_at":null}]}. '
+                    "Drop commentary and omit facts with unknown or null values.\n\n"
+                    f"Response:\n{content[:12000]}"
+                ),
+            }
+        ],
+    )
+    repaired_content = "".join(
+        block.text for block in repair_response.content if hasattr(block, "text")
+    )
+    return facts_from_model_text(repaired_content, extraction_run_id)
+
+
+def facts_from_model_text(content: str, extraction_run_id: str) -> list[FactCandidate]:
+    payload = _normalize_bedrock_payload(json_payload_from_model_text(content))
     try:
         parsed = BedrockFactsPayload.model_validate(payload)
     except ValidationError as exc:
@@ -188,7 +252,55 @@ def facts_from_bedrock_response(response, extraction_run_id: str) -> list[FactCa
             extraction_run_id=extraction_run_id,
         )
         for fact in parsed.facts
+        if not _is_missing_fact_value(fact.value)
     ]
+
+
+def _normalize_bedrock_payload(payload: Any) -> dict[str, Any]:
+    if isinstance(payload, list):
+        return {"facts": [_normalize_fact_item(item) for item in payload]}
+    if not isinstance(payload, dict):
+        raise ValueError("Bedrock extraction did not return a JSON object.")
+    facts = payload.get("facts")
+    if facts is None:
+        for key in ("extracted_facts", "fields", "results", "data"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                facts = value
+                break
+            if isinstance(value, dict) and isinstance(value.get("facts"), list):
+                facts = value["facts"]
+                break
+    if facts is None:
+        facts = []
+    return {"facts": [_normalize_fact_item(item) for item in facts if isinstance(item, dict)]}
+
+
+def _normalize_fact_item(item: dict[str, Any]) -> dict[str, Any]:
+    field = item.get("field") or item.get("field_path") or item.get("path") or item.get("key")
+    value = item.get("value")
+    if "value" not in item:
+        value = item.get("raw_value", item.get("normalized_value"))
+    confidence = item.get("confidence", item.get("confidence_level", "medium"))
+    derivation_method = item.get("derivation_method", item.get("method", "extracted"))
+    source_location = (
+        item.get("source_location") or item.get("location") or item.get("source") or ""
+    )
+    evidence_quote = item.get("evidence_quote") or item.get("quote") or item.get("evidence") or ""
+    return {
+        "field": field or "",
+        "value": value,
+        "confidence": confidence,
+        "derivation_method": derivation_method,
+        "source_location": source_location,
+        "source_page": item.get("source_page", item.get("page")),
+        "evidence_quote": evidence_quote,
+        "asserted_at": item.get("asserted_at"),
+    }
+
+
+def _is_missing_fact_value(value: Any) -> bool:
+    return value is None or value == "" or value == [] or value == {}
 
 
 def visual_content_blocks(
@@ -230,18 +342,43 @@ def _pdf_page_image_blocks(
 
     document = fitz.open(path)
     blocks: list[dict[str, Any]] = []
+    skipped_pages = 0
+    total_bytes = 0
     for page in list(document)[:max_pages]:
-        pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
-        blocks.append(_image_block(pixmap.tobytes("png"), "image/png"))
+        block = _safe_pdf_page_image_block(page)
+        if block is None:
+            skipped_pages += 1
+            continue
+        block_size = len(block["source"]["data"])
+        if total_bytes + block_size > MAX_VISUAL_REQUEST_BYTES:
+            skipped_pages += 1
+            continue
+        blocks.append(block)
+        total_bytes += block_size
     overflow = {}
-    if document.page_count > max_pages:
+    if document.page_count > max_pages or skipped_pages:
         overflow = {
             "total_pages": document.page_count,
-            "processed_pages": max_pages,
-            "overflow_pages": document.page_count - max_pages,
+            "processed_pages": len(blocks),
+            "overflow_pages": max(document.page_count - max_pages, 0) + skipped_pages,
             "status": "needs_review",
         }
     return blocks, overflow
+
+
+def _safe_pdf_page_image_block(page) -> dict[str, Any] | None:  # noqa: ANN001
+    import fitz
+
+    for scale in (1.25, 1.0, 0.75, 0.5):
+        pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+        for image_format, media_type in (("jpg", "image/jpeg"), ("png", "image/png")):
+            try:
+                content = pixmap.tobytes(image_format)
+            except (TypeError, ValueError):
+                continue
+            if len(content) <= MAX_IMAGE_BLOCK_BYTES:
+                return _image_block(content, media_type)
+    return None
 
 
 def _image_block(content: bytes, media_type: str) -> dict[str, Any]:

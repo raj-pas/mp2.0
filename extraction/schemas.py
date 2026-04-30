@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Confidence = Literal["high", "medium", "low"]
 DerivationMethod = Literal["extracted", "inferred", "defaulted"]
@@ -75,6 +75,34 @@ class BedrockFact(BaseModel):
     source_page: int | None = None
     evidence_quote: str = ""
     asserted_at: str | None = None
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def normalize_confidence(cls, value: Any) -> str:
+        normalized = str(value or "medium").strip().lower()
+        return normalized if normalized in {"high", "medium", "low"} else "medium"
+
+    @field_validator("derivation_method", mode="before")
+    @classmethod
+    def normalize_derivation_method(cls, value: Any) -> str:
+        normalized = str(value or "extracted").strip().lower()
+        return normalized if normalized in {"extracted", "inferred", "defaulted"} else "extracted"
+
+    @field_validator("source_location", "evidence_quote", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value: Any) -> str:
+        return "" if value is None else str(value)
+
+    @field_validator("source_page", mode="before")
+    @classmethod
+    def normalize_source_page(cls, value: Any) -> int | None:
+        if value in (None, ""):
+            return None
+        try:
+            page = int(value)
+        except (TypeError, ValueError):
+            return None
+        return page if page > 0 else None
 
 
 class BedrockFactsPayload(BaseModel):

@@ -142,13 +142,13 @@ def process_document(document: models.ReviewDocument) -> None:
             **document.processing_metadata,
             "ocr_overflow": extraction_metadata["ocr_overflow"],
         }
-    document.processing_metadata = {
-        **document.processing_metadata,
-        "extraction": extraction_metadata,
-    }
     fact_rows = []
+    discarded_fact_count = 0
     for candidate in facts:
         fact = candidate.as_dict() if hasattr(candidate, "as_dict") else dict(candidate)
+        if _is_empty_fact_value(fact.get("value")):
+            discarded_fact_count += 1
+            continue
         fact_rows.append(
             models.ExtractedFact(
                 workspace=document.workspace,
@@ -164,6 +164,10 @@ def process_document(document: models.ReviewDocument) -> None:
                 extraction_run_id=fact["extraction_run_id"],
             )
         )
+    document.processing_metadata = {
+        **document.processing_metadata,
+        "extraction": {**extraction_metadata, "discarded_fact_count": discarded_fact_count},
+    }
 
     with transaction.atomic():
         models.ExtractedFact.objects.filter(document=document).delete()
@@ -183,6 +187,10 @@ def process_document(document: models.ReviewDocument) -> None:
             "classifier_route": classification.route,
         },
     )
+
+
+def _is_empty_fact_value(value: Any) -> bool:
+    return value is None or value == "" or value == [] or value == {}
 
 
 def reconcile_workspace(workspace: models.ReviewWorkspace) -> dict[str, Any]:

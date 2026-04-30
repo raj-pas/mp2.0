@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 from django.contrib.auth import get_user_model
 from extraction.classification import classify_document
+from extraction.llm import facts_from_model_text, visual_content_blocks
 from extraction.parsers import parse_document_path
+from extraction.schemas import FactCandidate
 from web.api import models
 from web.api.review_processing import process_job
 from web.api.review_state import reviewed_state_from_workspace
@@ -53,6 +55,38 @@ def test_xlsx_parser_preserves_sheet_names_and_row_locations(tmp_path) -> None:
     assert parsed.metadata["sheet_names"] == ["Retirement Projection"]
     assert "Retirement Projection!2" in parsed.text
     assert classification.document_type == "planning"
+
+
+def test_bedrock_fact_parser_accepts_aliases_and_skips_null_values() -> None:
+    facts = facts_from_model_text(
+        """
+        [
+          {"field_path": "household.display_name", "raw_value": "Demo", "confidence": "High"},
+          {"path": "risk.household_score", "value": null, "confidence_level": "low"}
+        ]
+        """,
+        "run-1",
+    )
+
+    assert len(facts) == 1
+    assert facts[0].field == "household.display_name"
+    assert facts[0].confidence == "high"
+
+
+def test_pdf_visual_blocks_use_provider_safe_payloads(tmp_path) -> None:
+    fitz = pytest.importorskip("fitz")
+    path = tmp_path / "scan.pdf"
+    document = fitz.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "Scanned page placeholder")
+    document.save(path)
+
+    blocks, overflow = visual_content_blocks(path, max_pages=1)
+
+    assert blocks
+    assert blocks[0]["source"]["media_type"] in {"image/jpeg", "image/png"}
+    assert len(blocks[0]["source"]["data"]) < 6_500_000
+    assert overflow == {}
 
 
 @pytest.mark.django_db
@@ -147,6 +181,60 @@ def test_failed_reprocess_preserves_previous_good_facts(tmp_path, settings, monk
         field="household.display_name",
         value="Existing Good Fact",
     ).exists()
+
+
+@pytest.mark.django_db
+def test_process_document_skips_null_fact_values(tmp_path, settings, monkeypatch) -> None:
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    user = _user()
+    workspace = models.ReviewWorkspace.objects.create(
+        label="Null fact review",
+        owner=user,
+        data_origin=models.ReviewWorkspace.DataOrigin.SYNTHETIC,
+    )
+    storage_dir = Path(settings.MP20_SECURE_DATA_ROOT) / "review-workspaces" / workspace.external_id
+    storage_dir.mkdir(parents=True)
+    source = storage_dir / "notes.txt"
+    source.write_text("Household name Demo.")
+    document = models.ReviewDocument.objects.create(
+        workspace=workspace,
+        original_filename="notes.txt",
+        extension="txt",
+        file_size=source.stat().st_size,
+        sha256="null-fact",
+        storage_path=f"review-workspaces/{workspace.external_id}/notes.txt",
+    )
+    job = models.ProcessingJob.objects.create(workspace=workspace, document=document)
+
+    monkeypatch.setattr(
+        "web.api.review_processing.extract_facts",
+        lambda *_args, **_kwargs: (
+            [
+                FactCandidate(
+                    field="household.display_name",
+                    value="Demo",
+                    confidence="high",
+                    derivation_method="extracted",
+                    extraction_run_id="run",
+                ),
+                FactCandidate(
+                    field="risk.household_score",
+                    value=None,
+                    confidence="medium",
+                    derivation_method="extracted",
+                    extraction_run_id="run",
+                ),
+            ],
+            {},
+        ),
+    )
+
+    process_job(job)
+
+    document.refresh_from_db()
+    assert document.status == models.ReviewDocument.Status.FACTS_EXTRACTED
+    assert models.ExtractedFact.objects.filter(document=document).count() == 1
+    assert document.processing_metadata["extraction"]["discarded_fact_count"] == 1
 
 
 def _user():
