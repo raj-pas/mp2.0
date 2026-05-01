@@ -2215,3 +2215,38 @@ they just leave specific docs marked FAILED for advisor retry.
 - npm run build clean
 - 10/10 Playwright e2e against the live host-mode stack
 - vocab CI: OK
+
+## 2026-05-01 — Handoff dossier + extraction-hardening action plan written
+
+User explicitly asked: "write each and every detail and conversation,
+and everything that you need in a specific local file/artifact (also
+project coordination files, memory, anything relevant at all). In every
+detail and specificity so that we can have another Claude Code session
+starting blank and be able to do all this from scratch and be very very
+high precision at it."
+
+The artifact set is:
+
+1. `docs/agent/post-r7-handoff-2026-05-01.md` — master kickoff dossier
+   (in repo). 18 sections: mission, current commits + DB state, bugs
+   fixed and bugs open, real-PII Niesner results, stack startup,
+   gates, real-PII discipline, locked decisions, code pointers,
+   gotchas / anti-patterns, memory index, open questions for user.
+2. `~/.claude/plans/post-r7-extraction-hardening.md` — action plan
+   (user-local). 7 phases (A–G) with concrete sub-tasks, decision
+   trees, validation checklists, anti-patterns. Tuned to the 3-day
+   demo window.
+3. `~/.claude/projects/.../memory/project_post_r7_demo_state.md` —
+   memory entry referencing both files; auto-loaded into future
+   sessions via MEMORY.md.
+4. MEMORY.md updated to surface the new memory at the top of the
+   index ("START HERE").
+5. session-state.md updated to point at the dossier as the single
+   source of truth for the next session.
+
+Hard deadlines captured: demo 2026-05-04, release 2026-05-08. P0 #6
+(auth) and #7 (audit immutability) explicitly deferred per user.
+
+Next session entry point: read the dossier, then the plan, then run
+gates from dossier §8 to verify environment, then start Phase A of
+the extraction-hardening plan.
