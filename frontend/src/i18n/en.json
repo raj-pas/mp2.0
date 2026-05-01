@@ -439,7 +439,11 @@
     "create_error": "Could not create review workspace.",
     "upload_error": "Could not upload documents.",
     "upload_success_title": "Documents uploaded",
-    "upload_success_body": "Processing has started. Watch progress in the review queue."
+    "upload_success_body": "Processing has started. Watch progress in the review queue.",
+    "upload_partial_title": "Documents partially uploaded",
+    "upload_partial_body": "{{uploaded}} uploaded · {{failed}} failed: {{names}}",
+    "upload_all_failed_one": "All {{count}} file failed to upload.",
+    "upload_all_failed_other": "All {{count}} files failed to upload."
   },
   "review": {
     "subtitle": "Status: {{status}} · Origin: {{origin}}",
@@ -462,6 +466,9 @@
     "committing": "Committing…",
     "commit_success_title": "Household committed",
     "commit_success_body": "The household tree was created and an audit event recorded.",
-    "commit_error": "Could not commit household."
+    "commit_error": "Could not commit household.",
+    "commit_blocked_engine": "Engine readiness not met.",
+    "commit_blocked_construction": "Construction readiness not met.",
+    "commit_blocked_sections": "Approve required sections: {{sections}}"
   }
 }

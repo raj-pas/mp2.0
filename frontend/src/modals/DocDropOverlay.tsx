@@ -67,11 +67,41 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
           upload.mutate(
             { workspaceId: workspace.external_id, files },
             {
-              onSuccess: () => {
-                toastSuccess(t("docdrop.upload_success_title"), t("docdrop.upload_success_body"));
-                onWorkspaceReady(workspace.external_id);
-                setLabel("");
-                setFiles([]);
+              onSuccess: (response) => {
+                // The upload endpoint partial-failure tolerates per-file
+                // errors. Surface that explicitly to the advisor so
+                // they don't think every file went through when half
+                // were rejected.
+                const failedFiles = response.ignored
+                  .filter((row) => row.reason === "upload_failed")
+                  .map((row) => row.filename);
+                if (response.uploaded.length === 0) {
+                  toastError(t("docdrop.upload_error"), {
+                    description: t("docdrop.upload_all_failed", {
+                      count: failedFiles.length,
+                    }),
+                  });
+                } else if (failedFiles.length > 0) {
+                  toastSuccess(
+                    t("docdrop.upload_partial_title"),
+                    t("docdrop.upload_partial_body", {
+                      uploaded: response.uploaded.length,
+                      failed: failedFiles.length,
+                      names: failedFiles.join(", "),
+                    }),
+                  );
+                  onWorkspaceReady(workspace.external_id);
+                  setLabel("");
+                  setFiles([]);
+                } else {
+                  toastSuccess(
+                    t("docdrop.upload_success_title"),
+                    t("docdrop.upload_success_body"),
+                  );
+                  onWorkspaceReady(workspace.external_id);
+                  setLabel("");
+                  setFiles([]);
+                }
               },
               onError: (err) => {
                 const e = normalizeApiError(err, t("docdrop.upload_error"));

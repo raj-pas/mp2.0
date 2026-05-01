@@ -30,9 +30,19 @@ export type DataOrigin = "real_derived" | "synthetic";
 
 export type WorkspaceStatus = "draft" | "processing" | "review_ready" | "committed" | "archived";
 
-export type DocumentStatus = "queued" | "processing" | "extracted" | "failed" | "skipped";
+export type DocumentStatus =
+  | "uploaded"
+  | "classified"
+  | "text_extracted"
+  | "ocr_required"
+  | "facts_extracted"
+  | "reconciled"
+  | "extracted"
+  | "failed"
+  | "unsupported"
+  | "skipped";
 
-export type ProcessingJobStatus = "queued" | "running" | "done" | "failed";
+export type ProcessingJobStatus = "queued" | "processing" | "completed" | "failed";
 
 export type ReviewDocument = {
   id: number;
@@ -86,7 +96,11 @@ export type Readiness = {
   construction_missing?: ReadinessRow[];
 };
 
-export type SectionApprovalStatus = "approved" | "approved_with_unknowns" | "not_ready";
+export type SectionApprovalStatus =
+  | "approved"
+  | "approved_with_unknowns"
+  | "needs_attention"
+  | "not_ready_for_recommendation";
 
 export type SectionApproval = {
   section: string;
@@ -111,6 +125,14 @@ export type ReviewWorkspace = {
   documents: ReviewDocument[];
   processing_jobs: ProcessingJob[];
   section_approvals: SectionApproval[];
+  /**
+   * Sections the backend's commit gate requires approved for this
+   * workspace. The frontend MUST drive its approval UI off this list
+   * — hardcoding it client-side drifts from `ENGINE_REQUIRED_SECTIONS`
+   * and silently breaks commit (the frontend either hides required
+   * sections or shows non-required ones the user can never satisfy).
+   */
+  required_sections: string[];
   worker_health: Record<string, unknown>;
   timeline: Array<{ action: string; created_at: string; metadata: Record<string, unknown> }>;
   created_at: string;
@@ -172,8 +194,12 @@ export function useReviewWorkspace(
       if (options.polling !== true) return false;
       const data = query.state.data;
       if (data === undefined) return 3000;
+      // Backend ProcessingJob.Status is `queued | processing | completed
+      // | failed`. Earlier shipped values were `running`/`done`, which
+      // never matched and stopped polling the moment the worker
+      // claimed a job — leaving the UI frozen at "processing".
       const stillProcessing = data.processing_jobs.some(
-        (job) => job.status === "queued" || job.status === "running",
+        (job) => job.status === "queued" || job.status === "processing",
       );
       return stillProcessing ? 3000 : false;
     },

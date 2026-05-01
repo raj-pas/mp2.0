@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +41,85 @@ def record_worker_heartbeat(
     return heartbeat
 
 
+def _job_stale_threshold() -> datetime:
+    # Match the worker-heartbeat staleness window so a crashed worker's
+    # in-flight job is auto-requeued at the same cadence the UI flips
+    # the heartbeat to "stale".
+    seconds = getattr(settings, "MP20_WORKER_STALE_SECONDS", 60)
+    return timezone.now() - timezone.timedelta(seconds=seconds)
+
+
+def requeue_stale_jobs() -> int:
+    """Reclaim jobs stuck in PROCESSING from a crashed worker.
+
+    A job whose `locked_at` predates the worker-heartbeat staleness
+    window is considered abandoned. If the abandoned job has retries
+    left, push it back to QUEUED (with a new `locked_at`); otherwise,
+    mark it FAILED so the document surfaces a retry button instead of
+    polling forever.
+
+    Idempotent — safe to call from the worker loop on every tick.
+    """
+    threshold = _job_stale_threshold()
+    requeued = 0
+    with transaction.atomic():
+        stale = list(
+            models.ProcessingJob.objects.select_for_update(skip_locked=True).filter(
+                status=models.ProcessingJob.Status.PROCESSING, locked_at__lt=threshold
+            )
+        )
+        for job in stale:
+            failure_meta = {
+                "stage": "auto_recovered",
+                "previous_stage": job.metadata.get("stage", job.job_type),
+                "auto_recovered_at": timezone.now().isoformat(),
+            }
+            if job.attempts >= job.max_attempts:
+                job.status = models.ProcessingJob.Status.FAILED
+                job.last_error = "Worker crashed mid-job; retry budget exhausted."
+                job.completed_at = timezone.now()
+                job.metadata = {**job.metadata, **failure_meta, "failure_code": "WorkerStalled"}
+                if job.document:
+                    job.document.status = models.ReviewDocument.Status.FAILED
+                    job.document.failure_reason = job.last_error
+                    job.document.save(
+                        update_fields=["status", "failure_reason", "updated_at"],
+                    )
+            else:
+                job.status = models.ProcessingJob.Status.QUEUED
+                job.locked_at = None
+                job.last_error = "Worker crashed mid-job; auto-requeued."
+                job.metadata = {**job.metadata, **failure_meta}
+            job.save(
+                update_fields=[
+                    "status",
+                    "locked_at",
+                    "last_error",
+                    "completed_at",
+                    "metadata",
+                    "updated_at",
+                ]
+            )
+            record_event(
+                action="review_job_auto_recovered",
+                entity_type="processing_job",
+                entity_id=str(job.id),
+                metadata={
+                    "workspace_id": job.workspace.external_id,
+                    "outcome": job.status,
+                    "attempts": job.attempts,
+                },
+            )
+            requeued += 1
+    return requeued
+
+
 def claim_next_job() -> models.ProcessingJob | None:
+    # Recover any abandoned PROCESSING rows before attempting to claim
+    # a QUEUED one — otherwise a crashed worker's row stays invisible
+    # and the workspace's UI polls forever on a job that will never
+    # advance.
+    requeue_stale_jobs()
     with transaction.atomic():
         job = (
             models.ProcessingJob.objects.select_for_update(skip_locked=True)

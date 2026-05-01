@@ -78,6 +78,24 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
 
   const workspace = workspaceQuery.data;
 
+  // Drive the commit gate off the server-provided required-sections
+  // list so the frontend never drifts from `ENGINE_REQUIRED_SECTIONS`.
+  // Tolerate older builds that don't yet send the field by falling back
+  // to an empty list (commit will still fail server-side, just without
+  // the helpful disabled hint).
+  const requiredSections = workspace.required_sections ?? [];
+  const approvalsByName = new Map(
+    workspace.section_approvals.map((approval) => [approval.section, approval.status]),
+  );
+  const missingApprovals = requiredSections.filter(
+    (section) => approvalsByName.get(section) !== "approved",
+  );
+  const allRequiredApproved = missingApprovals.length === 0;
+  const engineReady = workspace.readiness?.engine_ready ?? false;
+  const constructionReady = workspace.readiness?.construction_ready ?? false;
+  const commitDisabled =
+    !engineReady || !constructionReady || !allRequiredApproved || commit.isPending;
+
   function handleCommit() {
     commit.mutate(
       {},
@@ -89,7 +107,23 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
         },
         onError: (err) => {
           const e = normalizeApiError(err, t("review.commit_error"));
-          toastError(t("review.commit_error"), { description: e.message });
+          // The commit endpoint returns a structured body for gate
+          // failures: `{ code, missing_approvals, readiness, ... }`.
+          // Convert that into an actionable toast so the advisor knows
+          // exactly which gate to fix instead of a generic "could not
+          // commit household." line.
+          let description = e.message;
+          if (e.code === "sections_not_approved") {
+            const missing = (e.body?.missing_approvals as string[] | undefined) ?? [];
+            description = t("review.commit_blocked_sections", {
+              sections: missing.join(", "),
+            });
+          } else if (e.code === "engine_not_ready") {
+            description = t("review.commit_blocked_engine");
+          } else if (e.code === "construction_not_ready") {
+            description = t("review.commit_blocked_construction");
+          }
+          toastError(t("review.commit_error"), { description });
         },
       },
     );
@@ -116,18 +150,27 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            onClick={handleCommit}
-            disabled={
-              !(workspace.readiness?.engine_ready ?? false) ||
-              !(workspace.readiness?.construction_ready ?? false) ||
-              commit.isPending
-            }
-          >
-            {commit.isPending ? t("review.committing") : t("review.commit")}
-          </Button>
+          <div className="flex flex-col items-end gap-1">
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleCommit}
+              disabled={commitDisabled}
+            >
+              {commit.isPending ? t("review.committing") : t("review.commit")}
+            </Button>
+            {!commitDisabled || commit.isPending ? null : (
+              <p className="font-mono text-[9px] uppercase tracking-widest text-muted">
+                {!engineReady
+                  ? t("review.commit_blocked_engine")
+                  : !constructionReady
+                    ? t("review.commit_blocked_construction")
+                    : t("review.commit_blocked_sections", {
+                        sections: missingApprovals.join(", "),
+                      })}
+              </p>
+            )}
+          </div>
         </div>
       </header>
 
@@ -148,6 +191,7 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
           )}
           <SectionApprovalPanel
             workspace={workspace}
+            requiredSections={requiredSections}
             approving={approve.isPending}
             onApprove={(payload) =>
               approve.mutate(payload, {
@@ -294,10 +338,12 @@ function MissingPanel({ missing }: { missing: { section: string; label: string }
 
 function SectionApprovalPanel({
   workspace,
+  requiredSections,
   approving,
   onApprove,
 }: {
   workspace: ReviewWorkspace;
+  requiredSections: string[];
   approving: boolean;
   onApprove: (payload: {
     section: string;
@@ -307,7 +353,13 @@ function SectionApprovalPanel({
   }) => void;
 }) {
   const { t } = useTranslation();
-  const sections: string[] = ["people", "accounts", "goals", "risk", "planning"];
+  // Render the server-provided required-sections list. If the workspace
+  // surfaces approvals for non-required sections (legacy data), include
+  // those too so the advisor can still review them.
+  const extraApprovals = workspace.section_approvals
+    .map((a) => a.section)
+    .filter((section) => !requiredSections.includes(section));
+  const sections = [...requiredSections, ...extraApprovals];
   const approvalsByName = new Map(
     workspace.section_approvals.map((approval) => [approval.section, approval]),
   );

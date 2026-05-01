@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -761,3 +761,326 @@ def _approve_required_sections(workspace: models.ReviewWorkspace, user) -> None:
             status=models.SectionApproval.Status.APPROVED,
             approved_by=user,
         )
+
+
+# ---------------------------------------------------------------------------
+# Full doc-drop pipeline regression — covers the post-R7 fixes that surfaced
+# during the upload/parse/commit deep-dig:
+#   1. ReviewWorkspaceSerializer exposes `required_sections` (drives the
+#      frontend approval gate, prevents enum drift).
+#   2. State PATCH invalidates approvals when the new state has fresh
+#      blockers (closes the silent-gate-evasion path).
+#   3. Commit error response carries a structured `code` +
+#      `missing_approvals` body so the toast can be actionable.
+#   4. Worker auto-recovers jobs left in PROCESSING by a crashed worker
+#      (else the workspace polls forever).
+#   5. Per-file try/except in upload — a single bad file shouldn't 500
+#      the whole batch.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_workspace_serializer_exposes_required_sections() -> None:
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(
+        label="Required-sections probe",
+        owner=user,
+        data_origin=models.ReviewWorkspace.DataOrigin.SYNTHETIC,
+    )
+
+    response = client.get(
+        reverse("review-workspace-detail", args=[workspace.external_id])
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["required_sections"] == [
+        "household",
+        "people",
+        "accounts",
+        "goals",
+        "goal_account_mapping",
+        "risk",
+    ]
+
+
+@pytest.mark.django_db
+def test_state_patch_invalidates_stale_section_approval(tmp_path, settings) -> None:
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(label="Patch invalidation", owner=user)
+    workspace.reviewed_state = _engine_ready_state()
+    workspace.readiness = readiness_for_state(workspace.reviewed_state).__dict__
+    workspace.save()
+    _approve_required_sections(workspace, user)
+
+    # Drop a required goal field — `goals` should flip back to needs_attention.
+    patch_state = dict(workspace.reviewed_state)
+    patch_state["goals"] = [{"id": "goal_ready", "name": "Retirement"}]  # no horizon
+    response = client.patch(
+        reverse("review-workspace-state", args=[workspace.external_id]),
+        {"state": patch_state},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert "goals" in response.json()["invalidated_approvals"]
+    workspace.refresh_from_db()
+    goals_approval = workspace.section_approvals.get(section="goals")
+    assert goals_approval.status == models.SectionApproval.Status.NEEDS_ATTENTION
+    # Untouched approvals stay approved.
+    people_approval = workspace.section_approvals.get(section="people")
+    assert people_approval.status == models.SectionApproval.Status.APPROVED
+
+
+@pytest.mark.django_db
+def test_commit_returns_structured_error_with_missing_approvals(
+    tmp_path, settings
+) -> None:
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(label="Structured error", owner=user)
+    workspace.reviewed_state = _engine_ready_state()
+    workspace.readiness = readiness_for_state(workspace.reviewed_state).__dict__
+    workspace.save()
+    # Approve only some of the required sections so commit fails the
+    # section-approval gate — that's the case where the user gets a
+    # generic 400 today and doesn't know which section to fix.
+    for section in ("household", "people", "accounts"):
+        models.SectionApproval.objects.create(
+            workspace=workspace,
+            section=section,
+            status=models.SectionApproval.Status.APPROVED,
+            approved_by=user,
+        )
+
+    response = client.post(reverse("review-workspace-commit", args=[workspace.external_id]))
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["code"] == "sections_not_approved"
+    assert set(body["missing_approvals"]) == {"goals", "goal_account_mapping", "risk"}
+    assert body["required_sections"] == [
+        "household",
+        "people",
+        "accounts",
+        "goals",
+        "goal_account_mapping",
+        "risk",
+    ]
+
+
+@pytest.mark.django_db
+def test_worker_auto_recovers_stale_processing_job(tmp_path, settings) -> None:
+    """A worker that crashed mid-job leaves the row in PROCESSING with an
+    old `locked_at`. The next claim cycle should requeue (or fail) it
+    so the workspace doesn't poll on it forever.
+    """
+    from web.api.review_processing import requeue_stale_jobs
+
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    settings.MP20_WORKER_STALE_SECONDS = 60
+    user = _user()
+    workspace = models.ReviewWorkspace.objects.create(label="Stale job", owner=user)
+    document = models.ReviewDocument.objects.create(
+        workspace=workspace,
+        original_filename="notes.txt",
+        extension="txt",
+        file_size=10,
+        sha256="stale",
+        storage_path="missing/notes.txt",
+    )
+    # Job 1: stale + retries left → should requeue.
+    fresh = models.ProcessingJob.objects.create(
+        workspace=workspace,
+        document=document,
+        status=models.ProcessingJob.Status.PROCESSING,
+        attempts=1,
+        max_attempts=3,
+    )
+    models.ProcessingJob.objects.filter(pk=fresh.pk).update(
+        locked_at=fresh.created_at - timedelta(seconds=120)
+    )
+    # Job 2: stale + retries exhausted → should be marked FAILED.
+    document_2 = models.ReviewDocument.objects.create(
+        workspace=workspace,
+        original_filename="notes2.txt",
+        extension="txt",
+        file_size=10,
+        sha256="exhausted",
+        storage_path="missing/notes2.txt",
+    )
+    exhausted = models.ProcessingJob.objects.create(
+        workspace=workspace,
+        document=document_2,
+        status=models.ProcessingJob.Status.PROCESSING,
+        attempts=3,
+        max_attempts=3,
+    )
+    models.ProcessingJob.objects.filter(pk=exhausted.pk).update(
+        locked_at=exhausted.created_at - timedelta(seconds=120)
+    )
+
+    requeued = requeue_stale_jobs()
+
+    assert requeued == 2
+    fresh.refresh_from_db()
+    exhausted.refresh_from_db()
+    document_2.refresh_from_db()
+    assert fresh.status == models.ProcessingJob.Status.QUEUED
+    assert fresh.locked_at is None
+    assert exhausted.status == models.ProcessingJob.Status.FAILED
+    assert document_2.status == models.ReviewDocument.Status.FAILED
+    assert AuditEvent.objects.filter(action="review_job_auto_recovered").count() == 2
+
+
+@pytest.mark.django_db
+def test_upload_partial_failure_does_not_500_whole_batch(
+    tmp_path, settings, monkeypatch
+) -> None:
+    """A bad file in a multi-file upload should land in `ignored`, not
+    abort the request. The good files still upload and an audit event
+    fires for the failure.
+    """
+    from web.api import views as views_module
+
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(
+        label="Partial failure",
+        owner=user,
+        data_origin=models.ReviewWorkspace.DataOrigin.SYNTHETIC,
+    )
+
+    real_write = views_module.write_uploaded_file
+
+    def flaky_write(**kwargs):
+        if kwargs["filename"] == "broken.txt":
+            raise OSError("simulated disk failure")
+        return real_write(**kwargs)
+
+    monkeypatch.setattr(views_module, "write_uploaded_file", flaky_write)
+
+    good = SimpleUploadedFile("good.txt", b"healthy contents")
+    bad = SimpleUploadedFile("broken.txt", b"this one fails")
+    response = client.post(
+        reverse("review-workspace-upload", args=[workspace.external_id]),
+        {"files": [good, bad]},
+        format="multipart",
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [row["filename"] for row in body["uploaded"]] == ["good.txt"]
+    assert any(
+        row["filename"] == "broken.txt"
+        and row["reason"] == "upload_failed"
+        and row.get("failure_code") == "OSError"
+        for row in body["ignored"]
+    )
+    # The good file's processing job is still queued.
+    assert workspace.processing_jobs.filter(status="queued").count() == 1
+    # Per-file failure is auditable.
+    assert AuditEvent.objects.filter(action="review_document_upload_failed").exists()
+
+
+@pytest.mark.django_db
+def test_full_pipeline_upload_to_commit(tmp_path, settings) -> None:
+    """End-to-end happy path: POST upload → worker process → reconcile →
+    state to engine-ready → approve all required sections → commit →
+    household exists + audit event recorded. This is the regression
+    safety net for the doc-drop deep-dig.
+    """
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    call_command("seed_default_cma")
+    user = _user()
+    api_client = APIClient()
+    api_client.force_authenticate(user=user)
+
+    # 1. Create workspace via the same endpoint the UI hits.
+    create_response = api_client.post(
+        reverse("review-workspace-list"),
+        {"label": "E2E pipeline", "data_origin": "synthetic"},
+        format="json",
+    )
+    assert create_response.status_code == 200
+    workspace_id = create_response.json()["external_id"]
+
+    # 2. Upload a document via multipart.
+    upload = SimpleUploadedFile("notes.txt", b"Synthetic E2E note.")
+    upload_response = api_client.post(
+        reverse("review-workspace-upload", args=[workspace_id]),
+        {"files": [upload]},
+        format="multipart",
+    )
+    assert upload_response.status_code == 200
+    assert len(upload_response.json()["uploaded"]) == 1
+
+    # 3. Worker processes the doc + reconciles.
+    process_doc_job = claim_next_job()
+    assert process_doc_job is not None
+    process_job(process_doc_job)
+    reconcile = claim_next_job()
+    assert reconcile is not None
+    process_job(reconcile)
+
+    # 4. The detail endpoint reflects required_sections + readiness.
+    detail = api_client.get(reverse("review-workspace-detail", args=[workspace_id]))
+    assert detail.status_code == 200
+    body = detail.json()
+    assert "household" in body["required_sections"]
+    # Reconcile may not produce engine-ready state from a tiny note —
+    # the next step seeds an engine-ready state directly.
+
+    # 5. Promote workspace to engine-ready state (mirrors what advisor
+    #    edits during real review). Use the PATCH endpoint to exercise
+    #    the new approval-invalidation path with a stale `goals`
+    #    approval that should NOT be invalidated (since the patch
+    #    leaves goals fully populated).
+    workspace = models.ReviewWorkspace.objects.get(external_id=workspace_id)
+    models.SectionApproval.objects.create(
+        workspace=workspace,
+        section="goals",
+        status=models.SectionApproval.Status.APPROVED,
+        approved_by=user,
+    )
+    patch_response = api_client.patch(
+        reverse("review-workspace-state", args=[workspace_id]),
+        {"state": _engine_ready_state()},
+        format="json",
+    )
+    assert patch_response.status_code == 200
+    # `goals` approval still valid because the patched state still has
+    # all goal fields → not invalidated.
+    assert "goals" not in patch_response.json()["invalidated_approvals"]
+
+    # 6. Approve all remaining required sections.
+    for section in ("household", "people", "accounts", "goal_account_mapping", "risk"):
+        approve_response = api_client.post(
+            reverse("review-workspace-approve-section", args=[workspace_id]),
+            {"section": section, "status": "approved"},
+            format="json",
+        )
+        assert approve_response.status_code == 200, (
+            f"approve {section} failed: {approve_response.content!r}"
+        )
+
+    # 7. Commit produces a household + audit event.
+    commit_response = api_client.post(
+        reverse("review-workspace-commit", args=[workspace_id]),
+        format="json",
+    )
+    assert commit_response.status_code == 200, commit_response.content
+    household_id = commit_response.json()["household_id"]
+    assert models.Household.objects.filter(external_id=household_id).exists()
+    assert AuditEvent.objects.filter(
+        action="review_state_committed", entity_id=workspace_id
+    ).exists()

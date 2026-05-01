@@ -827,43 +827,82 @@ class ReviewWorkspaceUploadView(APIView):
                 return Response({"detail": str(exc)}, status=503)
         files = request.FILES.getlist("files")
         if not files:
+            record_event(
+                action="review_upload_empty_rejected",
+                entity_type="review_workspace",
+                entity_id=workspace.external_id,
+                actor=_actor(request),
+                metadata={"workspace_id": workspace.external_id},
+            )
             return Response({"detail": "Upload at least one file."}, status=400)
 
         uploaded: list[dict] = []
         duplicates: list[dict] = []
         ignored: list[dict] = []
         for uploaded_file in files:
-            if Path(uploaded_file.name).name.lower() in SYSTEM_FILENAMES:
-                ignored.append({"filename": uploaded_file.name, "reason": "system_file"})
-                continue
-            content = uploaded_file.read()
-            digest = sha256_bytes(content)
-            existing = workspace.documents.filter(sha256=digest).first()
-            if existing:
-                duplicates.append({"filename": uploaded_file.name, "document_id": existing.id})
-                continue
+            # Each file is its own try/except so one bad file (oversize,
+            # disk error, malformed multipart part) doesn't 500 the whole
+            # batch — the user keeps the files that succeeded and gets a
+            # per-file reason for the ones that didn't.
+            try:
+                if Path(uploaded_file.name).name.lower() in SYSTEM_FILENAMES:
+                    ignored.append({"filename": uploaded_file.name, "reason": "system_file"})
+                    continue
+                content = uploaded_file.read()
+                if not content:
+                    ignored.append({"filename": uploaded_file.name, "reason": "empty_file"})
+                    continue
+                digest = sha256_bytes(content)
+                existing = workspace.documents.filter(sha256=digest).first()
+                if existing:
+                    duplicates.append({"filename": uploaded_file.name, "document_id": existing.id})
+                    continue
 
-            target = write_uploaded_file(
-                workspace_external_id=workspace.external_id,
-                filename=uploaded_file.name,
-                content=content,
-            )
-            document = models.ReviewDocument.objects.create(
-                workspace=workspace,
-                original_filename=uploaded_file.name,
-                content_type=uploaded_file.content_type or "",
-                extension=target.suffix.lower().lstrip("."),
-                file_size=uploaded_file.size,
-                sha256=digest,
-                storage_path=relative_secure_path(target),
-                processing_metadata={
-                    "extraction_version": "extraction.v2",
-                    "review_schema_version": "reviewed_client_state.v1",
-                    "artifact_version": "secure_upload_artifact.v1",
-                },
-            )
-            models.ProcessingJob.objects.create(workspace=workspace, document=document)
-            uploaded.append({"filename": uploaded_file.name, "document_id": document.id})
+                with transaction.atomic():
+                    target = write_uploaded_file(
+                        workspace_external_id=workspace.external_id,
+                        filename=uploaded_file.name,
+                        content=content,
+                    )
+                    document = models.ReviewDocument.objects.create(
+                        workspace=workspace,
+                        original_filename=uploaded_file.name,
+                        content_type=uploaded_file.content_type or "",
+                        extension=target.suffix.lower().lstrip("."),
+                        file_size=uploaded_file.size,
+                        sha256=digest,
+                        storage_path=relative_secure_path(target),
+                        processing_metadata={
+                            "extraction_version": "extraction.v2",
+                            "review_schema_version": "reviewed_client_state.v1",
+                            "artifact_version": "secure_upload_artifact.v1",
+                        },
+                    )
+                    models.ProcessingJob.objects.create(workspace=workspace, document=document)
+                uploaded.append({"filename": uploaded_file.name, "document_id": document.id})
+            except Exception as exc:
+                # Catch broadly so the rest of the batch still goes
+                # through. Surface the failure code to the client and
+                # audit it; don't leak full exception strings (paths,
+                # stack data) into the user-visible reason.
+                ignored.append(
+                    {
+                        "filename": uploaded_file.name,
+                        "reason": "upload_failed",
+                        "failure_code": exc.__class__.__name__,
+                    }
+                )
+                record_event(
+                    action="review_document_upload_failed",
+                    entity_type="review_workspace",
+                    entity_id=workspace.external_id,
+                    actor=_actor(request),
+                    metadata={
+                        "workspace_id": workspace.external_id,
+                        "filename": uploaded_file.name,
+                        "failure_code": exc.__class__.__name__,
+                    },
+                )
 
         if uploaded:
             workspace.status = models.ReviewWorkspace.Status.PROCESSING
@@ -986,6 +1025,7 @@ class ReviewWorkspaceStateView(APIView):
         reason = request.data.get("reason", "").strip()
         if request.data.get("requires_reason") and not reason:
             return Response({"detail": "Reason is required for this review edit."}, status=400)
+        invalidated_sections: list[str] = []
         with transaction.atomic():
             locked_workspace = models.ReviewWorkspace.objects.select_for_update().get(
                 pk=workspace.pk
@@ -997,6 +1037,20 @@ class ReviewWorkspaceStateView(APIView):
             except ValueError as exc:
                 return Response({"detail": str(exc)}, status=400)
             version = create_state_version(locked_workspace, user=request.user, state=state)
+            # Approvals are point-in-time. If the new state has fresh
+            # blockers in a previously-approved section, the approval
+            # is stale — flip it to NEEDS_ATTENTION so the commit gate
+            # forces the advisor to re-review. Without this, an advisor
+            # could approve `goals`, then PATCH to remove a required
+            # field, and still commit (silent gate evasion).
+            approvals = locked_workspace.section_approvals.filter(
+                status=models.SectionApproval.Status.APPROVED
+            )
+            for approval in approvals:
+                if section_blockers(state, approval.section):
+                    approval.status = models.SectionApproval.Status.NEEDS_ATTENTION
+                    approval.save(update_fields=["status", "updated_at"])
+                    invalidated_sections.append(approval.section)
         record_event(
             action="review_state_edited",
             entity_type="review_workspace",
@@ -1010,9 +1064,16 @@ class ReviewWorkspaceStateView(APIView):
                 "new_state_hash": _hash_json(state),
                 "reason_present": bool(reason),
                 "source_fact_ids": request.data.get("source_fact_ids", []),
+                "invalidated_approvals": invalidated_sections,
             },
         )
-        return Response({"state": version.state, "readiness": version.readiness})
+        return Response(
+            {
+                "state": version.state,
+                "readiness": version.readiness,
+                "invalidated_approvals": invalidated_sections,
+            }
+        )
 
 
 class ReviewWorkspaceSectionApprovalView(APIView):
@@ -1110,7 +1171,36 @@ class ReviewWorkspaceCommitView(APIView):
         try:
             committed = commit_reviewed_state(workspace, user=request.user, household=household)
         except ValueError as exc:
-            return Response({"detail": str(exc), "readiness": workspace.readiness}, status=400)
+            # Surface the gate that blocked the commit. The frontend's
+            # disabled-state should already keep the user from getting
+            # here, but if they do, the toast needs to be specific
+            # enough that they can self-serve a fix.
+            approvals = {
+                approval.section: approval.status for approval in workspace.section_approvals.all()
+            }
+            missing_approvals = [
+                section
+                for section in ENGINE_REQUIRED_SECTIONS
+                if approvals.get(section) != models.SectionApproval.Status.APPROVED
+            ]
+            reason_code = "unknown"
+            text = str(exc)
+            if "engine-ready" in text:
+                reason_code = "engine_not_ready"
+            elif "construction-ready" in text:
+                reason_code = "construction_not_ready"
+            elif "Required review sections" in text:
+                reason_code = "sections_not_approved"
+            return Response(
+                {
+                    "detail": text,
+                    "code": reason_code,
+                    "readiness": workspace.readiness,
+                    "missing_approvals": missing_approvals,
+                    "required_sections": list(ENGINE_REQUIRED_SECTIONS),
+                },
+                status=400,
+            )
         return Response(
             {
                 "household_id": committed.external_id,

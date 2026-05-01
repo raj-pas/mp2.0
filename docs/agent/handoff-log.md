@@ -1956,3 +1956,119 @@ testing.
   service can also be used once `docker compose build worker` is
   re-run (same fix as the backend image rebuild from the R0–R3
   smoke).
+
+## 2026-04-30 — Post-R7 doc-drop hardening (deep dig)
+
+Triggered by user report "issues with document upload, parsing, and
+commit; I am not even able to upload the documents now manually."
+Pipeline e2e was performed against the live host-mode stack with
+parallel audits across upload + parse + commit. Result: pipeline is
+sound; the surface failures trace to two compounding contract drifts
+plus a worker-recovery gap. All fixes landed; 6 new pytest tests
+guard the regressions.
+
+### Bugs found and fixed
+
+1. **Polling enum drift froze the UI at "processing".** Frontend
+   `ProcessingJobStatus = "queued" | "running" | "done" | "failed"`
+   never matched backend's actual choices `"queued" | "processing"
+   | "completed" | "failed"`. The `useReviewWorkspace` polling guard
+   `job.status === "running"` was always false → polling stopped
+   the moment the worker claimed the job → UI looked frozen.
+   Aligned the enum to backend and updated the guard to check
+   `processing`. Same drift on `SectionApprovalStatus` (backend has
+   `needs_attention` and `not_ready_for_recommendation`; frontend
+   shipped `not_ready`) and `DocumentStatus` (widened to actual
+   backend values: `uploaded`, `classified`, `text_extracted`,
+   `ocr_required`, `facts_extracted`, `reconciled`, `unsupported`).
+2. **Section-approval gate unreachable through the UI.** Backend
+   `ENGINE_REQUIRED_SECTIONS = ["household", "people", "accounts",
+   "goals", "goal_account_mapping", "risk"]`. Frontend hardcoded
+   `["people", "accounts", "goals", "risk", "planning"]`. Result:
+   `household` and `goal_account_mapping` had no Approve button;
+   `planning` had a button that did nothing useful. Commit always
+   400'd with a generic toast. Fixed by exposing
+   `required_sections` in `ReviewWorkspaceSerializer` (single
+   source of truth = `ENGINE_REQUIRED_SECTIONS`) and driving
+   `SectionApprovalPanel` + commit-disabled gate off the
+   server-provided list. Frontend tolerates extra approvals (legacy
+   data) without losing them.
+3. **Worker stale-job auto-recovery missing.** `claim_next_job()`
+   only filtered on `status=QUEUED`; a worker that crashed mid-job
+   left rows in `PROCESSING` indefinitely. Added
+   `requeue_stale_jobs()` that finds jobs with `locked_at < now -
+   MP20_WORKER_STALE_SECONDS` and either pushes them back to
+   `QUEUED` (if attempts remain) or marks `FAILED` (and propagates
+   to the document). Called at the top of every claim cycle. Fires
+   `review_job_auto_recovered` audit events.
+4. **Upload partial failure 500'd whole batch.** A single bad file
+   (disk error, FS perms, oversize) aborted the loop, no audit event
+   written, partial state left over. Wrapped each iteration in its
+   own try/except + `transaction.atomic()` for the per-file DB
+   writes. Failed files land in `ignored` with `failure_code`
+   instead of bubbling. Each failure fires
+   `review_document_upload_failed` audit; empty-batch rejection
+   fires `review_upload_empty_rejected`. Frontend toasts a
+   partial-success message naming the failed files.
+5. **Commit error response had no actionable detail.** Generic
+   "Could not commit household." toast with no hint which gate
+   blocked. Now backend returns
+   `{detail, code, readiness, missing_approvals, required_sections}`
+   on 400; `normalizeApiError` carries the structured body
+   through; `ReviewScreen` keys off `e.code` and produces specific
+   copy ("Approve required sections: household,
+   goal_account_mapping").
+6. **Approvals not invalidated on state PATCH.** Advisor could
+   approve `goals`, then PATCH to remove a required field, and the
+   approval persisted → silent commit-gate evasion. State PATCH
+   now flips approvals back to `NEEDS_ATTENTION` when the new
+   state has fresh blockers in that section, and the response
+   includes `invalidated_approvals` so the UI can hint.
+
+### New regression tests (web/api/tests/test_review_ingestion.py)
+
+- `test_workspace_serializer_exposes_required_sections`
+- `test_state_patch_invalidates_stale_section_approval`
+- `test_commit_returns_structured_error_with_missing_approvals`
+- `test_worker_auto_recovers_stale_processing_job`
+- `test_upload_partial_failure_does_not_500_whole_batch`
+- `test_full_pipeline_upload_to_commit` — full happy path:
+  POST upload → worker process → reconcile → state to
+  engine-ready → approve all required sections → commit →
+  household exists + audit event recorded.
+
+### Gates
+
+- `uv run ruff check . && uv run ruff format --check .` — clean
+- 216 engine pytest passing
+- 103 web pytest passing (97 prior + 6 new)
+- `cd frontend && npm run typecheck && npm run lint && npm run build` — clean
+- `scripts/check-vocab.sh` — OK
+- 10/10 Playwright e2e against the live stack pass (R2 chrome, R3
+  three-view, R4 goal allocation, R5 wizard, R6 realignment, R7
+  doc-drop)
+
+### Discovered but not fixed in this commit
+
+- **Worker-queue backlog blocks new uploads.** Local DB has 54
+  queued ProcessingJobs from prior smoke/regression runs (Real
+  Regression Bundle 1–7, Shofeldt, Shefer, Yeager, R7 e2e, etc.).
+  Worker FIFO means new uploads land at the back of the queue and
+  appear stuck. User triaged: leave for later — drain via
+  continuous worker, selective admin cancel, or local DB reset
+  (locked decision #34 pre-authorizes the latter).
+- **Bedrock region drift fail-closed not enforced** —
+  `bedrock_config_from_env(getattr(settings, "AWS_REGION",
+  "ca-central-1"))` silently defaults to ca-central-1 if env
+  unset; misconfigured `AWS_REGION=us-west-2` would route real_derived
+  there. Canon §11.8.3 says ca-central-1 only. Phase B follow-up.
+- **Cross-class conflicts silently dropped** — per canon §11.4 the
+  resolution is intentional, but no advisory badge surfaces which
+  source was dismissed. Phase B UX polish.
+- **Append-only invariant on commit** — `_merge_household_state`
+  deletes-then-recreates Person/Account/Goal rows. Atomic
+  transaction prevents partial state, but it violates the canon
+  append-only intent. Phase B follow-up.
+- **Reconcile job race** — `enqueue_reconcile()` check-then-create
+  is not atomic; multiple parallel processed-document jobs can
+  queue duplicates.

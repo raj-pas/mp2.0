@@ -7,7 +7,7 @@ from extraction.reconciliation import advisor_label, field_section
 from rest_framework import serializers
 
 from web.api import models
-from web.api.review_state import readiness_for_state
+from web.api.review_state import ENGINE_REQUIRED_SECTIONS, readiness_for_state
 from web.audit.models import AuditEvent
 
 
@@ -152,6 +152,7 @@ class ReviewWorkspaceSerializer(serializers.ModelSerializer):
     documents = ReviewDocumentSerializer(many=True, read_only=True)
     processing_jobs = ProcessingJobSerializer(many=True, read_only=True)
     section_approvals = SectionApprovalSerializer(many=True, read_only=True)
+    required_sections = serializers.SerializerMethodField()
     worker_health = serializers.SerializerMethodField()
     timeline = serializers.SerializerMethodField()
 
@@ -171,6 +172,7 @@ class ReviewWorkspaceSerializer(serializers.ModelSerializer):
             "documents",
             "processing_jobs",
             "section_approvals",
+            "required_sections",
             "worker_health",
             "timeline",
             "created_at",
@@ -194,6 +196,13 @@ class ReviewWorkspaceSerializer(serializers.ModelSerializer):
         if obj.reviewed_state:
             return readiness_for_state(obj.reviewed_state).__dict__
         return obj.readiness or {}
+
+    def get_required_sections(self, obj: models.ReviewWorkspace) -> list[str]:
+        # Single source of truth for the commit-gate sections. Frontend
+        # renders the approval checklist off this list so it stays in
+        # sync with `commit_reviewed_state`'s `required_sections_approved`
+        # check.
+        return list(ENGINE_REQUIRED_SECTIONS)
 
     def get_worker_health(self, obj: models.ReviewWorkspace) -> dict:
         heartbeat = models.WorkerHeartbeat.objects.first()
