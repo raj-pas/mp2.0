@@ -790,9 +790,7 @@ def test_workspace_serializer_exposes_required_sections() -> None:
         data_origin=models.ReviewWorkspace.DataOrigin.SYNTHETIC,
     )
 
-    response = client.get(
-        reverse("review-workspace-detail", args=[workspace.external_id])
-    )
+    response = client.get(reverse("review-workspace-detail", args=[workspace.external_id]))
 
     assert response.status_code == 200
     body = response.json()
@@ -838,9 +836,7 @@ def test_state_patch_invalidates_stale_section_approval(tmp_path, settings) -> N
 
 
 @pytest.mark.django_db
-def test_commit_returns_structured_error_with_missing_approvals(
-    tmp_path, settings
-) -> None:
+def test_commit_returns_structured_error_with_missing_approvals(tmp_path, settings) -> None:
     settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
     user = _user()
     client = APIClient()
@@ -941,9 +937,7 @@ def test_worker_auto_recovers_stale_processing_job(tmp_path, settings) -> None:
 
 
 @pytest.mark.django_db
-def test_upload_partial_failure_does_not_500_whole_batch(
-    tmp_path, settings, monkeypatch
-) -> None:
+def test_upload_partial_failure_does_not_500_whole_batch(tmp_path, settings, monkeypatch) -> None:
     """A bad file in a multi-file upload should land in `ignored`, not
     abort the request. The good files still upload and an audit event
     fires for the failure.

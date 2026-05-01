@@ -40,10 +40,15 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
   const upload = useUploadDocuments();
 
   function handleFilesPicked(event: ChangeEvent<HTMLInputElement>) {
+    // FileList from `event.target.files` is a LIVE reference: clearing
+    // `event.target.value` empties it, which races against React's
+    // deferred setFiles callback. Snapshot to a plain array BEFORE
+    // clearing the input so the callback sees stable data.
     const picked = event.target.files;
-    if (picked === null) return;
-    setFiles((prev) => [...prev, ...Array.from(picked)]);
+    if (picked === null || picked.length === 0) return;
+    const snapshot = Array.from(picked);
     event.target.value = "";
+    setFiles((prev) => [...prev, ...snapshot]);
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
@@ -51,7 +56,9 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
     setDragOver(false);
     const dropped = event.dataTransfer.files;
     if (dropped.length === 0) return;
-    setFiles((prev) => [...prev, ...Array.from(dropped)]);
+    // Same snapshot discipline — DataTransfer.files is also live.
+    const snapshot = Array.from(dropped);
+    setFiles((prev) => [...prev, ...snapshot]);
   }
 
   function removeFile(index: number) {

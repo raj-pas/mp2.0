@@ -2072,3 +2072,146 @@ guard the regressions.
 - **Reconcile job race** — `enqueue_reconcile()` check-then-create
   is not atomic; multiple parallel processed-document jobs can
   queue duplicates.
+
+## 2026-05-01 — Foundation rebuild + locked-#28b real-PII checkpoint (Niesner)
+
+User pushback after the post-R7 hardening commit (`4643bb5`) was
+unambiguous: "I can't upload docs and I don't think the whole flow
+is working at all. The ingestion pipeline isn't usable at all
+(robustness seems so far away for you)." Authorized: full DB reset,
+plus the locked-decision #28b real-PII checkpoint deferred from R7.
+
+### Foundation reset
+
+- `scripts/reset-v2-dev.sh --yes` — wiped the local Postgres volume
+  (54 stale ProcessingJobs from prior smoke + regression sweeps,
+  including Real Regression Bundle 1–7, Shofeldt, Shefer, Yeager,
+  R7 e2e debris). Reseeded Sandra/Mike + Default CMA + advisor login.
+- Backend container restarted on the fresh DB; Vite stayed up
+  (HMR was already in sync).
+- Secure root `/private/tmp/mp20-secure-data` left intact (PII
+  artifacts from prior runs — disposal needs `dispose_review_artifacts`
+  with explicit auth).
+
+### Critical bug found and fixed: live `FileList` ref race in DocDropOverlay
+
+**User-visible symptom:** Click "Start review", button greys out,
+nothing happens. No toast. No console error.
+
+**Root cause:** In `DocDropOverlay.handleFilesPicked`,
+`event.target.files` is a *live* FileList reference — clearing the
+input via `event.target.value = ""` empties it. The original code
+queued `setFiles((prev) => [...prev, ...Array.from(picked)])` (which
+runs deferred in React 18) and *then* cleared the input. By the time
+the deferred callback ran, `picked` was empty, so React state stayed
+at `[]`, the file count counter stayed at `0 FILES READY TO UPLOAD`,
+and the Start button stayed `disabled`. The R7 e2e spec ran the same
+pattern but happened to win the race in CI/headless runs ("works on
+my machine" flake).
+
+**Fix:** Snapshot `Array.from(picked)` synchronously *before*
+clearing the input. Same fix applied to `handleDrop` (DataTransfer
+also returns a live FileList).
+
+```ts
+// before
+setFiles((prev) => [...prev, ...Array.from(picked)]);
+event.target.value = "";
+
+// after
+const snapshot = Array.from(picked);
+event.target.value = "";
+setFiles((prev) => [...prev, ...snapshot]);
+```
+
+**Regression guard:** R7 e2e spec now asserts `1 FILE READY TO
+UPLOAD` *before* clicking Start, so the file-attach behavior is
+deterministically tested rather than implicitly relying on the
+downstream upload to succeed.
+
+### Synthetic full-pipeline validation
+
+Confirmed end-to-end against the live host-mode stack:
+
+1. POST `/api/review-workspaces/` → workspace created, `data_origin=synthetic`
+2. POST `/api/review-workspaces/{id}/upload/` → multipart upload, 200, `document_id` returned
+3. `process_review_queue --once` × 2 → process_document then reconcile_workspace, both completed
+4. GET workspace → `status: review_ready`, `readiness.engine_ready=false` (synthetic note doesn't satisfy required structure — expected)
+5. PATCH `/state/` with engine-ready state → `engine_ready=true && construction_ready=true`, no approvals invalidated (since the patched goal still has all required fields)
+6. POST commit (no approvals) → 400 with structured body
+   `{code: "sections_not_approved", missing_approvals: [household, people, accounts, goals, goal_account_mapping, risk]}`
+7. POST `/approve-section/` × 6 → all 200
+8. POST commit → 200, household created (`review_<workspace_id>`)
+9. POST `/clients/<id>/generate-portfolio/` → 200, PortfolioRun created with output_hash + cma_hash + advisor_summary
+
+Result: synthetic pipeline is sound through commit + portfolio gen.
+
+### Locked-#28b real-PII checkpoint (Niesner folder, 12 files, 8.5MB)
+
+User-authorized run against `/Users/saranyaraj/Documents/MP2.0_Clients/Niesner/`
+with all production safeguards active (ca-central-1 Bedrock,
+secure-root validation, real_derived data_origin).
+
+**Outcome:**
+
+- **285 facts** extracted across 10 successfully-reconciled
+  documents (PDFs: DOB / Profile / KYC / Address / Retirement
+  Guide / one Plan-projections xlsx; DOCX: Client Notes).
+- Reviewed state surfaced: 2 people, 8 accounts, 2 goals, 1
+  household, risk profile, 25 cross-source conflicts (correctly
+  picked up by source-priority reconciliation).
+- Readiness correctly identified the *only* remaining blockers:
+  goal time-horizon (advisor decision) + goal-account mapping
+  (advisor decision). Per canon §9.4.5 these are advisor-territory,
+  not AI-fabricated.
+- 2 documents failed gracefully and bounded:
+  1. **6.2MB Finalized Financial Plan PDF** — Bedrock returned
+     non-JSON output (likely token-limit truncation mid-JSON).
+     `failure_code: ValueError`, `last_error: "Bedrock extraction
+     did not return valid JSON."` after 3 attempts.
+  2. **One xlsx (planning projections)** — same `ValueError`.
+     Pattern: 1/3 xlsx succeeded, 2/3 failed. Bedrock
+     likely returns markdown tables for spreadsheet content
+     instead of pure JSON; `json_payload_from_model_text` repair
+     can't recover.
+- **No queue lockup:** failed jobs hit `max_attempts=3` → marked
+  FAILED → next queued doc claimed. The whole 12-doc batch
+  drained in ~7 minutes wall-clock.
+- **UI surfaces it correctly:** browser test renders all 12 doc
+  rows, 2 failed-status chips, readiness panel, all 6 required
+  section-approval buttons, missing-required panel listing the
+  advisor blockers.
+
+**Result:** the pipeline is mechanically sound for real PII. The
+two extraction-quality bugs (large-PDF token limit, xlsx markdown
+output) are real but bounded — they don't break the workspace,
+they just leave specific docs marked FAILED for advisor retry.
+
+### Findings parked for follow-up
+
+- **Bedrock JSON repair for xlsx content:** consider sending xlsx
+  with an "output JSON only, no markdown tables" instruction or
+  bypass Bedrock for tabular files using openpyxl directly.
+- **Large-PDF chunked extraction:** the 6.2MB Niesner Plan PDF
+  exceeds the effective token budget at `MP20_TEXT_EXTRACTION_MAX_CHARS=24000`.
+  Either chunk the text and merge facts, or surface a clearer
+  failure code so the UI can offer "manual entry" mode.
+- **curl filename-comma bug:** files with literal commas (e.g.
+  `"Alternate _ Sell home, keep vacation..."`) tripped curl's
+  `-F` parser at the operational layer. The browser FormData path
+  handles this correctly; only the curl-based smoke harness
+  affected. Worth a one-line note in the README.
+- **Self-hosted fonts** (`public/fonts/*.woff2` empty): browser
+  console spams "OTS parsing error" on each page load. UX is
+  fine via the system fallback chain (Inter / system-ui /
+  ui-monospace), but the spam is real. Locked decision #22d's
+  manual download step is still TODO.
+
+### Gates
+
+- 216 engine pytest + 103 web pytest = 319 passing
+- ruff check + ruff format check clean
+- frontend typecheck (TS strict) + ESLint clean
+- npm run build clean
+- 10/10 Playwright e2e against the live host-mode stack
+- vocab CI: OK

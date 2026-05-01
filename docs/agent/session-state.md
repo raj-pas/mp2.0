@@ -1,8 +1,8 @@
 # MP2.0 Session State
 
-**Last updated:** 2026-04-30
+**Last updated:** 2026-05-01
 **Branch:** `feature/ux-rebuild` (cut from `main` for the v36 UI/UX rewrite per locked decision #9)
-**Phase:** R7 — Doc-drop + Review-screen **COMPLETE** + post-R7 hardening (DocDropOverlay + ReviewScreen + ReviewRoute; 11 review endpoints wired with typed hooks; canon §6.7/§11.4/§11.8.3 discipline; 10/10 e2e). Post-R7 deep dig closed 6 contract-drift bugs (FE/BE enum drift on ProcessingJobStatus + SectionApprovalStatus + DocumentStatus, hardcoded section-approval list mismatching ENGINE_REQUIRED_SECTIONS, worker stale-job auto-recovery, upload per-file try/except, structured commit error response, state-PATCH approval invalidation); 6 new pytest tests guard the regressions; 103 web pytest passing.
+**Phase:** R7 — Doc-drop + Review-screen **COMPLETE** + post-R7 hardening + locked-#28b real-PII checkpoint (Niesner folder). Foundation reset (`scripts/reset-v2-dev.sh --yes`) cleared 54 stale ProcessingJobs from prior sessions. **User-reported "button greys, nothing happens" upload bug ROOT-CAUSED + fixed**: a live `FileList` reference race in `DocDropOverlay.handleFilesPicked` — `event.target.value = ""` cleared the live FileList before React's deferred `setFiles` callback could read it; fix snapshots `Array.from(picked)` synchronously. Synthetic full pipeline validated end-to-end (upload → worker → reconcile → state PATCH → approve → commit → portfolio gen). Niesner real-PII checkpoint: 12 docs uploaded, 285 facts extracted across 10 reconciled docs (PDFs + DOCX), 2 known-bad-bounded failures (6.2MB Plan PDF + 1 xlsx — both `Bedrock did not return valid JSON`); UI surfaces all correctly. Gates: 319 pytest + 10/10 e2e + ruff + typecheck + lint + build + vocab.
 **Status:** R0 lands the substrate for the v36 advisor console rewrite. Five new pure
 engine modules with 216 parity tests; engine purity AST-enforced; new R0 modules pass
 mypy strict. Backend ships drf-spectacular OpenAPI, django-csp 4.x security headers,

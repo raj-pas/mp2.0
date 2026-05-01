@@ -321,6 +321,17 @@ test.describe("R7 doc-drop + review queue", () => {
       buffer,
     });
 
+    // Regression guard: the live `FileList` reference returned by
+    // `event.target.files` becomes empty when the input is cleared
+    // (`event.target.value = ""`). The handler MUST snapshot
+    // `Array.from(...)` synchronously before clearing — otherwise React's
+    // deferred `setFiles` callback observes an empty list and the file
+    // never lands in state. The "1 FILE READY TO UPLOAD" counter is the
+    // user-visible signal that the snapshot worked.
+    await expect(page.getByText(/1 FILE READY TO UPLOAD/i)).toBeVisible({
+      timeout: 3000,
+    });
+
     // Start the review.
     await page.getByRole("button", { name: /^Start review$/ }).click();
 
