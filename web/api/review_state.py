@@ -441,12 +441,21 @@ def create_state_version(
     )
     locked_workspace.reviewed_state = state
     locked_workspace.readiness = readiness.__dict__
-    locked_workspace.status = (
-        models.ReviewWorkspace.Status.ENGINE_READY
-        if readiness.engine_ready
-        else models.ReviewWorkspace.Status.REVIEW_READY
-    )
-    locked_workspace.save(update_fields=["reviewed_state", "readiness", "status", "updated_at"])
+    # NEVER downgrade a COMMITTED workspace. Same root cause as the
+    # reconcile-after-commit race: a stale code path that calls
+    # create_state_version on a committed workspace must not flip status
+    # back to ENGINE_READY/REVIEW_READY. The version row itself is still
+    # appended (audit / history value); only the live workspace status
+    # is preserved at COMMITTED.
+    update_fields = ["reviewed_state", "readiness", "updated_at"]
+    if locked_workspace.status != models.ReviewWorkspace.Status.COMMITTED:
+        locked_workspace.status = (
+            models.ReviewWorkspace.Status.ENGINE_READY
+            if readiness.engine_ready
+            else models.ReviewWorkspace.Status.REVIEW_READY
+        )
+        update_fields.append("status")
+    locked_workspace.save(update_fields=update_fields)
     workspace.reviewed_state = locked_workspace.reviewed_state
     workspace.readiness = locked_workspace.readiness
     workspace.status = locked_workspace.status

@@ -1078,3 +1078,200 @@ def test_full_pipeline_upload_to_commit(tmp_path, settings) -> None:
     assert AuditEvent.objects.filter(
         action="review_state_committed", entity_id=workspace_id
     ).exists()
+
+
+@pytest.mark.django_db
+def test_commit_after_patch_state_flips_status_and_is_idempotent(tmp_path, settings) -> None:
+    """Regression for the catalogued post-R7 real-PII bug:
+
+    After a state-PATCH (which calls create_state_version) seeds a
+    state version + sets workspace.status = engine_ready, then a
+    successful POST /commit must:
+      1. Persist workspace.status = COMMITTED (not engine_ready)
+      2. Be idempotent — a second POST /commit returns the SAME
+         household, never an IntegrityError on Household.external_id
+
+    This exercises the nested @transaction.atomic interaction between
+    create_state_version (called by both the PATCH endpoint and
+    commit_reviewed_state internally) and commit_reviewed_state's
+    final save. The existing test_commit_requires_engine_ready_and_
+    creates_household covers a path where workspace.reviewed_state is
+    seeded directly without going through the PATCH endpoint — so it
+    misses any state-versioning interaction.
+    """
+
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    call_command("seed_default_cma")
+    user = _user()
+    api_client = APIClient()
+    api_client.force_authenticate(user=user)
+
+    create_response = api_client.post(
+        reverse("review-workspace-list"),
+        {"label": "Re-commit regression", "data_origin": "synthetic"},
+        format="json",
+    )
+    assert create_response.status_code == 200
+    workspace_id = create_response.json()["external_id"]
+
+    # PATCH /state — exact production path that creates a versioned state
+    # row with status=engine_ready BEFORE the commit endpoint runs.
+    patch_response = api_client.patch(
+        reverse("review-workspace-state", args=[workspace_id]),
+        {"state": _engine_ready_state()},
+        format="json",
+    )
+    assert patch_response.status_code == 200
+
+    workspace = models.ReviewWorkspace.objects.get(external_id=workspace_id)
+    assert workspace.status == models.ReviewWorkspace.Status.ENGINE_READY, (
+        "PATCH /state did not flip workspace to engine_ready — bug in "
+        "create_state_version or readiness math, not the bug we're after"
+    )
+
+    for section in ("household", "people", "accounts", "goals", "goal_account_mapping", "risk"):
+        approve_response = api_client.post(
+            reverse("review-workspace-approve-section", args=[workspace_id]),
+            {"section": section, "status": "approved"},
+            format="json",
+        )
+        assert approve_response.status_code == 200, (
+            f"approve {section} failed: {approve_response.content!r}"
+        )
+
+    first_commit = api_client.post(
+        reverse("review-workspace-commit", args=[workspace_id]),
+        format="json",
+    )
+    assert first_commit.status_code == 200, first_commit.content
+    household_id = first_commit.json()["household_id"]
+
+    # ── core invariant: workspace must end at COMMITTED in DB ────────────
+    workspace.refresh_from_db()
+    assert workspace.status == models.ReviewWorkspace.Status.COMMITTED, (
+        f"Workspace status is {workspace.status}, expected COMMITTED. "
+        "The catalogued post-R7 bug: create_state_version inside "
+        "commit_reviewed_state writes status=engine_ready, and the "
+        "outer save's update_fields list must override it back to "
+        "COMMITTED before the transaction commits."
+    )
+    assert workspace.linked_household is not None
+    assert workspace.linked_household.external_id == household_id
+
+    # ── idempotency: second POST returns same household, no IntegrityError ─
+    second_commit = api_client.post(
+        reverse("review-workspace-commit", args=[workspace_id]),
+        format="json",
+    )
+    assert second_commit.status_code == 200, (
+        f"Second commit returned {second_commit.status_code}; "
+        f"body={second_commit.content!r}. The catalogued bug is: "
+        "second commit hits Household.external_id unique-constraint "
+        "with a 500 IntegrityError because the workspace.status check "
+        "in commit_reviewed_state's early-return failed."
+    )
+    assert second_commit.json()["household_id"] == household_id
+    assert models.Household.objects.filter(external_id=household_id).count() == 1
+
+    # ── audit invariant: only ONE review_state_committed event emitted,
+    # not one per commit attempt — second was a no-op return.
+    committed_events = AuditEvent.objects.filter(
+        action="review_state_committed", entity_id=workspace_id
+    )
+    assert committed_events.count() == 1, (
+        f"Expected 1 review_state_committed event after 2 commit calls "
+        f"(second is a no-op idempotent return); got {committed_events.count()}."
+    )
+
+
+@pytest.mark.django_db
+def test_post_commit_worker_reconcile_does_not_downgrade_status(tmp_path, settings) -> None:
+    """ROOT CAUSE for the catalogued post-R7 real-PII bug:
+
+    The Niesner failure mode was: after a successful commit, a stale
+    background worker pass on a still-draining doc called
+    `reconcile_workspace`, which unconditionally wrote
+    workspace.status = ENGINE_READY, silently downgrading the just-
+    committed workspace. Subsequent commit attempts then failed the
+    early-return at commit_reviewed_state:463 and tried to recreate
+    the linked household → IntegrityError on Household.external_id.
+
+    Race condition (sequential, single-threaded since both run in
+    same Postgres):
+      1. POST /commit → workspace.status = COMMITTED, household linked
+      2. Worker processes the next doc job for this workspace
+      3. Worker's reconcile_workspace overwrites status → ENGINE_READY
+      4. Workspace is now in an inconsistent state: status=engine_ready
+         but linked_household != None
+      5. Next POST /commit fails at line 463 check, recreates household
+         → IntegrityError on Household.external_id unique constraint.
+
+    Fix: reconcile_workspace + create_state_version must be defensive
+    — never downgrade a COMMITTED workspace.
+    """
+
+    from web.api.review_processing import reconcile_workspace
+
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    call_command("seed_default_cma")
+    user = _user()
+    api_client = APIClient()
+    api_client.force_authenticate(user=user)
+
+    create_response = api_client.post(
+        reverse("review-workspace-list"),
+        {"label": "Worker race regression", "data_origin": "synthetic"},
+        format="json",
+    )
+    assert create_response.status_code == 200
+    workspace_id = create_response.json()["external_id"]
+
+    api_client.patch(
+        reverse("review-workspace-state", args=[workspace_id]),
+        {"state": _engine_ready_state()},
+        format="json",
+    )
+    for section in ("household", "people", "accounts", "goals", "goal_account_mapping", "risk"):
+        api_client.post(
+            reverse("review-workspace-approve-section", args=[workspace_id]),
+            {"section": section, "status": "approved"},
+            format="json",
+        )
+
+    first_commit = api_client.post(
+        reverse("review-workspace-commit", args=[workspace_id]),
+        format="json",
+    )
+    assert first_commit.status_code == 200
+    household_id = first_commit.json()["household_id"]
+
+    workspace = models.ReviewWorkspace.objects.get(external_id=workspace_id)
+    assert workspace.status == models.ReviewWorkspace.Status.COMMITTED
+
+    # ── simulate the catalogued race: a stale worker pass calls
+    # reconcile_workspace AFTER the commit landed. This used to silently
+    # downgrade status. Post-fix it must be a no-op (or at least preserve
+    # COMMITTED).
+    reconcile_workspace(workspace)
+
+    workspace.refresh_from_db()
+    assert workspace.status == models.ReviewWorkspace.Status.COMMITTED, (
+        f"reconcile_workspace silently downgraded the committed workspace "
+        f"to {workspace.status}. This is the catalogued post-R7 real-PII "
+        "bug — reconcile must not write status when the workspace is "
+        "already COMMITTED (and ideally should refuse to run at all)."
+    )
+    assert workspace.linked_household is not None
+    assert workspace.linked_household.external_id == household_id
+
+    # ── second commit must still be idempotent after the worker pass.
+    second_commit = api_client.post(
+        reverse("review-workspace-commit", args=[workspace_id]),
+        format="json",
+    )
+    assert second_commit.status_code == 200, (
+        f"Second commit after stale worker reconcile returned "
+        f"{second_commit.status_code}; body={second_commit.content!r}"
+    )
+    assert second_commit.json()["household_id"] == household_id
+    assert models.Household.objects.filter(external_id=household_id).count() == 1

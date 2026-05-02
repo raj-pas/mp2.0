@@ -277,6 +277,26 @@ def _is_empty_fact_value(value: Any) -> bool:
 
 
 def reconcile_workspace(workspace: models.ReviewWorkspace) -> dict[str, Any]:
+    # Defensive refresh: a stale `workspace` instance (e.g., the worker
+    # was holding it for several seconds while Bedrock processed) might
+    # not reflect a recent commit. We MUST never downgrade a COMMITTED
+    # workspace — doing so caused the catalogued post-R7 real-PII bug
+    # (Niesner): subsequent commit attempts hit a Household.external_id
+    # IntegrityError because reconcile silently flipped status back to
+    # ENGINE_READY/REVIEW_READY.
+    workspace.refresh_from_db(fields=["status", "linked_household"])
+    if workspace.status == models.ReviewWorkspace.Status.COMMITTED:
+        record_event(
+            action="review_workspace_reconcile_skipped_committed",
+            entity_type="review_workspace",
+            entity_id=workspace.external_id,
+            metadata={
+                "workspace_id": workspace.external_id,
+                "reason": "workspace_already_committed",
+            },
+        )
+        return workspace.reviewed_state or reviewed_state_from_workspace(workspace)
+
     state = reviewed_state_from_workspace(workspace)
     workspace.reviewed_state = state
     workspace.readiness = state["readiness"]
