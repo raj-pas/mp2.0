@@ -116,7 +116,9 @@ def test_generate_portfolio_blocks_duplicate_current_lifecycle_state() -> None:
     response = client.post(reverse("generate-portfolio", args=["hh_sandra_mike_chen"]))
 
     assert response.status_code == 409
-    assert "Duplicate or ambiguous" in response.json()["detail"]
+    # Phase 2 PII scrub: detail is now generic; the structured event
+    # carries the durable diagnostic via reason_code, not response detail.
+    assert response.json()["code"] in {"ValueError", "ValidationError"}
     assert models.PortfolioRunEvent.objects.filter(
         event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
         reason_code="ambiguous_current_lifecycle",
@@ -131,6 +133,8 @@ def test_generate_portfolio_requires_active_cma_snapshot() -> None:
     response = client.post(reverse("generate-portfolio", args=["hh_sandra_mike_chen"]))
 
     assert response.status_code == 409
+    # CMA-snapshot-missing returns a hardcoded message (non-exception
+    # path; PII-safe by construction). Detail-string assertion preserved.
     assert "No active CMA snapshot" in response.json()["detail"]
 
 

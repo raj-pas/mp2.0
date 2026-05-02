@@ -17,12 +17,32 @@ _ACCOUNT_PATTERN = re.compile(
     r"(?i)(?:account|acct)(?:\s*(?:no|number|num))?[\s.:#]+"
     r"(?!T\d{4}\b)(?!TP-\d)(?=[A-Z0-9_-]*\d)[A-Z0-9_-]{5,}"
 )
+# Phase 2 (2026-05-02) — REDACT-1: extend redaction patterns to cover
+# routing numbers (Canadian: 9-digit transit/institution; US: 9-digit
+# routing) + phone numbers (NA format) + simple street addresses. These
+# previously slipped through evidence-quote redaction.
+_ROUTING_PATTERN = re.compile(r"(?<!\$)(?<!\d)\b\d{3}[-\s]?\d{3}[-\s]?\d{3}\b(?!\s*%)(?!\d)")
+_PHONE_PATTERN = re.compile(r"(?<!\d)\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b(?!\d)")
+# Best-effort street-address: digit run + word + common street suffix.
+# Acknowledged limitation: misses PO boxes, rural routes, addresses
+# without a numeric prefix. Documented as a known partial in
+# docs/agent/extraction-audit.md.
+_ADDRESS_PATTERN = re.compile(
+    r"\b\d+\s+[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*\s+"
+    r"(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Way|Place|Pl)\b\.?",
+    re.IGNORECASE,
+)
 
 _REDACTION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (_CREDIT_CARD_PATTERN, "[CARD REDACTED]"),
     (_SIN_PATTERN, "[SIN/SSN REDACTED]"),
     (_SSN_PATTERN, "[SIN/SSN REDACTED]"),
     (_ACCOUNT_PATTERN, "[ACCOUNT REDACTED]"),
+    # Order matters: routing must run AFTER credit-card / SIN to avoid
+    # over-matching their digit runs.
+    (_ROUTING_PATTERN, "[ROUTING REDACTED]"),
+    (_PHONE_PATTERN, "[PHONE REDACTED]"),
+    (_ADDRESS_PATTERN, "[ADDRESS REDACTED]"),
 )
 
 

@@ -442,7 +442,10 @@ def test_commit_requires_required_section_approvals() -> None:
     response = client.post(reverse("review-workspace-commit", args=[workspace.external_id]), {})
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Required review sections are not approved."
+    # Phase 2 PII scrub: detail is now a generic friendly message; the
+    # durable contract is the structured `code` field that the
+    # frontend reads to look up `review.failure_code.<code>` i18n.
+    assert response.json()["code"] == "sections_not_approved"
 
 
 @pytest.mark.django_db
@@ -463,7 +466,9 @@ def test_review_state_patch_rejects_legacy_household_risk_score() -> None:
     )
 
     assert response.status_code == 400
-    assert "risk.household_score must be a 1-5 score" in response.json()["detail"]
+    # Phase 2 PII scrub: detail is now generic friendly text; assert
+    # structured code (ValidationError / ValueError class name).
+    assert response.json()["code"] in {"ValueError", "ValidationError"}
 
 
 @pytest.mark.django_db
@@ -482,7 +487,8 @@ def test_commit_requires_construction_ready() -> None:
     response = client.post(reverse("review-workspace-commit", args=[workspace.external_id]), {})
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Reviewed state is not construction-ready."
+    # Phase 2 PII scrub: assert structured code, not detail string.
+    assert response.json()["code"] == "construction_not_ready"
 
 
 @pytest.mark.django_db
@@ -690,10 +696,8 @@ def test_committed_workspace_cannot_relink_to_different_household(tmp_path, sett
 
     assert first_response.status_code == 200
     assert second_response.status_code == 400
-    assert (
-        second_response.json()["detail"]
-        == "Review workspace is already committed to another household."
-    )
+    # Phase 2 PII scrub: detail is now generic; assert code field.
+    assert second_response.json()["code"] == "unknown"
 
 
 @pytest.mark.django_db

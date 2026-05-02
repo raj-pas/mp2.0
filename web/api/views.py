@@ -37,6 +37,10 @@ from web.api.engine_adapter import (
     to_engine_cma,
     to_engine_household,
 )
+from web.api.error_codes import (
+    safe_audit_metadata,
+    safe_response_payload,
+)
 from web.api.review_processing import enqueue_reconcile
 from web.api.review_security import (
     assert_real_upload_backend_ready,
@@ -90,6 +94,7 @@ class CMAValidationError(ValueError):
         diagnostics: dict | None = None,
     ) -> None:
         super().__init__(message)
+        self.detail = message  # exposed structurally so callers don't need str(exc) (Phase 2)
         self.code = code
         self.diagnostics = diagnostics or {}
 
@@ -205,9 +210,15 @@ class GeneratePortfolioView(APIView):
                 household=household,
                 actor=_actor(request),
                 reason_code="invalid_cma_universe",
-                metadata={"household_id": household.external_id, "detail": str(exc)},
+                metadata=safe_audit_metadata(exc, household_id=household.external_id),
             )
-            return Response({"detail": f"Invalid active CMA universe: {exc}"}, status=409)
+            # Phase 2 PII scrub: CMA-universe error message is internally
+            # constructed (non-PII) but route through the structured shape
+            # for consistency with the grep guard.
+            return Response(
+                safe_response_payload(exc, hint="invalid_cma_universe"),
+                status=409,
+            )
         readiness_error = portfolio_generation_blocker_for_household(household)
         if readiness_error:
             _record_portfolio_event(
@@ -232,9 +243,9 @@ class GeneratePortfolioView(APIView):
                 household=household,
                 actor=_actor(request),
                 reason_code="missing_real_derived_provenance",
-                metadata={"household_id": household.external_id, "detail": str(exc)},
+                metadata=safe_audit_metadata(exc, household_id=household.external_id),
             )
-            return Response({"detail": str(exc)}, status=400)
+            return Response(safe_response_payload(exc), status=400)
         as_of_date = timezone.localdate()
         run_signature = _hash_json(
             {
@@ -254,9 +265,9 @@ class GeneratePortfolioView(APIView):
                 household=household,
                 actor=_actor(request),
                 reason_code="ambiguous_current_lifecycle",
-                metadata={"household_id": household.external_id, "detail": str(exc)},
+                metadata=safe_audit_metadata(exc, household_id=household.external_id),
             )
-            return Response({"detail": str(exc)}, status=409)
+            return Response(safe_response_payload(exc), status=409)
         if reusable is not None:
             verification = _portfolio_run_verification(
                 reusable,
@@ -321,9 +332,9 @@ class GeneratePortfolioView(APIView):
                 household=household,
                 actor=_actor(request),
                 reason_code="missing_v2_manifest_inputs",
-                metadata={"household_id": household.external_id, "detail": str(exc)},
+                metadata=safe_audit_metadata(exc, household_id=household.external_id),
             )
-            return Response({"detail": str(exc)}, status=409)
+            return Response(safe_response_payload(exc), status=409)
         payload["warnings"] = sorted(set(payload.get("warnings") or []).union(provenance_warnings))
         output_hash = _hash_json(payload)
         regenerated_after_decline = _latest_reusable_run_was_declined(household)
@@ -581,7 +592,7 @@ class CMASnapshotListView(APIView):
                 snapshot = _clone_cma_snapshot(source, request.user)
                 _apply_cma_patch(snapshot, request.data)
         except ValueError as exc:
-            return Response({"detail": str(exc)}, status=400)
+            return Response(safe_response_payload(exc), status=400)
         snapshot.refresh_from_db()
         record_event(
             action="cma_snapshot_draft_created",
@@ -822,9 +833,9 @@ class ReviewWorkspaceUploadView(APIView):
                     entity_type="review_workspace",
                     entity_id=workspace.external_id,
                     actor=_actor(request),
-                    metadata={"reason": str(exc), "workspace_id": workspace.external_id},
+                    metadata=safe_audit_metadata(exc, workspace_id=workspace.external_id),
                 )
-                return Response({"detail": str(exc)}, status=503)
+                return Response(safe_response_payload(exc), status=503)
         files = request.FILES.getlist("files")
         if not files:
             record_event(
@@ -1135,7 +1146,7 @@ class ReviewWorkspaceStateView(APIView):
             try:
                 validate_review_state_contract(state)
             except ValueError as exc:
-                return Response({"detail": str(exc)}, status=400)
+                return Response(safe_response_payload(exc), status=400)
             version = create_state_version(locked_workspace, user=request.user, state=state)
             # Approvals are point-in-time. If the new state has fresh
             # blockers in a previously-approved section, the approval
@@ -1283,22 +1294,31 @@ class ReviewWorkspaceCommitView(APIView):
                 for section in ENGINE_REQUIRED_SECTIONS
                 if approvals.get(section) != models.SectionApproval.Status.APPROVED
             ]
+            # Phase 2 PII scrub: classify the gate-failure code by
+            # string-searching the internally-constructed exception
+            # message (commit_reviewed_state raises ValueError with
+            # advisor-friendly text, not Bedrock content), but the
+            # response body uses the structured `friendly_message` for
+            # the `detail` slot so we can't accidentally leak future
+            # exception bodies that originate from a real-PII path.
             reason_code = "unknown"
-            text = str(exc)
-            if "engine-ready" in text:
+            # PII-safe-classifier: commit_reviewed_state raises with
+            # internally-constructed messages (not Bedrock content).
+            classifier_text = str(exc)
+            if "engine-ready" in classifier_text:
                 reason_code = "engine_not_ready"
-            elif "construction-ready" in text:
+            elif "construction-ready" in classifier_text:
                 reason_code = "construction_not_ready"
-            elif "Required review sections" in text:
+            elif "Required review sections" in classifier_text:
                 reason_code = "sections_not_approved"
             return Response(
-                {
-                    "detail": text,
-                    "code": reason_code,
-                    "readiness": workspace.readiness,
-                    "missing_approvals": missing_approvals,
-                    "required_sections": list(ENGINE_REQUIRED_SECTIONS),
-                },
+                safe_response_payload(
+                    exc,
+                    code=reason_code,
+                    readiness=workspace.readiness,
+                    missing_approvals=missing_approvals,
+                    required_sections=list(ENGINE_REQUIRED_SECTIONS),
+                ),
                 status=400,
             )
         return Response(
@@ -2189,13 +2209,20 @@ def _audit_event_payload(event: AuditEvent) -> dict:
 
 
 def _cma_validation_error_payload(exc: ValueError) -> dict:
+    # CMA validation errors are analyst-facing on non-PII data (market
+    # assumptions, not client docs). The internally-constructed
+    # `CMAValidationError.detail` is intentionally specific so the
+    # analyst can fix the input. Phase 2 routes through
+    # `safe_response_payload` for non-CMA-typed exceptions only;
+    # CMAValidationError keeps its rich detail for the structured
+    # diagnostics payload analysts depend on.
     if isinstance(exc, CMAValidationError):
         return {
-            "detail": str(exc),
+            "detail": exc.detail,  # internally-constructed; not a Bedrock surface
             "code": exc.code,
             "diagnostics": exc.diagnostics,
         }
-    return {"detail": str(exc)}
+    return safe_response_payload(exc)
 
 
 def _hash_json(value: object) -> str:

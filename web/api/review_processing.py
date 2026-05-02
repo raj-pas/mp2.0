@@ -9,7 +9,6 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.utils import timezone
 from extraction.llm import (
-    BedrockExtractionError,
     bedrock_config_from_env,
     json_payload_from_model_text,
 )
@@ -395,23 +394,30 @@ def _json_payload_from_model_text(content: str) -> dict[str, Any]:
 
 
 def _failure_code_for(exc: Exception) -> str:
-    """Map an exception to a structured advisor-facing failure_code.
+    """Compatibility shim — delegate to the canonical mapper in error_codes.
 
-    BedrockExtractionError subclasses carry their own typed `.failure_code`
-    (e.g. `bedrock_token_limit`, `bedrock_non_json`,
-    `bedrock_schema_mismatch`). Other exception types fall back to the
-    class name so we don't lose diagnostic signal — but the goal over
-    time is to grow the typed taxonomy so every failure routes through a
-    code the UI can render specific copy + recovery affordance for.
+    Phase 2 (2026-05-02) moved the canonical mapping to
+    ``web/api/error_codes.py`` so the same logic can be used by HTTP
+    response builders without an import cycle through this module.
+    Kept as a thin re-export for backwards compatibility with existing
+    imports.
     """
-    if isinstance(exc, BedrockExtractionError):
-        return exc.failure_code
-    return exc.__class__.__name__
+    from web.api.error_codes import failure_code_for_exc
+
+    return failure_code_for_exc(exc)
 
 
 def _fail_or_retry(job: models.ProcessingJob, exc: Exception) -> None:
+    # Phase 2 PII scrub (2026-05-02): never persist raw `str(exc)` in
+    # `last_error` or `failure_reason` — real-PII Bedrock errors can
+    # carry extracted client text in the message body. Use the
+    # structured `<ExceptionClass>:<failure_code>` summary instead.
+    # Closes audit findings PII-2 + PII-3 (per docs/agent/extraction-audit.md).
+    from web.api.error_codes import safe_exception_summary
+
     failure_code = _failure_code_for(exc)
-    job.last_error = str(exc)
+    structured_summary = safe_exception_summary(exc)
+    job.last_error = structured_summary
     job.metadata = {
         **job.metadata,
         "stage": job.metadata.get("stage", job.job_type),
@@ -424,7 +430,7 @@ def _fail_or_retry(job: models.ProcessingJob, exc: Exception) -> None:
         job.completed_at = timezone.now()
         if job.document:
             job.document.status = models.ReviewDocument.Status.FAILED
-            job.document.failure_reason = str(exc)
+            job.document.failure_reason = structured_summary
             job.document.processing_metadata = {
                 **job.document.processing_metadata,
                 "failure_code": failure_code,

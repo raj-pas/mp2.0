@@ -52,6 +52,7 @@ from rest_framework.views import APIView
 
 from web.api import models
 from web.api.access import team_households
+from web.api.error_codes import safe_response_payload
 
 # ---------------------------------------------------------------------------
 # Serializers — request shapes only. Responses are dict[str, Any] driven by
@@ -286,7 +287,7 @@ class GoalScorePreviewView(APIView):
                 override=override,
             )
         except ValueError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(safe_response_payload(exc), status=status.HTTP_400_BAD_REQUEST)
         return Response(result.model_dump())
 
 
@@ -342,7 +343,7 @@ class ProjectionPreviewView(APIView):
                 is_external=data["is_external"],
             )
         except ValueError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(safe_response_payload(exc), status=status.HTTP_400_BAD_REQUEST)
         return Response(bands.model_dump())
 
 
@@ -377,7 +378,7 @@ class ProjectionPathsPreviewView(APIView):
                 for pct in data["percentiles"]
             ]
         except ValueError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(safe_response_payload(exc), status=status.HTTP_400_BAD_REQUEST)
         return Response({"paths": paths})
 
 
@@ -403,7 +404,7 @@ class ProbabilityPreviewView(APIView):
                 is_external=data["is_external"],
             )
         except ValueError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(safe_response_payload(exc), status=status.HTTP_400_BAD_REQUEST)
         return Response({"probability": probability})
 
 
@@ -450,7 +451,7 @@ class OptimizerOutputPreviewView(APIView):
                 override=override,
             )
         except ValueError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(safe_response_payload(exc), status=status.HTTP_400_BAD_REQUEST)
 
         rep_score = BUCKET_REPRESENTATIVE_SCORE[resolved.score_1_5]
         # P_score = score_1_5 / 5 maps to {0.05, 0.15, 0.25, 0.35, 0.45} per
@@ -554,7 +555,7 @@ class MovesPreviewView(APIView):
                 override=active_goal_override(goal),
             )
         except ValueError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(safe_response_payload(exc), status=status.HTTP_400_BAD_REQUEST)
         rep_score = int(BUCKET_REPRESENTATIVE_SCORE[resolved.score_1_5])
         ideal_pct_int = SLEEVE_REF_POINTS[rep_score]
         ideal_pct = {fid: pct / 100.0 for fid, pct in ideal_pct_int.items()}
