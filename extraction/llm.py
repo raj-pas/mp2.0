@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,33 @@ from extraction.schemas import BedrockFactsPayload, ClassificationResult, FactCa
 
 MAX_IMAGE_BLOCK_BYTES = 4_500_000
 MAX_VISUAL_REQUEST_BYTES = 18_000_000
+
+# Output token budget for Bedrock fact-extraction calls.
+#
+# Default 16384: empirically chosen during 2026-05-01 extraction-quality
+# hardening. The previous default (4096) truncated mid-JSON for spreadsheet
+# planning docs and large native PDFs — Bedrock generated valid `{"facts":
+# [ ... ]}` shape but ran out of output budget at ~11.7K chars, with the
+# repair-retry hitting the same wall. 16384 gives ~3x headroom while
+# staying well under Sonnet 4.6's per-call ceiling on Bedrock.
+#
+# Override via MP20_BEDROCK_MAX_TOKENS for ops-time tuning without code
+# change (raise for very large planning docs, lower if Bedrock spend
+# becomes a concern). Keep this as a single source of truth so all three
+# call sites stay aligned.
+DEFAULT_BEDROCK_MAX_TOKENS = 16384
+
+
+def _bedrock_max_tokens() -> int:
+    raw = os.getenv("MP20_BEDROCK_MAX_TOKENS")
+    if not raw:
+        return DEFAULT_BEDROCK_MAX_TOKENS
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_BEDROCK_MAX_TOKENS
+    return value if value > 0 else DEFAULT_BEDROCK_MAX_TOKENS
+
 
 PROMPT_VERSION_BY_TYPE = {
     "kyc": KYC_PROMPT_VERSION,
@@ -113,7 +141,7 @@ def extract_text_facts_with_bedrock(
     )
     response = client.messages.create(
         model=config.model,
-        max_tokens=4096,
+        max_tokens=_bedrock_max_tokens(),
         messages=[{"role": "user", "content": prompt}],
     )
     return facts_from_bedrock_response(
@@ -148,7 +176,7 @@ def extract_visual_facts_with_bedrock(
     )
     response = client.messages.create(
         model=config.model,
-        max_tokens=4096,
+        max_tokens=_bedrock_max_tokens(),
         messages=[{"role": "user", "content": [*image_blocks, {"type": "text", "text": prompt}]}],
     )
     return (
@@ -204,6 +232,32 @@ def fact_extraction_prompt(
     )
 
 
+def _maybe_write_bedrock_debug(stage: str, extraction_run_id: str, content: str) -> None:
+    """Optionally persist a raw Bedrock response for diagnostic use.
+
+    Gated on MP20_DEBUG_BEDROCK_RESPONSES=1. Writes only inside
+    MP20_SECURE_DATA_ROOT/_debug/. Never to stdout, repo, or external
+    sinks. Real-PII discipline (canon §11.8.3): contents may include
+    extracted client text; treat the path as PII storage.
+
+    Off by default. Used to investigate JSON-parse failures during
+    extraction-quality hardening — characterize whether Bedrock is
+    returning markdown tables, prose preambles, truncated output, or
+    schema-drifted JSON.
+    """
+    if os.getenv("MP20_DEBUG_BEDROCK_RESPONSES") != "1":
+        return
+    secure_root = os.environ.get("MP20_SECURE_DATA_ROOT")
+    if not secure_root:
+        return
+    debug_dir = Path(secure_root) / "_debug"
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    safe_id = re.sub(r"[^a-zA-Z0-9_-]+", "_", extraction_run_id)[:80] or "unknown"
+    timestamp = int(time.time() * 1000)
+    target = debug_dir / f"{safe_id}-{stage}-{timestamp}.txt"
+    target.write_text(content, encoding="utf-8")
+
+
 def facts_from_bedrock_response(  # noqa: ANN001
     response,
     extraction_run_id: str,
@@ -212,6 +266,7 @@ def facts_from_bedrock_response(  # noqa: ANN001
     model: str | None = None,
 ) -> list[FactCandidate]:
     content = "".join(block.text for block in response.content if hasattr(block, "text"))
+    _maybe_write_bedrock_debug("first", extraction_run_id, content)
     try:
         return facts_from_model_text(content, extraction_run_id)
     except ValueError:
@@ -219,7 +274,7 @@ def facts_from_bedrock_response(  # noqa: ANN001
             raise
     repair_response = client.messages.create(
         model=model,
-        max_tokens=4096,
+        max_tokens=_bedrock_max_tokens(),
         messages=[
             {
                 "role": "user",
@@ -237,6 +292,7 @@ def facts_from_bedrock_response(  # noqa: ANN001
     repaired_content = "".join(
         block.text for block in repair_response.content if hasattr(block, "text")
     )
+    _maybe_write_bedrock_debug("repair", extraction_run_id, repaired_content)
     return facts_from_model_text(repaired_content, extraction_run_id)
 
 

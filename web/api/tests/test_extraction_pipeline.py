@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 from django.contrib.auth import get_user_model
 from extraction.classification import classify_document
-from extraction.llm import facts_from_model_text, visual_content_blocks
+from extraction.llm import (
+    DEFAULT_BEDROCK_MAX_TOKENS,
+    _bedrock_max_tokens,
+    facts_from_model_text,
+    visual_content_blocks,
+)
 from extraction.parsers import parse_document_path
 from extraction.schemas import FactCandidate
 from web.api import models
@@ -235,6 +240,62 @@ def test_process_document_skips_null_fact_values(tmp_path, settings, monkeypatch
     assert document.status == models.ReviewDocument.Status.FACTS_EXTRACTED
     assert models.ExtractedFact.objects.filter(document=document).count() == 1
     assert document.processing_metadata["extraction"]["discarded_fact_count"] == 1
+
+
+def test_bedrock_max_tokens_defaults_to_16384(monkeypatch) -> None:
+    """Regression guard: the default output budget must be 16384.
+
+    The previous default (4096) deterministically truncated mid-JSON for
+    spreadsheet planning docs and large native PDFs in the 2026-05-01
+    Niesner real-PII checkpoint. Lowering this default below 16384
+    re-introduces the truncation bug.
+    """
+    monkeypatch.delenv("MP20_BEDROCK_MAX_TOKENS", raising=False)
+    assert _bedrock_max_tokens() == 16384
+    assert DEFAULT_BEDROCK_MAX_TOKENS == 16384
+
+
+def test_bedrock_max_tokens_honors_env_override(monkeypatch) -> None:
+    monkeypatch.setenv("MP20_BEDROCK_MAX_TOKENS", "32768")
+    assert _bedrock_max_tokens() == 32768
+
+
+def test_bedrock_max_tokens_falls_back_on_invalid_env(monkeypatch) -> None:
+    """Garbage env values must NOT silently degrade extraction quality.
+
+    A typo'd or non-int MP20_BEDROCK_MAX_TOKENS (`"large"`, `"-1"`,
+    `"0"`, empty) should fall back to the safe default rather than
+    propagating a low/zero limit into Bedrock and re-introducing the
+    truncation bug.
+    """
+    for bad in ("not-a-number", "0", "-100", ""):
+        monkeypatch.setenv("MP20_BEDROCK_MAX_TOKENS", bad)
+        assert _bedrock_max_tokens() == 16384, f"failed for env value: {bad!r}"
+
+
+def test_bedrock_call_sites_use_configurable_max_tokens(monkeypatch) -> None:
+    """All three Bedrock invocation sites must read max_tokens from the
+    same configurable source. Hardcoding 4096 (or any other constant)
+    in any one site re-introduces the truncation bug for that path.
+    """
+    from extraction import llm as llm_module
+
+    src = (Path(llm_module.__file__)).read_text()
+    # No remaining hardcoded `max_tokens=4096` in the module — every call
+    # site routes through `_bedrock_max_tokens()`.
+    assert "max_tokens=4096" not in src, (
+        "Found a hardcoded max_tokens=4096 in extraction/llm.py. "
+        "All Bedrock call sites must use _bedrock_max_tokens() so the "
+        "16384-default truncation fix applies uniformly."
+    )
+    # All three call sites we know about should reference the helper.
+    helper_call_count = src.count("_bedrock_max_tokens()")
+    assert helper_call_count >= 3, (
+        f"Expected at least 3 _bedrock_max_tokens() call sites (text + "
+        f"visual + repair), found {helper_call_count}. A new Bedrock "
+        f"call site without the helper would re-introduce the truncation "
+        f"bug."
+    )
 
 
 def _user():
