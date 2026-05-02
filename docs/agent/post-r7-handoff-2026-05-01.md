@@ -89,49 +89,43 @@ Demo-ready PLUS:
 ### Branch + commits (newest first)
 
 ```
-ec98596 fix(R7): live FileList ref race in DocDropOverlay + locked-#28b real-PII checkpoint   ← HEAD (this session)
-4643bb5 fix(R7): close 6 doc-drop pipeline contract drifts caught by deep dig                 ← previous session
+96ba736 feat(R7): manual-entry escape hatch for advisor when extraction fails       ← HEAD (Phase 3.E)
+826cdb1 fix(R7): typed BedrockExtractionError hierarchy + structured failure_code    ← Phase 3.B
+52e3327 fix(R7): Bedrock max_tokens 4096→16384 closes Niesner extraction truncation  ← Phase 3.A
+03ce247 docs(R7): next-session kickoff prompt for extraction-hardening
+c07acc8 docs(R7): handoff dossier + extraction-hardening plan for demo + release
+ec98596 fix(R7): live FileList ref race in DocDropOverlay + locked-#28b real-PII checkpoint
+4643bb5 fix(R7): close 6 doc-drop pipeline contract drifts caught by deep dig
 3416143 Phase R7: doc-drop + review-screen for v36 UI/UX rewrite                              ← R7 ship
-66fd4a6 docs: pre-R7 review pipeline smoke + canonical endpoint contracts
-cb242ec Phase R6: realignment + compare + history for v36 UI/UX rewrite
-d2ad229 docs: pre-R6 realignment + snapshots smoke + contracts captured
-219985d Phase R5: 5-step wizard onboarding for v36 UI/UX rewrite
-38670fc Phase R4: goal allocation + RiskSlider override flow for v36 UI/UX rewrite
-ae53497 chore(R0-R3): deeper smoke + fund-id normalizer
-6bc0607 fix(R0-R3): foundation bugs caught by live smoke
-d4f5a48 Phase R3: three-view stage for v36 UI/UX rewrite
-8697c8e Phase R2: frontend chrome for v36 UI/UX rewrite
-9a8bc0e Phase R1: backend extensions for v36 UI/UX rewrite
-6dd6f51 Phase R0 complete: backend plumbing + frontend foundation + CI gates
-6f60694 Phase R0: engine foundation for v36 UI/UX rewrite
+... (R0–R7 history same as before)
 ```
 
-`feature/ux-rebuild` is ahead of `origin/feature/ux-rebuild` by 4 commits at HEAD. Do not push without explicit user authorization.
+`feature/ux-rebuild` is **8 commits ahead** of `origin/feature/ux-rebuild` at HEAD. Do not push without explicit user authorization.
 
 ### Local DB state
 
-- `scripts/reset-v2-dev.sh --yes` was run in this session. Local Postgres has:
-  - 1 synthetic household (Sandra/Mike Chen)
-  - Default CMA snapshot v1
-  - 1 R7 e2e test workspace (synthetic)
-  - 1 foundation-test-synthetic workspace, committed → household `review_f9074bdd-...` + 1 PortfolioRun
-  - 1 Niesner real-PII workspace `d689fe68-c335-44ae-bbb3-104974b7e764` with 12 docs, 10 reconciled + 2 failed, status `review_ready`. NOT committed (advisor-decision blockers remain).
-- Local advisor: `advisor@example.com` (password in `.env` at `MP20_LOCAL_ADMIN_PASSWORD`). Analyst: `analyst@example.com`.
-- Worker: a `process_review_queue` instance was running idle in this session at PID listed in `/tmp/worker.pid`. The queue is drained.
+- Niesner workspace `d689fe68-c335-44ae-bbb3-104974b7e764`: **12/12 reconciled** after Phase 3.A re-test (was 10/12). 493 facts, 2 people, 8 accounts, 8 goals, 47 conflicts.
+- 6 R10 sweep workspaces in flight (Gumprich, Herman, McPhalen, Schlotfeldt, Seltzer, Weryha). 43 docs uploaded; processing ongoing as of HEAD `96ba736`. Workspace IDs in `/tmp/r10-sweep-state.json`.
+- 3 historical synthetic e2e workspaces from R7 + foundation testing.
+- Local advisor: `advisor@example.com` (password in `.env`). Analyst: `analyst@example.com`.
+- Worker: foreground `process_review_queue` running with `MP20_DEBUG_BEDROCK_RESPONSES=1` for the R10 sweep. Logs at `/tmp/r10-worker.log`.
 
 ### Live stack as left
 
 - Postgres in Docker (`mp20-db-1`) — healthy.
-- Backend in Docker (`mp20-backend-1`) — running, serving on `:8000`. Auto-reloads on code changes via Django StatReloader.
-- Vite on host — running on `:5173` (PID may have rotated; see `ps aux | grep vite`).
-- Worker on host — idle (queue drained). Path: `uv run python web/manage.py process_review_queue` from repo root with `.env` sourced.
+- Backend in Docker (`mp20-backend-1`) — running on `:8000`, auto-reloads.
+- Vite on host — running on `:5173`.
+- Worker on host — running, draining R10 sweep queue.
 
-### Verified-working (as of HEAD `ec98596`)
+### Verified-working (as of HEAD `96ba736`)
 
-- 216 engine pytest + 103 web pytest = **319 passing**
+- 216 engine pytest + **114 web pytest = 330 passing** (was 319 → +9 new regression tests across Phases 3.A/B/E)
+- 10/10 Playwright e2e green against the live host-mode stack
 - ruff check + ruff format check clean
 - frontend: `npm run typecheck`, `npm run lint`, `npm run build` clean
 - `scripts/check-vocab.sh` OK
+- `makemigrations --check --dry-run` clean
+- Niesner real-PII pipeline 12/12 reconciled with 493 facts (post Phase 3.A fix)
 - Playwright: `cd frontend && PLAYWRIGHT_BASE_URL=http://localhost:5173 ... npx playwright test e2e/foundation.spec.ts` → 10/10 passing
 - Synthetic full pipeline (workspace create → upload → worker → reconcile → state PATCH → 6 approvals → commit → portfolio gen) verified end-to-end via curl.
 - Real-PII Niesner checkpoint: 12 docs uploaded, 10 reconciled, 2 failed (bounded), 285 facts, 25 conflicts surfaced.

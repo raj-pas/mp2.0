@@ -72,7 +72,7 @@ words) to the user confirming:
 - The gate-suite results
 - Any environment issue that needs fixing first
 
-## Phase 1 — Research / Investigate (~2 hours)
+## Phase 1 — Research / Investigate
 
 Per the action plan Phase A (`~/.claude/plans/post-r7-extraction-
 hardening.md`), the first task is to characterize the actual
@@ -118,13 +118,12 @@ Steps (per Phase A.1–A.4 of the action plan):
 Do NOT skip step 4. The per-doc-class decision is what unblocks
 Phase 2.
 
-## Phase 2 — Plan + Iterate With User (~30 min)
+## Phase 2 — Plan + Iterate With User
 
 You have findings from Phase 1. Now sync with the user before
 spending hours on the wrong intervention.
 
-Use the `AskUserQuestion` tool to ask 3–4 questions in a single
-batch:
+Use the `AskUserQuestion` tool to ask all the essential and neededed questions from every single dimension in a single batch:
 
 1. xlsx fix preference: prompt tweak (A) / pre-normalize (B) /
    rule-based bypass (C). Recommend the option that aligns with
@@ -147,7 +146,7 @@ sequence before starting Phase 3.
 If the user redirects scope, follow them. They explicitly prefer
 clarifying questions over wrong execution in this 3-day window.
 
-## Phase 3 — Implement (~12–18 hours over 2 days)
+## Phase 3 — Implement
 
 Now you can write code. Execute Phases B → C → D → E from the
 action plan in order, with these constraints:
@@ -220,11 +219,11 @@ Per the action plan:
 - §6.3a: vocabulary — building-block fund (not "sleeve" in UX);
   re-goaling, never reallocation; canon-aligned risk descriptors.
 
-## Phase 4 — Thorough Testing (~3–4 hours)
+## Phase 4 — Thorough Testing
 
 After Phases B–E ship, validate end-to-end before declaring done.
 
-### 4.1 Synthetic full pipeline (~15 min)
+### 4.1 Synthetic full pipeline
 
 Re-run the synthetic curl chain from dossier §3 / handoff-log
 2026-05-01. Confirm:
@@ -232,7 +231,7 @@ Re-run the synthetic curl chain from dossier §3 / handoff-log
   6 approvals → commit → portfolio gen all 200.
 - No new failure_codes introduced.
 
-### 4.2 Niesner real-PII regression (~20 min)
+### 4.2 Niesner real-PII regression
 
 Create a fresh real_derived workspace, upload all Niesner files
 (see dossier §6 for procedure), run worker. Target: 12/12
@@ -243,14 +242,14 @@ Do not commit Niesner workspace data to the repo or paste
 contents to chat. Use the same structural-counts discipline as
 the previous session.
 
-### 4.3 Smaller-folder validation (~30 min)
+### 4.3 Smaller-folder validation
 
 Run end-to-end against a small folder (Seltzer or Weryha — 5
 files, 504K each). Demo will use this folder; validate it
 beforehand. Target: full pipeline (upload → worker → review →
 commit → portfolio) without manual intervention.
 
-### 4.4 Regression test suite (~30 min)
+### 4.4 Regression test suite
 
 Add or update tests so that any return of the bug class is caught
 in CI:
@@ -289,7 +288,7 @@ This is the test the previous session missed. Playwright headless
 caught nothing wrong; the user's actual browser caught everything.
 Do not skip this step.
 
-## Phase 5 — Demo Prep + Handoff Update (~1 hour)
+## Phase 5 — Demo Prep + Handoff Update
 
 ### 5.1 Update artifacts
 

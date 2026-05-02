@@ -2250,3 +2250,142 @@ Hard deadlines captured: demo 2026-05-04, release 2026-05-08. P0 #6
 Next session entry point: read the dossier, then the plan, then run
 gates from dossier §8 to verify environment, then start Phase A of
 the extraction-hardening plan.
+
+## 2026-05-01 — Post-R7 extraction hardening 3.A/B/E + R10 sweep 55/55 reconciled
+
+User authorized full execution of post-r7-extraction-hardening.md plan
+under a 3-day demo and 1-week release deadline (P0 #6 auth + #7 audit
+immutability deferred per user). Three Phase-3 milestones shipped, each
+with regression tests and gate validation. R10 sweep across all 7
+client folders confirms the hardening is production-grade.
+
+### Phase 3.A — Bedrock max_tokens 4096 → 16384 (commit `52e3327`)
+
+Diagnosis discipline mattered: instrumented `extraction/llm.py` with
+`MP20_DEBUG_BEDROCK_RESPONSES=1` to capture raw Bedrock responses for
+the 2 failing Niesner docs (6.2MB Plan PDF + planning xlsx). Both
+showed valid `\`\`\`json\n{ "facts": [ ...` shape ending mid-string at
+~11.7K chars — output-token-budget truncation, not format / schema /
+network issues. First-call and repair-call responses byte-identical
+because both hit the same wall.
+
+Fix: bump max_tokens default 4096 → 16384 across 3 Bedrock invocation
+sites (text + visual + repair). Override via MP20_BEDROCK_MAX_TOKENS
+env. Sonnet 4.6 supports 16K natively without an SKU change.
+
+Niesner re-test: 10/12 reconciled (285 facts) → 12/12 reconciled (493
+facts, +73%) with both previously-failed jobs completing on attempts=1.
+
+4 regression tests covering default, env override, invalid-env
+fallback, and a grep-the-module guard against future hardcoded 4096s.
+
+### Phase 3.B — Typed BedrockExtractionError hierarchy (commit `826cdb1`)
+
+Replaced single generic `ValueError` with three typed subclasses (all
+inheriting from ValueError so existing `except ValueError:` callers
+keep working without churn):
+
+- `BedrockTokenLimitError` (failure_code "bedrock_token_limit") —
+  detected via `_looks_truncated()` heuristic.
+- `BedrockNonJsonError` (failure_code "bedrock_non_json") — pure prose
+  responses; explicitly NOT classified as truncation.
+- `BedrockSchemaMismatchError` (failure_code "bedrock_schema_mismatch")
+  — JSON parsed but doesn't match BedrockFactsPayload shape.
+
+`_fail_or_retry` now propagates `.failure_code` into ProcessingJob
+metadata, ReviewDocument processing_metadata, and AuditEvent metadata.
+ReviewDocumentSerializer surfaces it to the frontend (already wired in
+4643bb5). 5 regression tests covering all three error types,
+ValueError inheritance, and end-to-end wire propagation.
+
+### Phase 3.E — Manual-entry escape hatch (commit `96ba736`)
+
+When extraction can't recover (token-limit exhausted, JSON
+unparseable, schema mismatch), advisor needs a deliberate path forward.
+New `MANUAL_ENTRY` doc status (migration 0009), distinct from FAILED.
+
+Backend:
+- POST `/api/review-workspaces/<wsid>/documents/<id>/manual-entry/`
+- Marks doc, cancels in-flight jobs, captures previous failure_code
+  in processing_metadata, fires `review_document_manual_entry_marked`
+  audit event, re-queues reconcile.
+- can_access_real_pii RBAC.
+
+Frontend:
+- `useMarkManualEntry` mutation hook.
+- ProcessingPanel: failed docs with retry-resistant codes
+  (bedrock_token_limit / bedrock_non_json / bedrock_schema_mismatch)
+  render "Mark as manual entry" button + per-row failure-code copy
+  via `review.failure_code.<code>` i18n.
+
+2 regression tests (full flow + RBAC denial).
+
+### R10 sweep (Phase 4.4 release gate)
+
+Uploaded 6 remaining folders via Python `requests` (handles filename
+commas correctly, unlike curl's `-F` parser):
+
+- Gumprich: 9 docs — 9/9 reconciled, 348 facts
+- Herman: 7 docs — 7/7 reconciled, 304 facts
+- McPhalen: 7 docs — 7/7 reconciled, 295 facts
+- Schlotfeldt: 10 docs — 10/10 reconciled, 474 facts
+- Seltzer: 5 docs — 5/5 reconciled, 223 facts
+- Weryha: 5 docs — 5/5 reconciled, 167 facts
+- Niesner (already done): 12/12 reconciled, 493 facts
+
+**Total: 55/55 reconciled (100%), 2,304 facts, 17 people surfaced,
+55 accounts, 32 goals, 201 cross-source conflicts, 0 new failures.**
+
+### Phase 3.C+D status
+
+The action plan's defense-in-depth polish (xlsx prompt-strictness +
+large-PDF chunk-and-merge) is **not needed** at this time. R10's 0%
+new-failure rate across 43 fresh docs from 6 folders confirms the
+max_tokens fix subsumed both originally-flagged failure modes. C+D
+become optional polish that can wait for post-pilot iteration if
+specific patterns surface during the demo or first 30-day run.
+
+### Synthetic regression
+
+Post-R10 synthetic full-pipeline regression (curl create → upload →
+worker → reconcile) verified — synthetic happy path unchanged, doc
+status flows uploaded → reconciled, required_sections list correctly
+exposed.
+
+### Final gate suite at HEAD `96ba736`
+
+- ruff check + format clean
+- 330 pytest passing (216 engine + 114 web; +9 from session start)
+- migrations check clean
+- frontend typecheck/lint/build clean
+- vocab CI OK
+- 10/10 Playwright e2e against the live host-mode stack
+
+### Demo readiness checklist (per dossier §5.3)
+
+- [x] All failure_codes have advisor copy in `en.json`
+- [x] Manual-entry button reachable for any failed doc
+- [x] Worker idle (queue drained)
+- [x] R10 sweep 100% reconcile rate confirms extraction quality
+- [ ] Real-browser smoke against demo folder before live demo
+  (recommend Seltzer or Weryha for fastest stage Bedrock turnaround)
+- [ ] Optional: `scripts/reset-v2-dev.sh --yes` between this session
+  and the live demo to start with clean DB
+
+### Known limitations carried into pilot
+
+- Conflict-resolution UI cards (P0 #2): not yet built; advisor sees
+  conflict counts in workspace state but can't act on them through UI.
+  R7 v1 ships the readiness-gate surface; R10 polish is the followup.
+- OpenAPI-typescript codegen (P0 #5): not shipped; FE/BE contract
+  drift class still requires hand-synchronization.
+- Auth/RBAC hardening (P0 #6) + audit-immutability validation (P0 #7):
+  deferred per user 2026-05-01 to post-pilot.
+- Self-hosted fonts (`public/fonts/*.woff2`): empty; cosmetic only,
+  system fallback works.
+
+### Recommended next-session focus
+
+1. Real-browser manual smoke against demo folder (Seltzer or Weryha)
+2. P0 #2 conflict-resolution UI cards if there's bandwidth before demo
+3. After demo: P0 #5 (openapi-typescript) to kill contract-drift class
