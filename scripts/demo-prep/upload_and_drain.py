@@ -182,9 +182,7 @@ def main() -> int:
     )
 
     expected = args.expect_count
-    ok_count = (
-        reconciled == expected if expected is not None else reconciled == len(docs)
-    )
+    ok_count = reconciled == expected if expected is not None else reconciled == len(docs)
     if not ok_count or failed != 0:
         print(
             f"\nWARNING: not {expected if expected else len(docs)}/"

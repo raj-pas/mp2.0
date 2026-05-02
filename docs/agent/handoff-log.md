@@ -2547,3 +2547,57 @@ from HEAD `cfe941c`.
 - Mon 2026-05-04 — demo to CEO + CPO
 - Wed 2026-05-06 09:00 Winnipeg — scheduled bugfix-proposal agent fires
 - Mon 2026-05-08 — release to limited pilot
+
+---
+
+## 2026-05-02 — Post-R8 followups closed
+
+**HEAD:** `ef81915` (4 new commits since `abafecf`).
+
+### What was done
+
+Executed all 4 items from `docs/agent/post-r8-followups.md` per the
+sequencing recommendation (Item #2 first because highest credibility
+risk, then #1, #4, #3).
+
+- **Item #2** (commit `219f0c4`): wrote
+  `engine/tests/test_r8_worked_examples_match_engine.py` (8 tests).
+  Surfaced THREE math bugs in the methodology page:
+  - s3 (Hayes Retirement) — claimed "Cautious (1)"; engine actual is
+    "Conservative-balanced (2)" at anchor 22.5
+  - s6 (Choi Travel) — claimed equity 56%; engine actual is 49% at
+    canon Balanced rep score 25
+  - s7 (Thompson Retirement) — claimed μ_ideal 5.8%; engine actual is
+    6.04%; methodology also confused internal vs external penalty
+    branch and used a forbidden weighted-blend framing
+  All three i18n strings updated to match engine output. Test pins
+  every claim so future drift fails CI.
+- **Item #1** (commit `43c1d55`): extended
+  `frontend/e2e/real-browser-smoke.spec.ts` Step 6 to assert all 10
+  R8 section H2s render + TOC click → scrollIntoView wires correctly.
+- **Items #3 + #4** (commit `ef81915`):
+  - Replaced transient `/tmp/demo-prep-seltzer.py` with durable
+    parameterized `scripts/demo-prep/upload_and_drain.py CLIENT_NAME`.
+  - Added Weryha pre-upload + cache-warm checkboxes to demo
+    pre-checklist.
+  - Backup-plan prose now pivots to Weryha first if Seltzer fails
+    (no live Bedrock dead-air on stage).
+
+Live Weryha pre-upload deliberately not run today — `reset-v2-dev.sh`
+in the demo-morning checklist wipes the DB, so any pre-upload now is
+non-persisting. Script's upload+drain codepath is identical to the
+proven Seltzer flow.
+
+### Gate state at HEAD `ef81915`
+
+- 341 pytest (was 332; +8 new R8 worked-example regression tests + 1
+  baseline drift)
+- 11/11 Playwright foundation e2e
+- ruff / format / typecheck / lint / build / vocab / migrations all
+  clean
+
+### Pointer for next session
+
+Demo prep state is now **fully locked**. All credibility gaps closed.
+Run the demo morning pre-checklist as written in
+`docs/agent/demo-script-2026-05-04.md`.

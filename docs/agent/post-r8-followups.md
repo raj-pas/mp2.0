@@ -1,5 +1,14 @@
 # Post-R8 Followups — Demo-Critical Testing Items
 
+**Status (2026-05-02):** All 4 items closed at HEAD `ef81915`.
+- Item #1 — landed in commit `43c1d55`
+- Item #2 — landed in commit `219f0c4` (surfaced + fixed 3 i18n bugs)
+- Items #3 + #4 — landed in commit `ef81915`
+
+The Item descriptions below are kept as-is for historical reference.
+The "How to apply this in the next session" closing section has been
+amended to point at the next workstream after the demo.
+
 **Compiled:** 2026-05-01 at HEAD `cfe941c`, before context compaction.
 
 The 2026-05-01 session shipped R8 (methodology overlay) + demo lock-
@@ -207,3 +216,31 @@ These are post-demo / post-pilot work, deferred per user direction:
 3. Pick from the items above per the sequencing recommendation
 4. Each item has a self-contained fix; no cross-dependencies
 5. After each item, run gates + commit
+
+## How items closed (2026-05-02)
+
+**Item #2** (worked-example math) was done first because it was
+highest credibility risk. Surfaced three i18n bugs in s3, s6, s7
+where the methodology numbers didn't match what the engine computes
+at canon-aligned inputs. New regression test
+`engine/tests/test_r8_worked_examples_match_engine.py` (8 tests, all
+green) pins each i18n claim to engine output so future drift fails
+CI before it lies on stage.
+
+**Item #1** (real-browser smoke /methodology coverage) extended Step
+6 of `frontend/e2e/real-browser-smoke.spec.ts` to assert all 10
+section H2s render and TOC click → scrollIntoView wires correctly.
+Console / pageerror / requestfailed signals continue to be captured.
+
+**Items #3 + #4** (Weryha backup + cache-warm checklist) replaced
+`/tmp/demo-prep-seltzer.py` with a durable repo-committed parameterized
+script `scripts/demo-prep/upload_and_drain.py CLIENT_NAME`. The pre-
+demo checklist now runs both Seltzer and Weryha pre-uploads on demo
+morning AND opens `/methodology` once to warm the bundle. Backup-plan
+prose updated so a Seltzer failure pivots to Weryha (no live Bedrock
+dead-air on stage).
+
+The live Weryha pre-upload was deliberately not run during the fix
+session because `reset-v2-dev.sh` in the demo-morning checklist wipes
+the DB regardless. The script's upload+drain codepath is identical
+to the proven Seltzer flow.

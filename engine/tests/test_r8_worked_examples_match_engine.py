@@ -19,7 +19,6 @@ trace points the developer directly at the i18n key needing repair.
 from __future__ import annotations
 
 import pytest
-
 from engine.goal_scoring import effective_score_and_descriptor
 from engine.moves import compute_rebalance_moves
 from engine.projections import (
@@ -29,7 +28,6 @@ from engine.projections import (
     mu_ideal,
 )
 from engine.risk_profile import RiskProfileInput, compute_risk_profile
-
 
 # ---------------------------------------------------------------------------
 # Section 1 — Household risk profile
@@ -41,9 +39,7 @@ def test_s1_hayes_household_profile_is_balanced_canon_score_3() -> None:
     household = Balanced (canon 3).
     """
 
-    result = compute_risk_profile(
-        RiskProfileInput(q1=5, q2="B", q3=["career"], q4="B")
-    )
+    result = compute_risk_profile(RiskProfileInput(q1=5, q2="B", q3=["career"], q4="B"))
 
     assert result.tolerance_score == 45.0
     assert result.capacity_score == 50.0
@@ -59,9 +55,7 @@ def test_s1_hayes_household_profile_is_balanced_canon_score_3() -> None:
 def test_s2_hayes_anchor_is_22_5() -> None:
     """methodology.s2.worked: anchor = min(45, 50) / 2 = 22.5."""
 
-    result = compute_risk_profile(
-        RiskProfileInput(q1=5, q2="B", q3=["career"], q4="B")
-    )
+    result = compute_risk_profile(RiskProfileInput(q1=5, q2="B", q3=["career"], q4="B"))
 
     assert result.anchor == 22.5
 
@@ -141,8 +135,7 @@ def test_s6_equity_curve_at_all_canon_buckets_for_calibration_table() -> None:
         rep = BUCKET_REPRESENTATIVE_SCORE[canon_score]
         eq = equity_from_score(rep)
         assert round(eq * 100) == expected, (
-            f"canon score {canon_score} (rep={rep}) → equity={eq:.4f}, "
-            f"expected ~{expected}%"
+            f"canon score {canon_score} (rep={rep}) → equity={eq:.4f}, expected ~{expected}%"
         )
 
 
@@ -226,9 +219,7 @@ def test_s8_choi_education_moves_balanced_at_3200() -> None:
     )
 
     buys = sorted([m for m in result.moves if m.action == "buy"], key=lambda m: m.fund_id)
-    sells = sorted(
-        [m for m in result.moves if m.action == "sell"], key=lambda m: m.fund_id
-    )
+    sells = sorted([m for m in result.moves if m.action == "sell"], key=lambda m: m.fund_id)
     assert len(buys) == 1
     assert len(sells) == 1
     assert buys[0].fund_id == "sh_equity"

@@ -89,7 +89,11 @@ Demo-ready PLUS:
 ### Branch + commits (newest first)
 
 ```
-cfe941c feat(R8): methodology overlay + demo lock-down for 2026-05-04 demo            ← HEAD
+ef81915 fix(R8 followups #3 + #4): demo backup script + pre-checklist hardening      ← HEAD
+43c1d55 test(R8 followup #1): real-browser smoke covers /methodology overlay
+219f0c4 fix(R8 followup #2): cross-verify methodology worked examples vs engine
+abafecf docs(post-R8): pre-compaction continuity — followups + dossier refresh
+cfe941c feat(R8): methodology overlay + demo lock-down for 2026-05-04 demo
 28628d8 test(R7): pre-demo critical-test pass — manual-entry UX + real-PII commit
 edecadf docs(R7): post-R7 extraction-hardening complete + R10 sweep 55/55 reconciled
 96ba736 feat(R7): manual-entry escape hatch for advisor when extraction fails
@@ -103,7 +107,7 @@ ec98596 fix(R7): live FileList ref race in DocDropOverlay + locked-#28b real-PII
 ... (R0–R7 history same as before)
 ```
 
-`feature/ux-rebuild` is **2 commits ahead** of `origin/feature/ux-rebuild` at HEAD. Do not push without explicit user authorization. (This count fluctuates — origin doesn't auto-track all our commits; treat as "do not push.")
+`feature/ux-rebuild` is **6 commits ahead** of `origin/feature/ux-rebuild` at HEAD. Do not push without explicit user authorization. (This count fluctuates — origin doesn't auto-track all our commits; treat as "do not push.")
 
 ### Local DB state (as of post-R8 + demo lock)
 
@@ -119,19 +123,20 @@ ec98596 fix(R7): live FileList ref race in DocDropOverlay + locked-#28b real-PII
 - Vite on host — running on `:5173`.
 - Worker on host — **idle**; queue is drained except for 1 leftover R7 e2e doc job that doesn't matter for demo.
 
-### What's at HEAD (cfe941c)
+### What's at HEAD (ef81915)
 
 - **R7 phase**: complete (commit `3416143`)
 - **Post-R7 hardening**: 3.A max_tokens, 3.B typed errors, 3.E manual-entry hatch — all shipped
 - **R10 sweep**: 55/55 reconciled across 7 client folders, 2,304 facts, 0 new failures
 - **Pre-demo critical testing**: 5/5 items, 1 fix shipped (engine_adapter case-norm), 2 bugs catalogued for post-demo
 - **R8 methodology overlay**: shipped — 10 sections, canon-aligned descriptors, ~70 i18n keys, e2e covers section render + descriptors + Goal_50-hidden invariant + TOC scroll
+- **Post-R8 followups**: all 4 closed — Item #2 surfaced + fixed 3 i18n bugs in s3/s6/s7 (worked examples now math-verified against engine via new regression test); Item #1 extends real-browser smoke to /methodology with 10-section H2 + TOC scroll assertions; Items #3+#4 ship a durable parameterized prep script + Weryha drop-in backup + cache-warm pre-checklist line
 - **Demo lock-down**: clean DB + Seltzer 5/5 pre-uploaded + demo script at `docs/agent/demo-script-2026-05-04.md`
 
-### Verified-working (as of HEAD `cfe941c`)
+### Verified-working (as of HEAD `ef81915`)
 
-- 216 engine pytest + 114 web pytest + 2 audit pytest = **332 passing**
-- **11/11 Playwright foundation e2e** (added R8 spec)
+- 216 engine pytest + 122 web pytest + 2 audit pytest + 1 R8 regression set (8 tests) = **341 passing**
+- **11/11 Playwright foundation e2e** (R8 methodology spec included)
 - ruff check + ruff format check clean
 - frontend: `npm run typecheck`, `npm run lint`, `npm run build` clean
 - `scripts/check-vocab.sh` OK
@@ -139,8 +144,9 @@ ec98596 fix(R7): live FileList ref race in DocDropOverlay + locked-#28b real-PII
 - Legacy-label runtime tripwire OK (caught + fixed one Fraser reference during R8 build)
 - Niesner real-PII pipeline 12/12 reconciled with 493 facts
 - R10 sweep 55/55 reconciled with 2,304 facts
-- Real-browser smoke clean against pre-uploaded Seltzer (0 unexpected console signals)
+- Real-browser smoke clean against pre-uploaded Seltzer (0 unexpected console signals); /methodology coverage extended (executes against live server with secure root + Bedrock env)
 - Real-PII commit + portfolio gen validated end-to-end (Niesner)
+- New `engine/tests/test_r8_worked_examples_match_engine.py` (8 tests): pins methodology.s* worked-example numbers to engine output; future drift fails CI before the methodology page lies on stage
 
 ### Scheduled follow-up
 
