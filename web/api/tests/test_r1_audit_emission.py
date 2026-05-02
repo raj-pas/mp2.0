@@ -330,3 +330,105 @@ def test_read_only_preview_endpoints_emit_no_audit_events() -> None:
         format="json",
     )
     assert AuditEvent.objects.count() == starting_count
+
+
+# ---------------------------------------------------------------------------
+# Deep-audit pass — pre-R1 review-flow audit-emission contracts
+# ---------------------------------------------------------------------------
+#
+# The R1 tests above cover the new R1 endpoints. The pre-R1 review-flow
+# endpoints (PATCH /state, POST /approve-section) ALSO emit audit events
+# and ALSO need centralized assertion per locked decision #37 — without
+# this, an accidental drop of a `record_event(...)` call could silently
+# cripple the audit trail. Same pattern as the R1 tests.
+
+
+@pytest.mark.django_db
+def test_patch_state_emits_review_state_edited_event() -> None:
+    User = get_user_model()
+    user = User.objects.create_user(
+        username="advisor@example.com", email="advisor@example.com", password="pw"
+    )
+    Group.objects.get_or_create(name="advisor")[0].user_set.add(user)
+    workspace = models.ReviewWorkspace.objects.create(label="Audit PATCH", owner=user)
+    client = APIClient()
+    client.force_authenticate(user=user)
+    response = client.patch(
+        reverse("review-workspace-state", args=[workspace.external_id]),
+        {
+            "state": {
+                "household": {"display_name": "Audit Test"},
+                "people": [{"id": "p1", "name": "Audit Person", "age": 50}],
+                "accounts": [
+                    {
+                        "id": "a1",
+                        "type": "RRSP",
+                        "current_value": 50000,
+                        "missing_holdings_confirmed": True,
+                    }
+                ],
+                "goals": [{"id": "g1", "name": "G", "time_horizon_years": 5}],
+                "goal_account_links": [
+                    {"goal_id": "g1", "account_id": "a1", "allocated_amount": 50000}
+                ],
+                "risk": {"household_score": 3},
+            }
+        },
+        format="json",
+    )
+    assert response.status_code == 200
+    _assert_audit_event("review_state_edited", count=1, scope="patch_state")
+
+
+@pytest.mark.django_db
+def test_approve_section_emits_review_section_approved_event() -> None:
+    User = get_user_model()
+    user = User.objects.create_user(
+        username="advisor@example.com", email="advisor@example.com", password="pw"
+    )
+    Group.objects.get_or_create(name="advisor")[0].user_set.add(user)
+    workspace = models.ReviewWorkspace.objects.create(label="Audit Approve", owner=user)
+    client = APIClient()
+    client.force_authenticate(user=user)
+    response = client.post(
+        reverse("review-workspace-approve-section", args=[workspace.external_id]),
+        {"section": "household", "status": "approved"},
+        format="json",
+    )
+    assert response.status_code == 200
+    _assert_audit_event("review_section_approved", count=1, scope="approve_section")
+
+
+@pytest.mark.django_db
+def test_reconcile_after_commit_emits_skipped_event_not_reconciled() -> None:
+    """Bug-1 fix: reconcile_workspace short-circuits on COMMITTED workspaces
+    and emits `review_workspace_reconcile_skipped_committed` instead of
+    `review_workspace_reconciled`. This test is the audit-emission
+    contract for the defensive behavior so a future regression that
+    silently allows the downgrade fails CI immediately.
+    """
+
+    from web.api.review_processing import reconcile_workspace
+
+    User = get_user_model()
+    user = User.objects.create_user(
+        username="advisor@example.com", email="advisor@example.com", password="pw"
+    )
+    workspace = models.ReviewWorkspace.objects.create(
+        label="Audit reconcile-skipped",
+        owner=user,
+        status=models.ReviewWorkspace.Status.COMMITTED,
+    )
+
+    reconcile_workspace(workspace)
+
+    _assert_audit_event(
+        "review_workspace_reconcile_skipped_committed",
+        count=1,
+        scope="reconcile_skipped_committed",
+    )
+    # Critical negative: the reconciled event MUST NOT fire on a
+    # committed workspace (else it would re-set status downstream).
+    assert AuditEvent.objects.filter(action="review_workspace_reconciled").count() == 0, (
+        "reconcile_workspace must not emit `reconciled` event when skipping a committed workspace"
+    )
