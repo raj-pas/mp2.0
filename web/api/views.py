@@ -954,6 +954,81 @@ class ReviewDocumentRetryView(APIView):
         return Response({"job_id": job.id, "status": job.status})
 
 
+class ReviewDocumentManualEntryView(APIView):
+    """Advisor escape hatch when automated extraction can't recover.
+
+    Marks the document as `manual_entry`, leaving the workspace's
+    reconcile path to skip it (no fact contributions). The advisor
+    will fill the missing fields by hand via the review-screen state
+    editor (PATCH /state/). Distinct from FAILED so the audit trail
+    captures a deliberate advisor decision rather than an extraction
+    error.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, workspace_id: str, document_id: int):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        workspace = _workspace_for_user(workspace_id, request.user)
+        document = get_object_or_404(workspace.documents, pk=document_id)
+        previous_status = document.status
+        previous_failure_code = document.processing_metadata.get("failure_code", "")
+        document.status = models.ReviewDocument.Status.MANUAL_ENTRY
+        document.failure_reason = ""
+        document.processing_metadata = {
+            **document.processing_metadata,
+            "manual_entry_marked_at": timezone.now().isoformat(),
+            "manual_entry_marked_by": (
+                request.user.email if getattr(request.user, "email", "") else "system"
+            ),
+            "manual_entry_previous_status": previous_status,
+            "manual_entry_previous_failure_code": previous_failure_code,
+        }
+        document.save(
+            update_fields=[
+                "status",
+                "failure_reason",
+                "processing_metadata",
+                "updated_at",
+            ]
+        )
+        # Cancel any in-flight jobs so reconcile doesn't pick the doc
+        # back up.
+        document.processing_jobs.filter(
+            status__in=[
+                models.ProcessingJob.Status.QUEUED,
+                models.ProcessingJob.Status.PROCESSING,
+            ]
+        ).update(
+            status=models.ProcessingJob.Status.FAILED,
+            last_error="Document marked as manual entry by advisor.",
+            completed_at=timezone.now(),
+        )
+        # Re-trigger reconcile so workspace state reflects the doc's
+        # exclusion from extraction without waiting for the next job.
+        enqueue_reconcile(workspace)
+        record_event(
+            action="review_document_manual_entry_marked",
+            entity_type="review_document",
+            entity_id=str(document.id),
+            actor=_actor(request),
+            metadata={
+                "workspace_id": workspace.external_id,
+                "previous_status": previous_status,
+                "previous_failure_code": previous_failure_code,
+            },
+        )
+        return Response(
+            {
+                "document_id": document.id,
+                "status": document.status,
+                "previous_status": previous_status,
+                "previous_failure_code": previous_failure_code,
+            }
+        )
+
+
 class ReviewWorkspaceFactsView(APIView):
     permission_classes = [IsAuthenticated]
 

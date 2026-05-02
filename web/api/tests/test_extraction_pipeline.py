@@ -143,6 +143,128 @@ def test_field_specific_authority_prefers_kyc_identity_fact() -> None:
 
 
 @pytest.mark.django_db
+def test_manual_entry_marks_document_and_audits(tmp_path, settings) -> None:
+    """The manual-entry endpoint is the advisor escape hatch when extraction
+    can't recover. It must:
+      1. Flip document.status from FAILED → MANUAL_ENTRY (distinct so
+         reconcile knows to skip cleanly).
+      2. Preserve the previous failure_code in metadata for audit.
+      3. Cancel any in-flight jobs so they don't re-process.
+      4. Fire `review_document_manual_entry_marked` audit event.
+      5. Trigger reconcile so workspace state reflects the exclusion.
+    """
+    from django.urls import reverse
+    from rest_framework.test import APIClient
+
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(
+        label="Manual entry escape",
+        owner=user,
+        data_origin=models.ReviewWorkspace.DataOrigin.SYNTHETIC,
+    )
+    document = models.ReviewDocument.objects.create(
+        workspace=workspace,
+        original_filename="hopeless.pdf",
+        extension="pdf",
+        file_size=1,
+        sha256="manual-entry",
+        status=models.ReviewDocument.Status.FAILED,
+        failure_reason="Bedrock truncated thrice.",
+        processing_metadata={"failure_code": "bedrock_token_limit"},
+    )
+    in_flight_job = models.ProcessingJob.objects.create(
+        workspace=workspace,
+        document=document,
+        status=models.ProcessingJob.Status.QUEUED,
+    )
+
+    response = client.post(
+        reverse("review-document-manual-entry", args=[workspace.external_id, document.id])
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "manual_entry"
+    assert body["previous_status"] == "failed"
+    assert body["previous_failure_code"] == "bedrock_token_limit"
+
+    document.refresh_from_db()
+    assert document.status == models.ReviewDocument.Status.MANUAL_ENTRY
+    assert document.processing_metadata["manual_entry_previous_failure_code"] == (
+        "bedrock_token_limit"
+    )
+    assert "manual_entry_marked_at" in document.processing_metadata
+    assert document.failure_reason == ""
+
+    in_flight_job.refresh_from_db()
+    assert in_flight_job.status == models.ProcessingJob.Status.FAILED
+
+    # Audit event
+    from web.audit.models import AuditEvent
+
+    audit = AuditEvent.objects.filter(
+        action="review_document_manual_entry_marked",
+        entity_id=str(document.id),
+    ).first()
+    assert audit is not None
+    assert audit.metadata["previous_failure_code"] == "bedrock_token_limit"
+
+    # Reconcile re-queued
+    assert workspace.processing_jobs.filter(
+        job_type=models.ProcessingJob.JobType.RECONCILE_WORKSPACE,
+        status__in=[
+            models.ProcessingJob.Status.QUEUED,
+            models.ProcessingJob.Status.PROCESSING,
+        ],
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_manual_entry_rejects_non_pii_role(tmp_path, settings) -> None:
+    """Same RBAC as the rest of the review pipeline — the analyst role
+    must NOT be able to mark documents as manual-entry on behalf of an
+    advisor.
+    """
+    from django.contrib.auth.models import Group
+    from django.urls import reverse
+    from rest_framework.test import APIClient
+
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    User = get_user_model()
+    analyst = User.objects.create_user(
+        username="analyst@example.com",
+        email="analyst@example.com",
+        password="pw",
+    )
+    analyst_group, _ = Group.objects.get_or_create(name="financial_analyst")
+    analyst.groups.add(analyst_group)
+    advisor = _user()
+    workspace = models.ReviewWorkspace.objects.create(
+        label="Cross-role test",
+        owner=advisor,
+        data_origin=models.ReviewWorkspace.DataOrigin.SYNTHETIC,
+    )
+    document = models.ReviewDocument.objects.create(
+        workspace=workspace,
+        original_filename="x.pdf",
+        extension="pdf",
+        file_size=1,
+        sha256="rbac-test",
+        status=models.ReviewDocument.Status.FAILED,
+    )
+
+    client = APIClient()
+    client.force_authenticate(user=analyst)
+    response = client.post(
+        reverse("review-document-manual-entry", args=[workspace.external_id, document.id])
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
 def test_typed_bedrock_error_surfaces_structured_failure_code(
     tmp_path, settings, monkeypatch
 ) -> None:

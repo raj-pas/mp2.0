@@ -37,6 +37,7 @@ import {
   type SectionApprovalStatus,
   useApproveSection,
   useCommitWorkspace,
+  useMarkManualEntry,
   useReviewWorkspace,
   useReviewedState,
   useRetryDocument,
@@ -59,6 +60,7 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
   const approve = useApproveSection(workspaceId);
   const commit = useCommitWorkspace(workspaceId);
   const retry = useRetryDocument(workspaceId);
+  const manualEntry = useMarkManualEntry(workspaceId);
 
   if (workspaceQuery.isPending) {
     return (
@@ -179,7 +181,27 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
           <ProcessingPanel
             workspace={workspace}
             onRetry={(documentId) => retry.mutate({ documentId })}
+            onMarkManualEntry={(documentId) =>
+              manualEntry.mutate(
+                { documentId },
+                {
+                  onSuccess: (response) => {
+                    toastSuccess(
+                      t("review.manual_entry_success_title"),
+                      t("review.manual_entry_success_body", {
+                        previous_code: response.previous_failure_code || "n/a",
+                      }),
+                    );
+                  },
+                  onError: (err) => {
+                    const e = normalizeApiError(err, t("review.manual_entry_error"));
+                    toastError(t("review.manual_entry_error"), { description: e.message });
+                  },
+                },
+              )
+            }
             retrying={retry.isPending}
+            markingManualEntry={manualEntry.isPending}
           />
           <ReadinessPanel workspace={workspace} />
           {/* Conflict-resolution cards land here — the wiring is in
@@ -212,11 +234,15 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
 function ProcessingPanel({
   workspace,
   onRetry,
+  onMarkManualEntry,
   retrying,
+  markingManualEntry,
 }: {
   workspace: ReviewWorkspace;
   onRetry: (documentId: number) => void;
+  onMarkManualEntry: (documentId: number) => void;
   retrying: boolean;
+  markingManualEntry: boolean;
 }) {
   const { t } = useTranslation();
   const docs = workspace.documents;
@@ -233,36 +259,75 @@ function ProcessingPanel({
         <ul className="flex flex-col divide-y divide-hairline">
           {docs.map((doc) => {
             const job = workspace.processing_jobs.find((j) => j.document_id === doc.id);
+            const isFailed = doc.status === "failed";
+            const isManualEntry = doc.status === "manual_entry";
+            const failureCode = doc.failure_code ?? "";
+            // Manual-entry CTA shows when the doc is failed AND the
+            // failure_code is one we know retries won't recover.
+            // bedrock_token_limit is now resolved by the 16384 fix, but
+            // we keep it as an eligible code in case the next-tier
+            // outputs hit a higher ceiling. bedrock_non_json and
+            // bedrock_schema_mismatch are explicitly retry-resistant.
+            const manualEntryEligible =
+              isFailed &&
+              ["bedrock_token_limit", "bedrock_non_json", "bedrock_schema_mismatch"].includes(
+                failureCode,
+              );
             return (
-              <li key={doc.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 py-2">
-                <div className="flex flex-col">
-                  <span className="font-sans text-[12px] text-ink">{doc.original_filename}</span>
-                  <span className="font-mono text-[10px] text-muted">
-                    {doc.document_type ?? doc.extension} · {(doc.file_size / 1024).toFixed(1)} KB
-                  </span>
-                </div>
-                <span
-                  className={cn(
-                    "border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest",
-                    doc.status === "extracted"
-                      ? "border-success/40 text-success"
-                      : doc.status === "failed"
-                        ? "border-danger/40 text-danger"
-                        : "border-hairline text-muted",
-                  )}
-                >
-                  {doc.status}
-                </span>
-                {doc.retry_eligible && job?.status === "failed" && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onRetry(doc.id)}
-                    disabled={retrying}
+              <li key={doc.id} className="flex flex-col gap-2 py-2">
+                <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3">
+                  <div className="flex flex-col">
+                    <span className="font-sans text-[12px] text-ink">{doc.original_filename}</span>
+                    <span className="font-mono text-[10px] text-muted">
+                      {doc.document_type ?? doc.extension} ·{" "}
+                      {(doc.file_size / 1024).toFixed(1)} KB
+                    </span>
+                  </div>
+                  <span
+                    className={cn(
+                      "border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest",
+                      doc.status === "extracted" || doc.status === "reconciled"
+                        ? "border-success/40 text-success"
+                        : isFailed
+                          ? "border-danger/40 text-danger"
+                          : isManualEntry
+                            ? "border-accent-2/40 text-accent-2"
+                            : "border-hairline text-muted",
+                    )}
                   >
-                    {t("review.retry_document")}
-                  </Button>
+                    {doc.status}
+                  </span>
+                  {doc.retry_eligible && job?.status === "failed" && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onRetry(doc.id)}
+                      disabled={retrying || markingManualEntry}
+                    >
+                      {t("review.retry_document")}
+                    </Button>
+                  )}
+                  {manualEntryEligible && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onMarkManualEntry(doc.id)}
+                      disabled={retrying || markingManualEntry}
+                    >
+                      {t("review.mark_manual_entry")}
+                    </Button>
+                  )}
+                </div>
+                {isFailed && failureCode && (
+                  <p className="font-mono text-[10px] text-danger">
+                    {t(`review.failure_code.${failureCode}`, {
+                      defaultValue: t("review.failure_code.fallback", {
+                        code: failureCode,
+                      }),
+                    })}
+                  </p>
                 )}
               </li>
             );

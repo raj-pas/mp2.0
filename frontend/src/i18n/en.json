@@ -469,6 +469,21 @@
     "commit_error": "Could not commit household.",
     "commit_blocked_engine": "Engine readiness not met.",
     "commit_blocked_construction": "Construction readiness not met.",
-    "commit_blocked_sections": "Approve required sections: {{sections}}"
+    "commit_blocked_sections": "Approve required sections: {{sections}}",
+    "mark_manual_entry": "Mark as manual entry",
+    "manual_entry_success_title": "Document marked for manual entry",
+    "manual_entry_success_body": "Reconcile will skip this doc. Fill the missing fields by hand in the review state. (Previous failure: {{previous_code}}.)",
+    "manual_entry_error": "Could not mark document for manual entry.",
+    "failure_code": {
+      "fallback": "Extraction failed: {{code}}.",
+      "bedrock_token_limit": "This document exceeded the AI extraction output budget. Retry once; if it still fails, mark as manual entry and fill fields by hand.",
+      "bedrock_non_json": "AI extraction returned an unparseable response. Retry, or mark as manual entry.",
+      "bedrock_schema_mismatch": "AI extraction returned data in an unexpected shape. Mark as manual entry; fields are unrecoverable from this document.",
+      "bedrock_unknown": "AI extraction failed for an unspecified reason. Retry or mark as manual entry.",
+      "bedrock_unavailable": "AI extraction service is temporarily unavailable. Retry in a moment.",
+      "WorkerStalled": "The extraction worker stalled mid-job. Retry; if it stalls repeatedly, contact ops.",
+      "ImproperlyConfigured": "Storage or model configuration is invalid. Contact ops.",
+      "OSError": "Storage I/O error. Retry; if it repeats, contact ops."
+    }
   }
 }

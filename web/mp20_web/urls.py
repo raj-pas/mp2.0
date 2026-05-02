@@ -95,6 +95,11 @@ urlpatterns = [
         name="review-document-retry",
     ),
     path(
+        "api/review-workspaces/<str:workspace_id>/documents/<int:document_id>/manual-entry/",
+        views.ReviewDocumentManualEntryView.as_view(),
+        name="review-document-manual-entry",
+    ),
+    path(
         "api/review-workspaces/<str:workspace_id>/facts/",
         views.ReviewWorkspaceFactsView.as_view(),
         name="review-workspace-facts",

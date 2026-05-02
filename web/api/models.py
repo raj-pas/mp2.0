@@ -465,6 +465,12 @@ class ReviewDocument(models.Model):
         RECONCILED = "reconciled", "Reconciled"
         UNSUPPORTED = "unsupported", "Unsupported"
         FAILED = "failed", "Failed"
+        # Advisor explicitly bypassed automated extraction for this doc
+        # — they'll fill the fields by hand via the review-screen state
+        # editor. Distinct from FAILED so reconcile knows to skip the
+        # doc cleanly (no fact contributions) while preserving audit
+        # history of the deliberate advisor decision.
+        MANUAL_ENTRY = "manual_entry", "Manual entry"
 
     workspace = models.ForeignKey(
         ReviewWorkspace, related_name="documents", on_delete=models.CASCADE

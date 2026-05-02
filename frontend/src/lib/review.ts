@@ -40,6 +40,7 @@ export type DocumentStatus =
   | "extracted"
   | "failed"
   | "unsupported"
+  | "manual_entry"
   | "skipped";
 
 export type ProcessingJobStatus = "queued" | "processing" | "completed" | "failed";
@@ -284,6 +285,43 @@ export function useRetryDocument(workspaceId: string | null) {
     onSuccess: () => {
       if (workspaceId === null) return;
       qc.invalidateQueries({ queryKey: reviewWorkspaceKey(workspaceId) });
+    },
+  });
+}
+
+/**
+ * Advisor escape hatch: mark a document as manual-entry so the workspace
+ * reconcile skips it (no fact contributions) and the advisor can fill
+ * the missing fields by hand via the review-screen state editor.
+ *
+ * Use when extraction can't recover (e.g. failure_code is
+ * `bedrock_token_limit` after retries, or `bedrock_non_json` repeatedly).
+ * Distinct from retry: retry assumes the next attempt might succeed;
+ * manual-entry is a deliberate handoff.
+ */
+export type ManualEntryResponse = {
+  document_id: number;
+  status: "manual_entry";
+  previous_status: DocumentStatus;
+  previous_failure_code: string;
+};
+
+export function useMarkManualEntry(workspaceId: string | null) {
+  const qc = useQueryClient();
+  return useMutation<ManualEntryResponse, Error, { documentId: number }>({
+    mutationFn: ({ documentId }) => {
+      if (workspaceId === null) {
+        return Promise.reject(new Error("workspace id required"));
+      }
+      return apiFetch<ManualEntryResponse>(
+        `/api/review-workspaces/${encodeURIComponent(workspaceId)}/documents/${documentId}/manual-entry/`,
+        { method: "POST" },
+      );
+    },
+    onSuccess: () => {
+      if (workspaceId === null) return;
+      qc.invalidateQueries({ queryKey: reviewWorkspaceKey(workspaceId) });
+      qc.invalidateQueries({ queryKey: reviewWorkspaceStateKey(workspaceId) });
     },
   });
 }
