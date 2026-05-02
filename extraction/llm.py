@@ -69,6 +69,84 @@ class BedrockConfig:
     secret_key: str
 
 
+# Typed extraction errors with structured `failure_code` strings that the
+# worker maps onto `processing_metadata.failure_code` and the UI renders
+# into actionable advisor copy. All inherit from ValueError so existing
+# `except ValueError:` callers (the repair-retry path, _fail_or_retry,
+# etc.) keep working without churn.
+#
+# Each subclass owns one diagnosable failure mode. The list below is the
+# single source of truth for the failure_code vocabulary used in
+# i18n keys (`review.failure_code.<code>`) and frontend rendering.
+
+
+class BedrockExtractionError(ValueError):
+    """Base for typed Bedrock extraction errors."""
+
+    failure_code: str = "bedrock_unknown"
+
+
+class BedrockNonJsonError(BedrockExtractionError):
+    """Bedrock returned text that JSON repair couldn't recover."""
+
+    failure_code = "bedrock_non_json"
+
+
+class BedrockTokenLimitError(BedrockExtractionError):
+    """Bedrock response truncated mid-output (exceeded output token budget).
+
+    Detected when the response payload looks like it ran out of tokens
+    mid-structure: unbalanced braces/brackets, ends mid-string, or ends
+    with a trailing comma. This is the failure mode that drove the
+    2026-05-01 max_tokens 4096→16384 fix; if it shows up again the
+    surface area is now distinct from generic non-JSON errors.
+    """
+
+    failure_code = "bedrock_token_limit"
+
+
+class BedrockSchemaMismatchError(BedrockExtractionError):
+    """JSON parsed cleanly but didn't match the expected fact-payload schema."""
+
+    failure_code = "bedrock_schema_mismatch"
+
+
+def _looks_truncated(content: str) -> bool:
+    r"""Heuristic: does this Bedrock response read as token-limit-truncated?
+
+    Sonnet output that hits max_tokens stops mid-token, leaving the JSON
+    structure unclosed. We treat a response as truncated only when the
+    model *clearly started constructing JSON* and then got cut off:
+
+      1. At least one opening brace or bracket exists (we have JSON-ish
+         structure to evaluate; pure prose like "I'm sorry, I can't..."
+         does not qualify — that's `bedrock_non_json` territory).
+      2. AND any of:
+         - bracket/brace counts unbalanced (more opens than closes), OR
+         - text ends mid-value (last non-whitespace char is ``,`` or ``:``), OR
+         - text doesn't end on a closing token (``}``, ``]``, or a code
+           fence) — model was cut mid-word/mid-string.
+    """
+    stripped = content.rstrip()
+    if not stripped:
+        return False
+    open_braces = stripped.count("{")
+    close_braces = stripped.count("}")
+    open_brackets = stripped.count("[")
+    close_brackets = stripped.count("]")
+    # Require some JSON-ish structure to have been started — otherwise
+    # this is non-JSON prose, not a truncation event.
+    if open_braces == 0 and open_brackets == 0:
+        return False
+    if open_braces > close_braces or open_brackets > close_brackets:
+        return True
+    if stripped[-1] in {",", ":"}:
+        return True
+    if not (stripped.endswith("}") or stripped.endswith("]") or stripped.endswith("```")):
+        return True
+    return False
+
+
 def bedrock_config_from_env(default_region: str = "ca-central-1") -> BedrockConfig:
     missing = [
         name
@@ -115,11 +193,21 @@ def json_payload_from_model_text(content: str) -> Any:
             start = object_start
             end = object_end
         if start == -1 or end == -1 or end <= start:
-            raise ValueError("Bedrock extraction did not return valid JSON.") from exc
+            if _looks_truncated(normalized):
+                raise BedrockTokenLimitError(
+                    "Bedrock extraction response was truncated before JSON closed."
+                ) from exc
+            raise BedrockNonJsonError("Bedrock extraction did not return valid JSON.") from exc
         try:
             return json.loads(_repair_json_text(normalized[start : end + 1]))
         except json.JSONDecodeError as nested_exc:
-            raise ValueError("Bedrock extraction did not return valid JSON.") from nested_exc
+            if _looks_truncated(normalized):
+                raise BedrockTokenLimitError(
+                    "Bedrock extraction response was truncated before JSON closed."
+                ) from nested_exc
+            raise BedrockNonJsonError(
+                "Bedrock extraction did not return valid JSON."
+            ) from nested_exc
 
 
 def extract_text_facts_with_bedrock(
@@ -301,7 +389,9 @@ def facts_from_model_text(content: str, extraction_run_id: str) -> list[FactCand
     try:
         parsed = BedrockFactsPayload.model_validate(payload)
     except ValidationError as exc:
-        raise ValueError("Bedrock extraction JSON did not match the expected fact schema.") from exc
+        raise BedrockSchemaMismatchError(
+            "Bedrock extraction JSON did not match the expected fact schema."
+        ) from exc
     return [
         FactCandidate(
             **fact.model_dump(mode="json"),
@@ -316,7 +406,7 @@ def _normalize_bedrock_payload(payload: Any) -> dict[str, Any]:
     if isinstance(payload, list):
         return {"facts": [_normalize_fact_item(item) for item in payload]}
     if not isinstance(payload, dict):
-        raise ValueError("Bedrock extraction did not return a JSON object.")
+        raise BedrockSchemaMismatchError("Bedrock extraction did not return a JSON object.")
     facts = payload.get("facts")
     if facts is None:
         for key in ("extracted_facts", "fields", "results", "data"):

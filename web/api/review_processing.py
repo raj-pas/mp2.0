@@ -8,7 +8,11 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.utils import timezone
-from extraction.llm import bedrock_config_from_env, json_payload_from_model_text
+from extraction.llm import (
+    BedrockExtractionError,
+    bedrock_config_from_env,
+    json_payload_from_model_text,
+)
 from extraction.parsers import ParserDependencyError, parse_document_path
 from extraction.pipeline import classify_from_parsed, extract_facts_for_document
 from extraction.schemas import SUPPORTED_EXTENSIONS, ParsedDocument
@@ -370,12 +374,28 @@ def _json_payload_from_model_text(content: str) -> dict[str, Any]:
     return json_payload_from_model_text(content)
 
 
+def _failure_code_for(exc: Exception) -> str:
+    """Map an exception to a structured advisor-facing failure_code.
+
+    BedrockExtractionError subclasses carry their own typed `.failure_code`
+    (e.g. `bedrock_token_limit`, `bedrock_non_json`,
+    `bedrock_schema_mismatch`). Other exception types fall back to the
+    class name so we don't lose diagnostic signal — but the goal over
+    time is to grow the typed taxonomy so every failure routes through a
+    code the UI can render specific copy + recovery affordance for.
+    """
+    if isinstance(exc, BedrockExtractionError):
+        return exc.failure_code
+    return exc.__class__.__name__
+
+
 def _fail_or_retry(job: models.ProcessingJob, exc: Exception) -> None:
+    failure_code = _failure_code_for(exc)
     job.last_error = str(exc)
     job.metadata = {
         **job.metadata,
         "stage": job.metadata.get("stage", job.job_type),
-        "failure_code": exc.__class__.__name__,
+        "failure_code": failure_code,
     }
     if job.attempts < job.max_attempts:
         job.status = models.ProcessingJob.Status.QUEUED
@@ -387,7 +407,7 @@ def _fail_or_retry(job: models.ProcessingJob, exc: Exception) -> None:
             job.document.failure_reason = str(exc)
             job.document.processing_metadata = {
                 **job.document.processing_metadata,
-                "failure_code": exc.__class__.__name__,
+                "failure_code": failure_code,
                 "failure_stage": job.metadata.get("stage", job.job_type),
             }
             job.document.save(
@@ -408,7 +428,7 @@ def _fail_or_retry(job: models.ProcessingJob, exc: Exception) -> None:
             "attempts": job.attempts,
             "max_attempts": job.max_attempts,
             "will_retry": job.status == models.ProcessingJob.Status.QUEUED,
-            "failure_code": exc.__class__.__name__,
+            "failure_code": failure_code,
         },
     )
     record_worker_heartbeat(current_job=None, metadata={"stage": "idle_after_failure"})

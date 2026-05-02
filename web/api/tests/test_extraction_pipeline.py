@@ -7,8 +7,13 @@ from django.contrib.auth import get_user_model
 from extraction.classification import classify_document
 from extraction.llm import (
     DEFAULT_BEDROCK_MAX_TOKENS,
+    BedrockExtractionError,
+    BedrockNonJsonError,
+    BedrockSchemaMismatchError,
+    BedrockTokenLimitError,
     _bedrock_max_tokens,
     facts_from_model_text,
+    json_payload_from_model_text,
     visual_content_blocks,
 )
 from extraction.parsers import parse_document_path
@@ -135,6 +140,67 @@ def test_field_specific_authority_prefers_kyc_identity_fact() -> None:
 
     assert state["people"][0]["age"] == 62
     assert state["conflicts"][0]["label"] == "People age"
+
+
+@pytest.mark.django_db
+def test_typed_bedrock_error_surfaces_structured_failure_code(
+    tmp_path, settings, monkeypatch
+) -> None:
+    """End-to-end: when the extraction layer raises a typed
+    BedrockExtractionError, the worker's _fail_or_retry must propagate
+    `.failure_code` (not the class name) into both the document's
+    processing_metadata and the audit event.
+
+    Without this, the UI's failure-code copy and recovery affordances
+    can't route correctly: the advisor sees `ValueError` instead of
+    `bedrock_token_limit` and gets generic copy.
+    """
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    user = _user()
+    workspace = models.ReviewWorkspace.objects.create(
+        label="Failure-code wiring",
+        owner=user,
+        data_origin=models.ReviewWorkspace.DataOrigin.SYNTHETIC,
+    )
+    storage_dir = Path(settings.MP20_SECURE_DATA_ROOT) / "review-workspaces" / workspace.external_id
+    storage_dir.mkdir(parents=True)
+    source = storage_dir / "notes.txt"
+    source.write_text("Synthetic note.")
+    document = models.ReviewDocument.objects.create(
+        workspace=workspace,
+        original_filename="notes.txt",
+        extension="txt",
+        file_size=source.stat().st_size,
+        sha256="failure-code",
+        storage_path=f"review-workspaces/{workspace.external_id}/notes.txt",
+    )
+    job = models.ProcessingJob.objects.create(
+        workspace=workspace,
+        document=document,
+        attempts=3,
+        max_attempts=3,  # exhaust on this attempt → terminal FAILED
+    )
+
+    def raise_token_limit(*_args, **_kwargs):
+        raise BedrockTokenLimitError("Bedrock truncated mid-output.")
+
+    monkeypatch.setattr("web.api.review_processing.extract_facts", raise_token_limit)
+
+    process_job(job)
+
+    document.refresh_from_db()
+    job.refresh_from_db()
+    assert document.status == models.ReviewDocument.Status.FAILED
+    assert document.processing_metadata["failure_code"] == "bedrock_token_limit"
+    assert job.metadata["failure_code"] == "bedrock_token_limit"
+    # Audit event also carries the structured code.
+    from web.audit.models import AuditEvent
+
+    audit = AuditEvent.objects.filter(
+        action="review_processing_failed", entity_id=str(job.id)
+    ).first()
+    assert audit is not None
+    assert audit.metadata["failure_code"] == "bedrock_token_limit"
 
 
 @pytest.mark.django_db
@@ -271,6 +337,61 @@ def test_bedrock_max_tokens_falls_back_on_invalid_env(monkeypatch) -> None:
     for bad in ("not-a-number", "0", "-100", ""):
         monkeypatch.setenv("MP20_BEDROCK_MAX_TOKENS", bad)
         assert _bedrock_max_tokens() == 16384, f"failed for env value: {bad!r}"
+
+
+def test_bedrock_truncated_response_raises_token_limit_error() -> None:
+    """A response that ran out of tokens mid-JSON must raise the typed
+    BedrockTokenLimitError, not a generic ValueError. This is what
+    drove the 2026-05-01 max_tokens 4096→16384 fix; if the typed code
+    drifts, the manual-entry UI can't route advisors to the right
+    recovery path.
+    """
+    truncated = (
+        '```json\n{\n  "facts": [\n    {\n      "field": "household.display_name",\n'
+        '      "value": "Demo",\n      "confidence": "high",\n      "derivation'
+    )
+    with pytest.raises(BedrockTokenLimitError) as exc_info:
+        json_payload_from_model_text(truncated)
+    assert exc_info.value.failure_code == "bedrock_token_limit"
+    assert isinstance(exc_info.value, ValueError)  # backwards-compat with old catch blocks
+
+
+def test_bedrock_unrecoverable_garbage_raises_non_json_error() -> None:
+    """A response that's neither valid JSON nor recoverable via the repair
+    paths must raise BedrockNonJsonError. Different code from
+    BedrockTokenLimitError so the UI can offer different advisor copy.
+    """
+    garbage = "I'm sorry, I can't help with that."
+    with pytest.raises(BedrockNonJsonError) as exc_info:
+        json_payload_from_model_text(garbage)
+    assert exc_info.value.failure_code == "bedrock_non_json"
+    assert isinstance(exc_info.value, ValueError)
+
+
+def test_bedrock_schema_mismatch_raises_typed_error() -> None:
+    """JSON that parses but doesn't match the expected fact-payload shape
+    must raise BedrockSchemaMismatchError. This is distinct from
+    truncation / non-JSON so we can route it differently in the UI.
+    """
+    # `field` missing entirely; not a recoverable shape under any of the
+    # alias normalizers in _normalize_fact_item.
+    bad_shape = '{"facts": [{"value": 12345}]}'
+    with pytest.raises((BedrockSchemaMismatchError, BedrockNonJsonError)):
+        # Either typed error is acceptable here as long as it's typed —
+        # the boundary between "shape recoverable via aliases" and
+        # "fundamentally broken" is fuzzy and the test should not pin it
+        # to one outcome.
+        facts_from_model_text(bad_shape, "regression-run")
+
+
+def test_bedrock_extraction_error_inherits_value_error() -> None:
+    """Existing `except ValueError:` callers (the repair-retry path,
+    _fail_or_retry, etc.) must keep catching the typed errors without
+    code change.
+    """
+    for cls in (BedrockNonJsonError, BedrockTokenLimitError, BedrockSchemaMismatchError):
+        assert issubclass(cls, ValueError), f"{cls.__name__} must inherit from ValueError"
+        assert issubclass(cls, BedrockExtractionError)
 
 
 def test_bedrock_call_sites_use_configurable_max_tokens(monkeypatch) -> None:
