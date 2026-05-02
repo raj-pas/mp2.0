@@ -531,8 +531,8 @@
       "var_imp_shift": "Need = −10, Want = 0, Wish = +8, Unsure = 0",
       "var_size_shift": "Larger share of AUM ⇒ more conservative (negative shift); smaller share ⇒ more growth-oriented (positive shift)",
       "var_bucket": "Snap the shifted value to one of the five canon descriptors",
-      "worked": "Hayes Retirement Goal: anchor 22.5, tier = Need (−10 = more conservative), 47% of AUM (further negative shift) → resolves to canon Cautious (score 1).",
-      "footnote": "Engineers reading this: the engine internally computes a 0–50 intermediate (`Goal_50`) before snapping to canon 1–5. Goal_50 is never displayed to advisors and is not part of any API surface (locked decision #6)."
+      "worked": "Hayes Retirement Goal: anchor 22.5, tier = Need (−10), 47% of AUM (size_shift = −2) → resolves to canon Conservative-balanced (score 2). Horizon 32 years applies no effective cap; no advisor override on file.",
+      "footnote": "Engineers reading this: the engine internally computes a 0–50 intermediate (`Goal_50`) before snapping to canon 1–5. Goal_50 is never displayed to advisors and is not part of any API surface (locked decision #6). For this example, Goal_50 = 22.5 + (−10) + (−2) = 10.5 → bucket-snap → Conservative-balanced."
     },
     "s4": {
       "title": "Horizon cap per goal",
@@ -555,7 +555,7 @@
       "title": "Sleeve mix",
       "summary": "Each canon score maps to a target equity percentage and an optimizer-determined building-block fund mix. The optimizer runs the efficient frontier over the eight-fund universe and returns the optimal allocation for that score's expected return + variance constraints.",
       "formula": "equity_pct(score) = clamp(0.05 + (score − 1) / 4 × 0.90, 0.05, 0.95)\nmix(score) = optimizer.efficient_frontier(score, eligible_funds)",
-      "worked": "Choi Travel goal at canon Balanced (score 3): equity_pct ≈ 56%. Optimizer mixes Steadyhand Income, Equity, Global, and Savings funds; returns a frontier-optimal point at the score's μ/σ.",
+      "worked": "Choi Travel goal at canon Balanced (score 3): equity_pct ≈ 49% (calibration curve at the bucket midpoint, BUCKET_REPRESENTATIVE_SCORE[3] = 25). Optimizer mixes Steadyhand Income, Equity, Global, and Savings funds; returns a frontier-optimal point at the score's μ/σ.",
       "footnote": "The codebase's `SLEEVE_REF_POINTS` table is calibration-only — it anchors the parity tests against the v36 mockup's worked examples. Production sleeve mixes always come from the optimizer (canon §4.1)."
     },
     "s7": {
@@ -563,7 +563,7 @@
       "summary": "Goal-level projections use a lognormal distribution parameterized by the score-derived μ (expected return) and σ (volatility). External holdings carry a stiffer drift penalty than Steadyhand-managed sleeves to reflect realistic deviation from advisor-recommended allocations.",
       "formula": "μ_ideal(score) = 0.030 + equity_pct(score) × 0.045\nσ_ideal(score) = 0.030 + equity_pct(score) × 0.190\nμ_current(score, ext=False) = μ_ideal × 0.92\nμ_current(score, ext=True)  = μ_ideal × 0.85\nσ_current(score, ext=False) = σ_ideal × 1.08\nσ_current(score, ext=True)  = σ_ideal × 1.15",
       "detail": "Tier-aware percentile bands: Need-tier goals show P10/P90, Want-tier goals show P5/P95, Wish-tier goals show P2.5/P97.5. The probability of meeting target at horizon is computed as P(end_value ≥ target), surfaced as the “% chance” callout on the fan chart.",
-      "worked": "Thompson Retirement goal at canon Balanced-growth (score 4): μ_ideal = 0.030 + 0.74 × 0.045 ≈ 5.8%. With 30% external holdings: μ_current ≈ 5.8% × 0.92 ≈ 5.34%. The 0.46-pp drift is what the fan chart visualizes between plan-baseline and what-if curves.",
+      "worked": "Thompson Retirement goal at canon Balanced-growth (score 4, representative midpoint 35): equity_pct ≈ 67% → μ_ideal = 0.030 + 0.67 × 0.045 ≈ 6.0%. For an off-target Steadyhand sleeve mix: μ_current = μ_ideal × 0.92 ≈ 5.5%. For an off-target external holding: μ_current = μ_ideal × 0.85 ≈ 5.1%. The drift is what the fan chart visualizes between plan-baseline and what-if curves.",
       "footnote": "External-holdings adjustment is a projection-time penalty only (μ × 0.85, σ × 1.15). The canon §4.6a risk-tolerance dampener is deferred to Phase B awaiting confirmed input parameters."
     },
     "s8": {
