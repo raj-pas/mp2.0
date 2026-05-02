@@ -5,11 +5,12 @@
  * (locked decision #31a). Stage content is empty in R2; R3 fills
  * HouseholdRoute / AccountRoute / GoalRoute with the three-view stage.
  */
-import { useEffect, useMemo, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { Skeleton } from "./components/ui/skeleton";
 import { ContextPanel, type ContextPanelKind } from "./ctx-panel/ContextPanel";
 import { TopBar } from "./chrome/TopBar";
 import { useRememberedClientId } from "./chrome/ClientPicker";
@@ -17,13 +18,33 @@ import { type GroupByMode } from "./chrome/ModeToggle";
 import { useLocalStorage } from "./lib/local-storage";
 import { isAdvisorRole, isAnalystRole, useSession, type SessionUser } from "./lib/auth";
 import { AccountRoute } from "./routes/AccountRoute";
-import { CmaRoute } from "./routes/CmaRoute";
 import { GoalRoute } from "./routes/GoalRoute";
 import { HouseholdRoute } from "./routes/HouseholdRoute";
 import { LoginRoute } from "./routes/LoginRoute";
-import { MethodologyRoute } from "./routes/MethodologyRoute";
-import { ReviewRoute } from "./routes/ReviewRoute";
-import { HouseholdWizard } from "./wizard/HouseholdWizard";
+
+// Code-split the heavy non-critical-path routes (R10b polish — drops
+// the initial bundle). Methodology, Wizard, Review, and CMA are all
+// reachable via topbar action / explicit navigation — none lands first.
+const MethodologyRoute = lazy(() =>
+  import("./routes/MethodologyRoute").then((m) => ({ default: m.MethodologyRoute })),
+);
+const HouseholdWizard = lazy(() =>
+  import("./wizard/HouseholdWizard").then((m) => ({ default: m.HouseholdWizard })),
+);
+const ReviewRoute = lazy(() =>
+  import("./routes/ReviewRoute").then((m) => ({ default: m.ReviewRoute })),
+);
+const CmaRoute = lazy(() =>
+  import("./routes/CmaRoute").then((m) => ({ default: m.CmaRoute })),
+);
+
+function LazyRouteFallback() {
+  return (
+    <div className="flex flex-1 items-center justify-center bg-paper p-6">
+      <Skeleton className="h-32 w-3/4 max-w-3xl" />
+    </div>
+  );
+}
 
 function App() {
   return (
@@ -219,9 +240,13 @@ function StageWithContext({ kind, children }: { kind: ContextPanelKind; children
 }
 
 function RouteFrame({ scope, children }: { scope: string; children: ReactNode }) {
+  // Wrap in Suspense so any lazy-loaded route renders the skeleton
+  // fallback while its chunk downloads.
   return (
     <ErrorBoundary scope={scope}>
-      <div className="flex flex-1 overflow-hidden">{children}</div>
+      <Suspense fallback={<LazyRouteFallback />}>
+        <div className="flex flex-1 overflow-hidden">{children}</div>
+      </Suspense>
     </ErrorBoundary>
   );
 }
