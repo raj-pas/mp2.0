@@ -401,3 +401,62 @@ test.describe("R7 doc-drop + review queue", () => {
     await expect(page.getByText(/Construction ready/i)).toBeVisible();
   });
 });
+
+test.describe("R9 CMA Workbench", () => {
+  test("analyst sees all 5 tabs and the snapshots list renders", async ({ page }) => {
+    await loginAnalyst(page);
+
+    // Lands on /cma per role-based routing.
+    await expect(page).toHaveURL(/\/cma$/);
+    await expect(page.getByRole("heading", { level: 1, name: /CMA Workbench/i })).toBeVisible();
+
+    // All 5 tabs render
+    for (const tab of ["Snapshots", "Assumptions", "Correlations", "Frontier", "Audit"]) {
+      await expect(page.getByRole("tab", { name: tab })).toBeVisible();
+    }
+
+    // Snapshots tab is the default — table headers visible
+    await expect(page.getByText(/^Version$/i).first()).toBeVisible();
+    await expect(page.getByText(/^Status$/i).first()).toBeVisible();
+
+    // At least one snapshot row exists (Default CMA seeded by reset script).
+    await expect(page.getByText(/Default CMA/i).first()).toBeVisible({ timeout: 5000 });
+
+    // Wait for the active snapshot to load (the CmaHeader pill renders
+    // "Active: ..." once activeQuery resolves; until then Frontier tab
+    // would short-circuit at "Select a snapshot first").
+    await expect(page.getByText(/Active:/i)).toBeVisible({ timeout: 10000 });
+
+    // Assumptions tab loads the active snapshot
+    await page.getByRole("tab", { name: "Assumptions" }).click();
+    // Fund column header
+    await expect(page.getByText(/Expected return/i).first()).toBeVisible();
+
+    // Frontier tab renders without crash. The canvas only mounts after
+    // (a) selectedId is non-null AND (b) frontierQuery resolves AND
+    // (c) the dynamic chart.js import resolves — wait for the summary
+    // line below the canvas which only appears after data loads.
+    await page.getByRole("tab", { name: "Frontier" }).click();
+    await expect(page.getByText(/efficient frontier points/i)).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.locator("canvas").first()).toBeVisible({ timeout: 5000 });
+
+    // Audit tab renders the recent CMA actions list (or the empty state)
+    await page.getByRole("tab", { name: "Audit" }).click();
+    // The page shouldn't crash — heading still visible
+    await expect(page.getByRole("heading", { level: 1, name: /CMA Workbench/i })).toBeVisible();
+  });
+
+  test("advisor cannot access /cma surface (silent server-side 403)", async ({ page }) => {
+    await loginAdvisor(page);
+    await expect(page.getByRole("banner")).toBeVisible();
+
+    // Navigate to /cma directly — UI should surface the forbidden state
+    // instead of silently rendering an empty Workbench.
+    await page.goto("/cma");
+    // The forbidden message names "financial-analyst role" so analysts
+    // know who has access (canon §11.8 + locked decision #5).
+    await expect(page.getByText(/financial.analyst/i)).toBeVisible({ timeout: 5000 });
+  });
+});
