@@ -2743,3 +2743,85 @@ to: open Chrome → /methodology to warm the bundle → walk the
 After demo + first-pilot-week feedback, the natural next priorities
 are P0 #5 (OpenAPI codegen) and P0 #2 (full mockup-style conflict-
 resolution UI cards).
+
+---
+
+## 2026-05-02 (later) — Re-audit + scope-locked beta hardening session
+
+User initiated a fresh session to re-audit the extraction subsystem
++ scope a comprehensive beta-hardening pass before 2026-05-08
+limited-pilot release. After 12 interview rounds (~50 user-locked
+decisions), plan finalized at
+`~/.claude/plans/you-are-continuing-a-playful-hammock.md`.
+
+### Re-audit findings (HEAD `f5f2519`)
+
+Three Explore agents re-verified the prior 2026-05-01 audit. Status:
+
+- **8 prior findings closed at HEAD baseline** (CONC-1, CONC-2,
+  CONC-4, TYPE-1, REGION-1, REGION-2, RBAC-1, CONF-1).
+- **8 findings still open** (PII-1/2/3/4/SER, REDACT-1, plus
+  PROMPT-1/2/3/4/5, REPAIR-1/2, CONFLICT-CARD).
+- **2 new findings surfaced:**
+  - **ENUM-CASE (DEMO-blocker):** `_normalize_lowercase_enum` only
+    wired for `investment_knowledge` at `engine_adapter.py:65`;
+    `regulatory_objective`, `regulatory_time_horizon`,
+    `regulatory_risk_rating`, `marital_status` not normalized.
+    Real-PII Bedrock often returns capitalized values → engine
+    silently rejects.
+  - **BUG-1 (PILOT-blocker):** `ReviewDocumentManualEntryView.post`
+    lacks `transaction.atomic() + select_for_update()` on document
+    row. Lost-update race possible.
+
+Findings persisted to `docs/agent/extraction-audit.md` (new living doc).
+
+### Plan structure (9 phases)
+
+- Phase 0: persist audit + baseline + housekeeping
+- Phase 1: ENUM-CASE
+- Phase 2: PII leak class (5 sites + REDACT-1 + grep guard)
+- Phase 3: BUG-1 atomicity + REC-1 reconcile-enqueue ordering
+- Phase 4: Bedrock tool-use prompt overhaul (per-doc-type modules;
+  eliminates REPAIR-1+2)
+- Phase 4.5: OpenAPI-typescript codegen + drift CI gate
+- Phase 5a: conflict-resolution card UI (full mockup parity)
+- Phase 5b: UX hardening (banner, feedback, worker health, retry,
+  doc detail panel, welcome tour, polling, session interruption,
+  confidence chip, fact edit/add, bulk + defer conflict UI,
+  axe-core a11y, demo-script consistency)
+- Phase 5c: living docs (ux-spec.md, design-system.md) + CLAUDE.md
+  auto-load + memory pointer
+- Phase 6: testing depth (Hypothesis property, 100% coverage,
+  concurrency stress, Vitest unit, edge cases, factory_boy,
+  migration rollback)
+- Phase 6.9: performance budget gate
+- Phase 7: end-to-end validation (canary + Niesner + R10 7-folder
+  re-sweep + real-browser smoke)
+- Phase 8: rollback doc + provisioning command + tag v0.1.0-pilot
+  + CHANGELOG + scheduled smoke + final check-in
+
+### Operational protocol (locked)
+
+- Stay on `feature/ux-rebuild`; per-phase commits; user pushes
+  Monday morning.
+- Per-phase exit ping (verbose ~400 words) including diff vs
+  baseline + audit-finding closures + tests-added + reasoning +
+  open items + new i18n strings (when applicable).
+- Full gate suite at every phase exit (ruff + format + bandit +
+  mypy strict + pytest + makemigrations + typecheck + lint +
+  eslint-security + build + vocab + PII grep + OpenAPI drift +
+  perf benchmark + 100% coverage + Vitest unit + Playwright +
+  real-browser smoke + pilot-features smoke + axe-core).
+- Stop-condition: halt + AskUserQuestion on regression / scope
+  exceeded / phase-output not meeting exit-criteria after 2
+  iterations.
+- Bedrock spend authorized to $100; cost tracking deferred per user.
+
+### Pointer for next session
+
+Plan-mode complete; entering execution. Phase 0 starts immediately.
+Auto mode is active; per-phase exit pings will be the user-visible
+checkpoints. If context limit approached mid-execution, follow the
+context-handoff protocol (update session-state.md + halt + ping
+user for fresh session).
+

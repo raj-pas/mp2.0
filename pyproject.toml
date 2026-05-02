@@ -26,10 +26,15 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "bandit>=1.9.4",
+    "factory-boy>=3.3.3",
     "hypothesis>=6.112,<7.0",
     "mypy>=1.13,<2.0",
     "pytest>=8.3,<9.0",
+    "pytest-benchmark>=5.2.3",
+    "pytest-cov>=7.1.0",
     "pytest-django>=4.9,<5.0",
+    "python-json-logger>=4.1.0",
     "ruff>=0.8,<1.0",
     "scipy>=1.14,<2.0",
 ]
@@ -106,3 +111,10 @@ ignore_missing_imports = true
 init_forbid_extra = true
 init_typed = true
 warn_required_dynamic_aliases = true
+
+# Bandit security scanner config (Phase 0.9 — added 2026-05-02).
+# Skip test files (false-positive heavy: B101 assert_used, B108 hardcoded
+# /tmp directories used intentionally for test isolation, etc.).
+[tool.bandit]
+exclude_dirs = ["web/api/tests", "engine/tests", "web/audit/tests"]
+skips = ["B101"]  # assert_used — pytest assertions are intentional

@@ -29,8 +29,6 @@ function builds the minimum scenario it needs.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
-
 import pytest
 from django.contrib.auth import get_user_model
 from web.api import models
@@ -216,9 +214,7 @@ def test_external_holding_pcts_sum_to_100() -> None:
         if abs(total - Decimal("100")) > Decimal("0.01"):
             bad.append((holding.id, total))
 
-    assert not bad, (
-        f"Found ExternalHolding rows with asset-class pcts not summing to 100: {bad}"
-    )
+    assert not bad, f"Found ExternalHolding rows with asset-class pcts not summing to 100: {bad}"
 
 
 @pytest.mark.django_db
