@@ -2660,3 +2660,86 @@ on standard ports. Worker idle.
 
 No code changes; this is a validation-only follow-on. Dossier §3
 updated to reflect Weryha presence + empirical-validation evidence.
+
+---
+
+## 2026-05-02 — Overnight production-ready execution
+
+User authorized autonomous overnight execution of the remaining
+plan items + deep testing across all completed work. Branch is now
+production-ready for demo Mon 2026-05-04 + release Mon 2026-05-08.
+
+### What shipped (commit chain)
+
+  0701d33  fix(post-R7): workspace COMMITTED status preservation
+                          against worker race
+                          — root-cause: reconcile_workspace silently
+                          overwrote workspace.status after a stale
+                          worker pass. Fixed at reconcile_workspace
+                          (refresh + short-circuit) AND
+                          create_state_version (preserve COMMITTED
+                          in update_fields list).
+                          2 new regression tests; both fail before fix.
+
+  e528fb5  fix(post-R7): zero/null-value Purpose accounts surface
+                          advisor blocker
+                          — three-layer defense at
+                          construction_blockers_for_state +
+                          portfolio_generation_blockers_for_household
+                          + engine.optimizer._link_amount.
+                          2 new regression tests.
+
+  b92cdef  test(deep-audit): close audit-emission + append-only
+                              invariant gaps
+                              — +3 audit-emission tests (PATCH state,
+                              approve section, reconcile-skipped-
+                              committed) + 5 append-only invariant
+                              tests (PortfolioRun, link rec, event,
+                              snapshot, override).
+
+  b038d9a  feat(R9): rebuild CMA Workbench with 5 tabs (analyst-only)
+                      — Snapshots / Assumptions / Correlations /
+                      Frontier / Audit. Backend unchanged.
+                      Caught 1 latent bug (frontier-payload type
+                      drift) via per-route ErrorBoundary.
+
+  2494009  feat(R10a + R10b): mockup-parity audit + code-split + a11y
+                               — `r10-mockup-parity.md` (one-time
+                               audit), code-split 4 heavy routes via
+                               React.lazy (main 274→258 kB gzipped),
+                               manual WCAG 2.1 AA review.
+
+  130e211  test(R10c): DB state-integrity invariants + demo-state
+                        restoration
+                        — 9 new permanent invariant tests; full DB
+                        reset + Seltzer + Weryha re-upload; integrity
+                        9/9 passing on fresh state; real-browser smoke
+                        clean.
+
+### Final gates at HEAD `130e211`
+
+  - 362 pytest passing  (engine + web + audit) — was 341, +21 tests
+  - 13/13 Playwright foundation e2e
+  - 1/1 real-browser smoke (clean console)
+  - 9/9 DB state-integrity invariants
+  - ruff + format + typecheck + lint + build + vocab + migrations
+    all clean
+
+### State as left
+
+  - Postgres + backend running in docker (auto-reloads)
+  - Vite on host
+  - Worker idle (not running; demo doesn't need it)
+  - DB: Sandra/Mike + Seltzer 5/5 + Weryha 5/5 (canonical demo state)
+  - Branch is 15+ commits ahead of origin
+  - User to push Monday morning per locked direction
+
+### Pointer for next session
+
+Demo state is locked; pre-checklist on demo Mon 2026-05-04 reduces
+to: open Chrome → /methodology to warm the bundle → walk the
+8-step demo script. No additional prep needed.
+
+After demo + first-pilot-week feedback, the natural next priorities
+are P0 #5 (OpenAPI codegen) and P0 #2 (full mockup-style conflict-
+resolution UI cards).

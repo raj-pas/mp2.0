@@ -89,7 +89,15 @@ Demo-ready PLUS:
 ### Branch + commits (newest first)
 
 ```
-ef81915 fix(R8 followups #3 + #4): demo backup script + pre-checklist hardening      ← HEAD
+130e211 test(R10c): DB state-integrity invariants + demo-state restoration       ← HEAD
+2494009 feat(R10a + R10b): mockup-parity audit + code-split + bundle/a11y review
+b038d9a feat(R9): rebuild CMA Workbench with 5 tabs (analyst-only)
+b92cdef test(deep-audit): close audit-emission + append-only invariant gaps
+e528fb5 fix(post-R7): zero/null-value Purpose accounts surface advisor blocker
+0701d33 fix(post-R7): workspace COMMITTED status preservation against worker race
+9d3ed1e docs(post-R8 followups): empirical validation — live-run + real-browser
+68b07f8 docs(post-R8 followups): close-out — dossier, followups, memory, handoff
+ef81915 fix(R8 followups #3 + #4): demo backup script + pre-checklist hardening
 43c1d55 test(R8 followup #1): real-browser smoke covers /methodology overlay
 219f0c4 fix(R8 followup #2): cross-verify methodology worked examples vs engine
 abafecf docs(post-R8): pre-compaction continuity — followups + dossier refresh
@@ -103,19 +111,31 @@ edecadf docs(R7): post-R7 extraction-hardening complete + R10 sweep 55/55 reconc
 c07acc8 docs(R7): handoff dossier + extraction-hardening plan for demo + release
 ec98596 fix(R7): live FileList ref race in DocDropOverlay + locked-#28b real-PII checkpoint
 4643bb5 fix(R7): close 6 doc-drop pipeline contract drifts caught by deep dig
-3416143 Phase R7: doc-drop + review-screen for v36 UI/UX rewrite                              ← R7 ship
+3416143 Phase R7: doc-drop + review-screen for v36 UI/UX rewrite                  ← R7 ship
 ... (R0–R7 history same as before)
 ```
 
-`feature/ux-rebuild` is **6 commits ahead** of `origin/feature/ux-rebuild` at HEAD. Do not push without explicit user authorization. (This count fluctuates — origin doesn't auto-track all our commits; treat as "do not push.")
+`feature/ux-rebuild` is **15+ commits ahead** of `origin/feature/ux-rebuild` at HEAD. Do not push without explicit user authorization (locked: "user pushes Monday morning").
 
-### Local DB state (as of post-R8 + demo lock + empirical validation 2026-05-02)
+### Local DB state (as of R10c demo-state restoration 2026-05-02)
 
-- **Sandra/Mike Chen** — synthetic, 1 household, fresh from `scripts/reset-v2-dev.sh --yes` reseed.
-- **`Seltzer review (demo prep)`** — real_derived workspace, **5/5 reconciled** (workspace ID dynamic; lookup by label). KYC ready ✓; engine_ready/construction_ready remain ⚠ (advisor decisions pending — by design for the demo flow).
-- **`Weryha review (demo prep)`** — real_derived workspace, **5/5 reconciled** (NEW 2026-05-02; drop-in backup per the updated demo-script backup plan). KYC ready ✓; engine_ready/construction_ready remain ⚠ (advisor decisions pending — same shape as Seltzer).
-- **2 incidental R7 e2e leftover workspaces** — harmless noise from prior e2e runs; not surfaced by demo flow; cleanup not blocking.
+**Cleanly reset and re-pre-uploaded:**
+
+- **Sandra/Mike Chen** — synthetic, 1 household, fresh seed.
+- **`Seltzer review (demo prep)`** — real_derived workspace, **5/5 reconciled**. KYC ready ✓; engine_ready/construction_ready remain ⚠ (advisor decisions pending — by design for the demo flow).
+- **`Weryha review (demo prep)`** — real_derived workspace, **5/5 reconciled** (drop-in backup per the demo-script backup plan). Same shape as Seltzer.
+- **No leftover e2e workspaces / households / snapshots / overrides** — fresh state.
 - Local advisor: `advisor@example.com` (password in `.env` at `MP20_LOCAL_ADMIN_PASSWORD`). Analyst: `analyst@example.com`.
+
+DB integrity invariants (9/9 passing):
+  - All COMMITTED workspaces have linked_household ✓
+  - No linked-household with non-COMMITTED status (Bug-1 invariant) ✓
+  - No Purpose accounts with goal-links + zero current_value (Bug-2 invariant) ✓
+  - No orphan PortfolioRunLinkRecommendations / PortfolioRunEvents ✓
+  - HouseholdSnapshot chain monotonic per household ✓
+  - AuditEvent ids monotonic (canon §9.4.6) ✓
+  - ExternalHolding pcts sum to 100 ✓
+  - GoalAccountLink has amount or pct ✓
 
 ### Live stack as left
 
@@ -124,24 +144,42 @@ ec98596 fix(R7): live FileList ref race in DocDropOverlay + locked-#28b real-PII
 - Vite on host — running on `:5173`.
 - Worker on host — **idle**; queue is drained except for 1 leftover R7 e2e doc job that doesn't matter for demo.
 
-### What's at HEAD (ef81915)
+### What's at HEAD (`130e211`)
+
+**Plan execution complete (R0–R10).** All 11 phases shipped, both catalogued post-R7 real-PII bugs fixed, deep-audit pass added 8 invariant tests, R9 CMA Workbench rebuilt, R10a–c polish closed.
 
 - **R7 phase**: complete (commit `3416143`)
 - **Post-R7 hardening**: 3.A max_tokens, 3.B typed errors, 3.E manual-entry hatch — all shipped
-- **R10 sweep**: 55/55 reconciled across 7 client folders, 2,304 facts, 0 new failures
-- **Pre-demo critical testing**: 5/5 items, 1 fix shipped (engine_adapter case-norm), 2 bugs catalogued for post-demo
-- **R8 methodology overlay**: shipped — 10 sections, canon-aligned descriptors, ~70 i18n keys, e2e covers section render + descriptors + Goal_50-hidden invariant + TOC scroll
-- **Post-R8 followups**: all 4 closed — Item #2 surfaced + fixed 3 i18n bugs in s3/s6/s7 (worked examples now math-verified against engine via new regression test); Item #1 extends real-browser smoke to /methodology with 10-section H2 + TOC scroll assertions; Items #3+#4 ship a durable parameterized prep script + Weryha drop-in backup + cache-warm pre-checklist line
-- **Demo lock-down**: clean DB + Seltzer 5/5 pre-uploaded + demo script at `docs/agent/demo-script-2026-05-04.md`
+- **R10 sweep (initial)**: 55/55 reconciled across 7 client folders, 2,304 facts, 0 new failures
+- **Pre-demo critical testing**: 5/5 items, 1 fix shipped (engine_adapter case-norm), 2 bugs catalogued — **both since fixed in this session**
+- **R8 methodology overlay**: shipped — 10 sections, canon-aligned descriptors, ~70 i18n keys
+- **Post-R8 followups**: all 4 closed — Item #2 surfaced + fixed 3 i18n bugs in s3/s6/s7
+- **Catalogued Bug 1 fixed (commit `0701d33`)** — workspace COMMITTED status preservation against worker-race; reconcile_workspace short-circuits on COMMITTED + create_state_version preserves COMMITTED status
+- **Catalogued Bug 2 fixed (commit `e528fb5`)** — zero/null-value Purpose accounts surface advisor blocker; three-layer defense (state, household, optimizer)
+- **Deep audit pass (commit `b92cdef`)** — 3 missing audit-emission tests + 5 missing append-only invariant tests
+- **R9 CMA Workbench rebuilt (commit `b038d9a`)** — 5 functional tabs (Snapshots/Assumptions/Correlations/Frontier/Audit); analyst-only RBAC; backend unchanged
+- **R10a mockup-parity audit (commit `2494009`)** — `docs/agent/r10-mockup-parity.md` walks every v36 feature; zero blocking gaps
+- **R10b code-split + a11y review (commit `2494009`)** — main bundle dropped 274 → 258 kB gzipped via React.lazy on 4 heavy routes; manual WCAG 2.1 AA review across 8 components; zero violations on critical path
+- **R10c DB state diff + demo restore (commit `130e211`)** — 9 new permanent invariant tests; full reset → re-pre-upload Seltzer + Weryha; integrity 9/9 passing; real-browser smoke clean
+- **Demo lock-down**: canonical clean DB state with Sandra/Mike + Seltzer 5/5 + Weryha 5/5; demo script at `docs/agent/demo-script-2026-05-04.md`
 
-### Verified-working (as of HEAD `ef81915`)
+### Verified-working (as of HEAD `130e211`)
 
-- 216 engine pytest + 122 web pytest + 2 audit pytest + 1 R8 regression set (8 tests) = **341 passing**
-- **11/11 Playwright foundation e2e** (R8 methodology spec included)
+- **362 pytest passing** (engine + web + audit) — was 341 at start of session; +21 across 5 new test modules / extensions:
+  - `+8` R8 worked-example math (R8 followup)
+  - `+2` workspace COMMITTED + reconcile-after-commit (Bug 1)
+  - `+2` zero-value Purpose accounts (Bug 2)
+  - `+3` audit emission gaps (PATCH state, approve section, reconcile-skipped-committed)
+  - `+5` append-only invariants (PortfolioRun, link rec, event, snapshot, override)
+  - `+9` DB state-integrity invariants (R10c)
+  - `-8` baseline drift (refactors absorbed)
+- **13/13 Playwright foundation e2e** — was 11/11; +2 R9 CMA tests
+- **1/1 real-browser smoke** clean (0 unexpected console signals)
 - ruff check + ruff format check clean
 - frontend: `npm run typecheck`, `npm run lint`, `npm run build` clean
 - `scripts/check-vocab.sh` OK
 - `makemigrations --check --dry-run` clean
+- DB integrity invariants: 9/9 passing on the freshly-restored demo state
 - Legacy-label runtime tripwire OK (caught + fixed one Fraser reference during R8 build)
 - Niesner real-PII pipeline 12/12 reconciled with 493 facts
 - R10 sweep 55/55 reconciled with 2,304 facts
