@@ -357,6 +357,18 @@ def portfolio_generation_blockers_for_household(household: models.Household) -> 
         if not links:
             blockers.append(f"Purpose account {account.external_id} must be assigned to a goal.")
             continue
+        # Catalogued post-R7 real-PII bug 2: a zero/null current_value on
+        # an is_held_at_purpose account with goal-links would either
+        # silently pass (if links carried only allocated_pct) and then
+        # crash engine.optimizer, or crash here on the abs() arithmetic.
+        # Surface it as an explicit advisor-actionable blocker.
+        account_value = account.current_value or Decimal("0")
+        if account_value <= 0:
+            blockers.append(
+                f"Purpose account {account.external_id} needs a current value before "
+                "portfolio generation (advisor must provide value, archive, or delete)."
+            )
+            continue
         if all(link.allocated_amount is not None for link in links):
             allocated = sum(link.allocated_amount for link in links)
             if abs(allocated - account.current_value) > Decimal("1.00"):
@@ -398,6 +410,16 @@ def _full_assignment_blockers(
             continue
         account_value = _number(account.get("current_value"))
         if account_value <= 0:
+            # Catalogued post-R7 real-PII bug: a zero/null current_value
+            # on an is_held_at_purpose account with goal-links was being
+            # silently skipped here, surviving both engine_ready and
+            # construction_ready, then crashing engine.optimizer with
+            # ValueError. Surface it as an explicit advisor-actionable
+            # blocker so the commit gate is closed.
+            label = (
+                f"Purpose account needs a current value before commit (account id: {account_id})"
+            )
+            blockers.append(_missing("accounts", label))
             continue
         if all(link.get("allocated_amount") is not None for link in account_links):
             allocated = sum(_number(link.get("allocated_amount")) for link in account_links)

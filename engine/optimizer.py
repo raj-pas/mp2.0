@@ -272,6 +272,23 @@ def _link_amount(
         return allocated_amount
     if allocated_pct is not None and allocated_pct > 0 and account_value > 0:
         return allocated_pct * account_value
+    # The web layer's portfolio_generation_blockers_for_household must
+    # surface a more specific blocker before reaching here. This branch
+    # is a last-resort guard: if it raises, the message must give
+    # enough signal that the source-of-truth check at the web layer is
+    # missing. (See web/api/review_state.py
+    # portfolio_generation_blockers_for_household for the explicit
+    # zero/null current_value blocker.)
+    if (allocated_amount is None or allocated_amount <= 0) and (
+        allocated_pct is not None
+        and allocated_pct > 0
+        and (account_value is None or account_value <= 0)
+    ):
+        raise ValueError(
+            "Goal-account link uses percentage but the linked account has no current "
+            "value — advisor must provide an account value, archive, or delete the "
+            "account before portfolio generation."
+        )
     raise ValueError("Every goal-account link must include allocated dollars or percentage")
 
 

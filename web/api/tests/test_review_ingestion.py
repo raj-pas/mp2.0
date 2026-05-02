@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -1181,6 +1182,162 @@ def test_commit_after_patch_state_flips_status_and_is_idempotent(tmp_path, setti
     assert committed_events.count() == 1, (
         f"Expected 1 review_state_committed event after 2 commit calls "
         f"(second is a no-op idempotent return); got {committed_events.count()}."
+    )
+
+
+@pytest.mark.django_db
+def test_zero_value_purpose_account_surfaces_construction_blocker_not_500() -> None:
+    """Catalogued post-R7 real-PII bug 2: a Purpose account with
+    current_value=0 (or None) and a goal-account-link must surface a
+    clear construction-ready blocker BEFORE the optimizer is invoked.
+
+    Pre-fix behavior: state passes both engine_ready and
+    construction_ready, commit succeeds, household is created, and
+    THEN GeneratePortfolio crashes inside engine.optimizer with
+    `ValueError: Every goal-account link must include allocated
+    dollars or percentage` — surfaces as a 500 that gives the advisor
+    no actionable signal.
+
+    Post-fix: construction_blockers_for_state flags the zero-value
+    Purpose account as needing an advisor decision (provide value,
+    archive, or delete). The commit endpoint returns 400 with a
+    blocker message that names the affected account.
+    """
+
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(label="Zero-value review", owner=user)
+    # Two-account state: one good (gives engine_ready a positive
+    # current_value to satisfy the existing line-226 check), one
+    # zero-value Purpose account that the existing logic was silently
+    # skipping in _full_assignment_blockers.
+    state = _engine_ready_state()
+    state["accounts"] = [
+        {
+            "id": "acct_good",
+            "type": "RRSP",
+            "current_value": 100000,
+            "is_held_at_purpose": True,
+            "missing_holdings_confirmed": True,
+        },
+        {
+            "id": "acct_zero",
+            "type": "TFSA",
+            "current_value": 0,  # ← the bug seed
+            "is_held_at_purpose": True,
+            "missing_holdings_confirmed": True,
+        },
+    ]
+    state["goal_account_links"] = [
+        {"goal_id": "goal_ready", "account_id": "acct_good", "allocated_amount": 100000},
+        # Pct-based link on a zero-value account — this is the exact
+        # combination that crashes engine.optimizer._link_amount.
+        {"goal_id": "goal_ready", "account_id": "acct_zero", "allocated_pct": 1.0},
+    ]
+    workspace.reviewed_state = state
+    workspace.readiness = readiness_for_state(state).__dict__
+    workspace.save()
+    _approve_required_sections(workspace, user)
+
+    response = client.post(reverse("review-workspace-commit", args=[workspace.external_id]), {})
+
+    assert response.status_code == 400, (
+        f"Commit should be rejected with a 400 + advisor-actionable "
+        f"blocker, not a 500 from the optimizer. Got "
+        f"{response.status_code}: body={response.content!r}"
+    )
+    body = response.json()
+    # The specific blocker lives in readiness.missing (engine_ready
+    # missing list, since zero-value Purpose accounts are a "advisor
+    # action required" gate per canon §6.3). The detail text gives the
+    # category ("Reviewed state is not engine-ready"); the readiness
+    # payload gives the per-blocker actionable message.
+    missing = body.get("readiness", {}).get("missing", [])
+    blocker_text = " ".join(item.get("label", "") for item in missing).lower()
+    assert "value" in blocker_text, (
+        f"Expected a readiness.missing entry naming the account's "
+        f"missing/zero value. Got missing={missing!r}, detail={body.get('detail')!r}"
+    )
+    assert any("acct_zero" in item.get("label", "") for item in missing), (
+        f"Blocker should name the affected account so the advisor "
+        f"knows which one to fix. Got: {missing!r}"
+    )
+
+
+@pytest.mark.django_db
+def test_zero_value_purpose_account_surfaces_household_level_blocker() -> None:
+    """Defense-in-depth for the catalogued bug: even if a zero-value
+    Purpose account survives state-level checks, the household-level
+    portfolio_generation_blockers_for_household must surface a clear
+    advisor-actionable blocker BEFORE the optimizer is reached.
+
+    `current_value` is a NOT-NULL column with default=0, so the bug's
+    "current_value=None" really means "current_value=0 from extraction
+    that didn't return a number." Both surface the same failure mode
+    in engine.optimizer._link_amount.
+    """
+
+    from web.api.review_state import portfolio_generation_blockers_for_household
+
+    user = _user()
+    household = models.Household.objects.create(
+        external_id="zero_value_household",
+        owner=user,
+        display_name="Zero Value Household",
+        household_type="single",
+        household_risk_score=3,
+    )
+    person = models.Person.objects.create(
+        household=household,
+        external_id="person_zero",
+        name="Zero Value Client",
+        dob=date(1962, 1, 1),
+    )
+    # Good account so household-level checks have a positive baseline.
+    good_account = models.Account.objects.create(
+        household=household,
+        external_id="acct_good",
+        owner_person=person,
+        account_type="RRSP",
+        current_value=100000,
+        is_held_at_purpose=True,
+    )
+    # Zero-value account is the bug seed.
+    zero_account = models.Account.objects.create(
+        household=household,
+        external_id="acct_zero",
+        owner_person=person,
+        account_type="TFSA",
+        current_value=0,
+        is_held_at_purpose=True,
+    )
+    goal = models.Goal.objects.create(
+        household=household,
+        external_id="goal_zero",
+        name="Retirement",
+        target_date=date.today() + timedelta(days=365 * 5),
+        goal_risk_score=3,
+    )
+    models.GoalAccountLink.objects.create(
+        goal=goal,
+        account=good_account,
+        external_id="link_good",
+        allocated_amount=100000,
+    )
+    models.GoalAccountLink.objects.create(
+        goal=goal,
+        account=zero_account,
+        external_id="link_zero",
+        allocated_pct=Decimal("1"),
+    )
+
+    # MUST NOT raise; must return a blocker list mentioning the
+    # zero-value account so the advisor can act.
+    blockers = portfolio_generation_blockers_for_household(household)
+    assert isinstance(blockers, list), "blocker function must return a list, not raise"
+    assert any("value" in b.lower() for b in blockers), (
+        f"Expected a blocker mentioning the missing/zero account value. Got: {blockers}"
     )
 
 
