@@ -11,11 +11,12 @@
 ## Pre-demo checklist (T-30 min)
 
 - [ ] Run `bash scripts/reset-v2-dev.sh --yes` (clean DB; locked decision #34 pre-authorized)
-- [ ] Run `uv run python /tmp/demo-prep-seltzer.py` (re-uploads Seltzer + drains worker; ~3-5 min wait for Bedrock)
-- [ ] Confirm Seltzer is `5/5 reconciled`: `curl -s http://localhost:8000/api/review-workspaces/?label_contains=Seltzer ...`
+- [ ] Run `uv run python scripts/demo-prep/upload_and_drain.py Seltzer --expect-count 5` (re-uploads Seltzer + drains worker; ~3-5 min wait for Bedrock)
+- [ ] Run `uv run python scripts/demo-prep/upload_and_drain.py Weryha --expect-count 5` (Weryha pre-uploaded as drop-in backup; ~3-5 min wait for Bedrock)
+- [ ] Confirm both are `5/5 reconciled`: `curl -s http://localhost:8000/api/review-workspaces/ | python -c "import json,sys; d=json.load(sys.stdin); print([(w['label'], w['status']) for w in d if 'demo prep' in w['label']])"`
 - [ ] Open Chrome to `http://localhost:5173/` — login should land on advisor home
+- [ ] Open `http://localhost:5173/methodology` once to warm the bundle (~820 KB; closes the cold-load risk on stage when Step 8 opens this page)
 - [ ] **Close DevTools / hide font OTS console errors** (cosmetic; don't show on stage)
-- [ ] Have a backup Seltzer-equivalent folder ready (Weryha, same shape) in case of unexpected failure
 - [ ] Worker NOT running (queue is drained; no background activity to confuse the demo)
 
 ## The 8 steps on stage
@@ -88,7 +89,7 @@
 
 ### If Seltzer doesn't render
 
-Fallback to Sandra/Mike Chen for the household/account/goal flow (steps 2-4 still work). Skip steps 5-7 (review pipeline) and go straight to step 8 (methodology).
+Pivot to **Weryha** (pre-uploaded in the same DB; drop-in same-shape backup). Open `/review`, click the Weryha row instead of Seltzer, walk steps 5-7 against it. No live processing dead-air. If Weryha also misbehaves, fall back to Sandra/Mike Chen for the household/account/goal flow (steps 2-4 still work) and skip steps 5-7 to go straight to step 8 (methodology).
 
 ### If a network blip happens during steps 5-7
 
@@ -120,7 +121,7 @@ Pre-uploaded state means no Bedrock calls happen during the demo. Only risk: if 
 
 1. **Don't apologize at length** — say "let me reset to a clean state" and:
 2. Open terminal, run `bash scripts/reset-v2-dev.sh --yes` (~30s)
-3. Run `uv run python /tmp/demo-prep-seltzer.py` (~5 min — fill the gap with discussion, OR skip to Sandra/Mike walk-through)
+3. Run `uv run python scripts/demo-prep/upload_and_drain.py Seltzer` (~5 min — fill the gap with discussion, OR skip to Sandra/Mike walk-through)
 4. Refresh browser
 5. Resume the flow
 
