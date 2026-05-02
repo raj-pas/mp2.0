@@ -189,11 +189,42 @@ test("real-browser demo smoke: Seltzer review + commit + portfolio", async ({ pa
   });
   console.log("  screenshot: test-results/seltzer-review-screen-real-browser.png");
 
-  // === Step 6: Navigate to /methodology and verify it renders
-  collector.setStep("methodology");
+  // === Step 6: Navigate to /methodology and verify the full overlay
+  // (R8 page — must render cleanly on stage; demo step 8 opens it).
+  // Asserts: H1 renders, all 10 section H2s render, TOC click scrolls
+  // the target H2 into the viewport.
+  collector.setStep("methodology-page");
   await page.getByRole("button", { name: /Methodology/i }).click();
   await expect(page).toHaveURL(/\/methodology$/);
-  await expect(page.getByRole("heading", { name: /^Methodology$/ })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: /^Methodology$/ }),
+  ).toBeVisible();
+
+  for (const sectionTitle of [
+    /^Household risk profile$/i,
+    /^Anchor$/i,
+    /^Goal-level risk score$/i,
+    /^Horizon cap per goal$/i,
+    /^Effective bucket$/i,
+    /^Sleeve mix$/i,
+    /^Lognormal projections$/i,
+    /^Rebalancing moves$/i,
+    /^Goal realignment$/i,
+    /^Archive snapshots$/i,
+  ]) {
+    await expect(
+      page.getByRole("heading", { level: 2, name: sectionTitle }),
+    ).toBeVisible();
+  }
+  console.log("  all 10 R8 methodology section headings visible");
+
+  // TOC click scrolls the target section into view.
+  collector.setStep("methodology-toc-scroll");
+  await page.getByRole("button", { name: /Sleeve mix/i }).click();
+  await expect(
+    page.getByRole("heading", { level: 2, name: /^Sleeve mix$/i }),
+  ).toBeInViewport();
+  console.log("  TOC click → Sleeve mix section in viewport");
 
   // === Step 7: Navigate to / and pick the synthetic Sandra/Mike Chen
   collector.setStep("client-pick");
