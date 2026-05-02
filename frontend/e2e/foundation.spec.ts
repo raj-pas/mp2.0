@@ -57,7 +57,60 @@ test.describe("R2 chrome", () => {
 
     await page.getByRole("button", { name: /Methodology/i }).click();
     await expect(page).toHaveURL(/\/methodology$/);
-    await expect(page.getByRole("heading", { name: /^Methodology$/ })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: /^Methodology$/ })).toBeVisible();
+  });
+
+  test("R8 methodology overlay renders all 10 sections + canon-aligned descriptors", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+    // Wait for login mutation to land before navigating; otherwise
+    // /methodology bounces to LoginRoute via SessionGate.
+    await expect(page.getByRole("banner")).toBeVisible({ timeout: 10000 });
+    await page.goto("/methodology");
+    await expect(page.getByRole("heading", { level: 1, name: /^Methodology$/ })).toBeVisible({
+      timeout: 10000,
+    });
+
+    // All 10 section headings render (uses level 2 inside SectionShell).
+    for (const sectionTitle of [
+      /Household risk profile/i,
+      /^Anchor$/i,
+      /Goal-level risk score/i,
+      /Horizon cap per goal/i,
+      /Effective bucket/i,
+      /Sleeve mix/i,
+      /Lognormal projections/i,
+      /Rebalancing moves/i,
+      /Goal realignment/i,
+      /Archive snapshots/i,
+    ]) {
+      await expect(page.getByRole("heading", { level: 2, name: sectionTitle })).toBeVisible();
+    }
+
+    // Locked-decision-#5 canon descriptors must appear in the horizon-cap
+    // table. The retired mockup labels (Conservative, Cautious as separate
+    // bucket from Cautious-balanced, Growth) must NOT appear as the
+    // canon-1 descriptor.
+    for (const descriptor of [
+      "Cautious",
+      "Conservative-balanced",
+      "Balanced",
+      "Balanced-growth",
+      "Growth-oriented",
+    ]) {
+      await expect(page.getByText(descriptor, { exact: true }).first()).toBeVisible();
+    }
+
+    // Locked-decision-#6: Goal_50 must appear ONLY in a footnote, not as
+    // the headline of section 3. The section title is "Goal-level risk
+    // score", not "Goal_50".
+    await expect(page.getByRole("heading", { name: /Goal_50/i })).toHaveCount(0);
+
+    // TOC link → scroll behavior. Click the §06 entry, expect Sleeve mix
+    // section to be the visible one (scroll-into-view).
+    await page.getByRole("button", { name: /Sleeve mix/i }).click();
+    await expect(page.getByRole("heading", { level: 2, name: /Sleeve mix/i })).toBeInViewport();
   });
 
   test("analyst routes to CMA and cannot reach household controls", async ({ page }) => {

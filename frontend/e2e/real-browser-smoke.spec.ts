@@ -17,7 +17,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 const ADVISOR_EMAIL = process.env.MP20_LOCAL_ADMIN_EMAIL ?? "advisor@example.com";
 const ADVISOR_PASSWORD = process.env.MP20_LOCAL_ADMIN_PASSWORD ?? "";
-const SELTZER_LABEL = "R10 Seltzer sweep";
+const SELTZER_LABEL = "Seltzer review (demo prep)";
 
 // Console errors that are KNOWN cosmetic and should not fail the
 // smoke. Anything not in this list is treated as a real bug.
@@ -126,7 +126,9 @@ test("real-browser demo smoke: Seltzer review + commit + portfolio", async ({ pa
 
   // Click the Seltzer queue row.
   collector.setStep("select-seltzer");
-  const seltzerRow = page.getByRole("button", { name: new RegExp(SELTZER_LABEL, "i") });
+  const seltzerRow = page.getByRole("button", {
+    name: new RegExp(SELTZER_LABEL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),
+  });
   await expect(seltzerRow).toBeVisible({ timeout: 5000 });
   await seltzerRow.click();
 

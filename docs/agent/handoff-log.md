@@ -2389,3 +2389,116 @@ exposed.
 1. Real-browser manual smoke against demo folder (Seltzer or Weryha)
 2. P0 #2 conflict-resolution UI cards if there's bandwidth before demo
 3. After demo: P0 #5 (openapi-typescript) to kill contract-drift class
+
+## 2026-05-01 — Demo lock + R8 methodology overlay (parallel)
+
+User authorized "Option 2: lock demo + start R8 in parallel" after the
+post-R10 + pre-demo testing pass. Both shipped in this session.
+
+### Demo lock-down
+
+- DB reset via `scripts/reset-v2-dev.sh --yes` (locked decision #34) →
+  clean Sandra/Mike Chen synthetic + Default CMA seeded.
+- Seltzer real-PII workspace pre-uploaded + worker-drained: 5/5 docs
+  reconciled, 1 person, 6 accounts, 4 goals, 18 conflicts. KYC ready
+  ✓; engine_ready/construction_ready remain ⚠ (advisor decisions
+  pending — by design, demo flow shows the gates correctly identifying
+  what's left).
+- Real-browser smoke green: 0 unexpected console signals against the
+  pre-uploaded Seltzer workspace.
+- Demo script written to `docs/agent/demo-script-2026-05-04.md`:
+  pre-demo checklist, 8-step on-stage flow, what-to-say copy, backup
+  plans, recovery procedure, list of things NOT to demo.
+
+### Phase R8 — Methodology overlay (master plan §"R8")
+
+Built `frontend/src/routes/MethodologyRoute.tsx` from R2 placeholder
+to 10-section static reference page. Covers every formula + worked
+example surfaced anywhere in the app. Architecture: left TOC (anchor
+links + scrollIntoView) + right content panel (10 sections, each
+section has summary + formula block + variables table + worked example
++ optional footnote).
+
+10 sections:
+1. Household risk profile (T/C/min formula, Hayes worked example)
+2. Anchor (`min(T,C)/2`, Hayes example)
+3. Goal-level risk score (canon-1-5 surface; Goal_50 in footnote only
+   per locked decision #6; Hayes Retirement worked example resolves to
+   Cautious)
+4. Horizon cap (canon descriptors only — locked decision #5)
+5. Effective bucket (override > min(uncapped, horizon_cap))
+6. Sleeve mix (efficient frontier optimization, Choi Travel worked
+   example; SLEEVE_REF_POINTS noted as calibration-only per locked #14)
+7. Lognormal projections (full μ/σ formulas + drift penalty,
+   Thompson Retirement worked example)
+8. Rebalancing moves ($100 rounding, Choi Education worked example,
+   Σbuys==Σsells invariant)
+9. Goal realignment (canon §6.3a vocabulary discipline — re-goaling,
+   never reallocation)
+10. Archive snapshots (full trigger taxonomy + append-only audit
+    discipline)
+
+All copy flows through `t()` (locked decision #28a i18n discipline).
+~70 new i18n keys under `methodology.*` + 5 canon descriptor keys
+under `descriptor.*`. Vocab CI guard passes; legacy-label runtime
+tripwire caught one stray reference (replaced).
+
+E2E coverage extended: foundation spec adds `R8 methodology overlay
+renders all 10 sections + canon-aligned descriptors`. Asserts:
+- All 10 section headings render at level 2
+- All 5 canon descriptors visible (Cautious / Conservative-balanced
+  / Balanced / Balanced-growth / Growth-oriented)
+- "Goal_50" does NOT appear as a heading (locked decision #6 — must
+  stay in footnote only)
+- TOC link click scrolls target section into viewport
+
+Existing methodology test refined: heading lookup now level-1 to
+disambiguate from the level-2 TOC heading.
+
+### Final gate suite at HEAD
+
+- 332 pytest (216 engine + 114 web + 2 audit; same count as pre-R8 —
+  R8 ships zero new pytest because it's pure static frontend; coverage
+  is in e2e + vocab CI)
+- 11/11 Playwright foundation e2e (was 10; +1 for R8)
+- ruff check + format clean
+- frontend typecheck/lint/build clean
+- vocab CI OK
+- legacy-label runtime tripwire OK (caught + fixed one Fraser
+  reference during build)
+- migrations check clean
+
+### Demo readiness checklist (per dossier §5.3)
+
+- [x] Demo script written + dry-run procedure documented
+- [x] Seltzer pre-uploaded + 5/5 reconciled + ready for review/commit
+      narrative
+- [x] Real-browser smoke against demo state clean
+- [x] All failure_codes have advisor copy in `en.json`
+- [x] Manual-entry button reachable for failed docs (post-R7 hardening)
+- [x] Worker idle (queue drained)
+- [x] Methodology page (R8) ready for the closing-step demo
+- [ ] Demo dry-run with the user (presenter) — pending user availability
+- [ ] Optional: download self-hosted fonts to silence console OTS errors
+      (locked decision #22d, currently TODO; demo will work without)
+
+### Pilot-week-1 carry-forwards (release 2026-05-08)
+
+Same as previous handoff entry, plus:
+- R8 methodology overlay is shipped; advisors can ramp from this page
+  on day 1 of pilot.
+- Conflict-resolution UI cards (P0 #2) — still not built; key gap for
+  real pilot use given 18 conflicts on Seltzer alone.
+- Workspace-status flip + zero-value-account bugs (catalogued in
+  commit 28628d8) — scheduled agent fires Wed 2026-05-06 09:00
+  Winnipeg with proposal docs.
+
+### Recommended next-session focus
+
+After demo + first-pilot-week feedback:
+1. Read the scheduled-agent's proposal at
+   `docs/agent/post-pilot-bugfix-proposal.md` (will exist after
+   2026-05-06 agent runs)
+2. Decide priority: fix-before-broader-rollout vs queue-for-Phase-B
+3. Then either P0 #2 (conflict-resolution UI) or R9 (CMA Workbench
+   rebuild) per locked plan ordering

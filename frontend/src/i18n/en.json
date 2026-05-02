@@ -485,5 +485,117 @@
       "ImproperlyConfigured": "Storage or model configuration is invalid. Contact ops.",
       "OSError": "Storage I/O error. Retry; if it repeats, contact ops."
     }
+  },
+  "descriptor": {
+    "cautious": "Cautious",
+    "conservative_balanced": "Conservative-balanced",
+    "balanced": "Balanced",
+    "balanced_growth": "Balanced-growth",
+    "growth_oriented": "Growth-oriented"
+  },
+  "methodology": {
+    "heading": "Methodology",
+    "intro": "Every score, projection, and recommendation in MP2.0 traces back to one of the formulas below. Each section names the inputs, the formula, the variables, and a worked example. Use this page to ramp up advisors, support compliance reviews, and explain individual recommendations to clients.",
+    "toc_aria": "Methodology table of contents",
+    "toc_label": "Table of contents",
+    "footer": "MP2.0 methodology · canon v2.8 · client-facing labels lock to: Cautious / Conservative-balanced / Balanced / Balanced-growth / Growth-oriented.",
+    "variables_symbol": "Symbol",
+    "variables_meaning": "Meaning",
+    "worked_example_label": "Worked example",
+    "footnote_label": "Note",
+    "section_marker": "§{{number}}",
+    "s1": {
+      "title": "Household risk profile",
+      "summary": "The household risk score combines a tolerance score (T, 0–100) derived from three behavioral questions with a capacity score (C, 0–100) derived from one financial-capacity question. The household profile is the lower of the two, snapped to the canon 1–5 scale.",
+      "formula": "T = 0.5·Q1 + 0.3·Q2 + 0.2·Q3\nC = Q4\nhousehold_score (1–5) = bucket(min(T, C))",
+      "var_q1": "Stomach for portfolio variation (0–10 scale)",
+      "var_q2": "Investing experience (A=none, B=moderate, C=strong, D=expert)",
+      "var_q3": "Count of stressors the client flagged as material",
+      "var_q4": "Income/cash-flow capacity for loss (A–D)",
+      "var_t": "Tolerance score, 0–100",
+      "var_c": "Capacity score, 0–100",
+      "worked": "Hayes household: Q1 = 5, Q2 = B (moderate), Q3 = 1 stressor (career), Q4 = B → T = 45, C = 50 → min(T, C) = 45 → bucket → Balanced (canon score 3).",
+      "footnote": "Time horizon is NOT a component of the household risk score (canon §4.3d). Horizon constrains specific goals, not the household profile."
+    },
+    "s2": {
+      "title": "Anchor",
+      "summary": "The anchor is the household-level reference point each goal departs from when its individual score is computed. It is the lower of T and C, scaled to the 0–50 internal range used for goal-level computation.",
+      "formula": "anchor = min(T, C) / 2",
+      "worked": "Hayes household: anchor = min(45, 50) / 2 = 22.5. Every Hayes goal starts from anchor 22.5 before importance and size shifts apply."
+    },
+    "s3": {
+      "title": "Goal-level risk score",
+      "summary": "Each goal's risk score starts from the household anchor, shifts by importance (Need / Want / Wish / Unsure) and shifts by size (this goal as a share of household AUM), then snaps to the canon 1–5 scale.",
+      "formula": "importance_shift = imp_shift(tier)\nsize_shift = size_shift(goal_amount / household_aum)\nscore (1–5) = bucket(anchor + importance_shift + size_shift)",
+      "var_tier": "Need / Want / Wish / Unsure (mapped from the goal's necessity_score)",
+      "var_imp_shift": "Need = −10, Want = 0, Wish = +8, Unsure = 0",
+      "var_size_shift": "Larger share of AUM ⇒ more conservative (negative shift); smaller share ⇒ more growth-oriented (positive shift)",
+      "var_bucket": "Snap the shifted value to one of the five canon descriptors",
+      "worked": "Hayes Retirement Goal: anchor 22.5, tier = Need (−10 = more conservative), 47% of AUM (further negative shift) → resolves to canon Cautious (score 1).",
+      "footnote": "Engineers reading this: the engine internally computes a 0–50 intermediate (`Goal_50`) before snapping to canon 1–5. Goal_50 is never displayed to advisors and is not part of any API surface (locked decision #6)."
+    },
+    "s4": {
+      "title": "Horizon cap per goal",
+      "summary": "Long-dated goals can sustain more variability than near-term goals. The horizon cap sets the maximum descriptor a goal may have based on its time horizon. The system-derived score is min(uncapped, cap).",
+      "col_horizon": "Time horizon",
+      "col_max_descriptor": "Maximum descriptor",
+      "row_under_3": "Under 3 years",
+      "row_3_to_5": "3–5 years",
+      "row_6_to_10": "6–10 years",
+      "row_11_to_20": "11–20 years",
+      "row_over_20": "Over 20 years"
+    },
+    "s5": {
+      "title": "Effective bucket",
+      "summary": "The effective descriptor is what the optimizer actually uses for the goal's allocation. Advisor overrides (with documented rationale) take precedence over the system-derived value; otherwise the effective descriptor is the lower of the uncapped score and the horizon cap.",
+      "formula": "effective_descriptor = override.descriptor || min(uncapped, horizon_cap)",
+      "detail": "An override carries the advisor identity, timestamp, before-and-after canon descriptor, and a free-text rationale (minimum 10 characters), all written to the immutable audit log. Junior-advisor accounts may have the override capability gated; the locked surface displays a request-access affordance instead of the slider."
+    },
+    "s6": {
+      "title": "Sleeve mix",
+      "summary": "Each canon score maps to a target equity percentage and an optimizer-determined building-block fund mix. The optimizer runs the efficient frontier over the eight-fund universe and returns the optimal allocation for that score's expected return + variance constraints.",
+      "formula": "equity_pct(score) = clamp(0.05 + (score − 1) / 4 × 0.90, 0.05, 0.95)\nmix(score) = optimizer.efficient_frontier(score, eligible_funds)",
+      "worked": "Choi Travel goal at canon Balanced (score 3): equity_pct ≈ 56%. Optimizer mixes Steadyhand Income, Equity, Global, and Savings funds; returns a frontier-optimal point at the score's μ/σ.",
+      "footnote": "The codebase's `SLEEVE_REF_POINTS` table is calibration-only — it anchors the parity tests against the v36 mockup's worked examples. Production sleeve mixes always come from the optimizer (canon §4.1)."
+    },
+    "s7": {
+      "title": "Lognormal projections",
+      "summary": "Goal-level projections use a lognormal distribution parameterized by the score-derived μ (expected return) and σ (volatility). External holdings carry a stiffer drift penalty than Steadyhand-managed sleeves to reflect realistic deviation from advisor-recommended allocations.",
+      "formula": "μ_ideal(score) = 0.030 + equity_pct(score) × 0.045\nσ_ideal(score) = 0.030 + equity_pct(score) × 0.190\nμ_current(score, ext=False) = μ_ideal × 0.92\nμ_current(score, ext=True)  = μ_ideal × 0.85\nσ_current(score, ext=False) = σ_ideal × 1.08\nσ_current(score, ext=True)  = σ_ideal × 1.15",
+      "detail": "Tier-aware percentile bands: Need-tier goals show P10/P90, Want-tier goals show P5/P95, Wish-tier goals show P2.5/P97.5. The probability of meeting target at horizon is computed as P(end_value ≥ target), surfaced as the “% chance” callout on the fan chart.",
+      "worked": "Thompson Retirement goal at canon Balanced-growth (score 4): μ_ideal = 0.030 + 0.74 × 0.045 ≈ 5.8%. With 30% external holdings: μ_current ≈ 5.8% × 0.92 ≈ 5.34%. The 0.46-pp drift is what the fan chart visualizes between plan-baseline and what-if curves.",
+      "footnote": "External-holdings adjustment is a projection-time penalty only (μ × 0.85, σ × 1.15). The canon §4.6a risk-tolerance dampener is deferred to Phase B awaiting confirmed input parameters."
+    },
+    "s8": {
+      "title": "Rebalancing moves",
+      "summary": "Whenever current allocation differs from ideal, the engine emits a buy/sell list rounded to the nearest $100. The residual cents from rounding are absorbed into the largest deficit-side move so total buys equal total sells exactly.",
+      "formula": "Δ(fund) = (ideal_pct − current_pct) × goal_total_dollars\nround(Δ) = nearest $100 (residual to largest deficit)\ninvariant: Σbuys == Σsells",
+      "worked": "Choi Education goal, $80,000 total: 4-pp shortfall in Steadyhand Equity, 4-pp surplus in Steadyhand Savings. Δ = ±$3,200; clean $100 rounding; residual $0; sells == buys."
+    },
+    "s9": {
+      "title": "Goal realignment",
+      "summary": "Re-goaling is a label change only. The advisor reassigns dollars between goals at the account level; underlying holdings do not move. No taxable event, no fund trades, no money movement — only a metadata change to which goal each account-dollar is intended to fund.",
+      "detail": "Realignment opens a compare screen showing before-and-after goal aggregates and per-goal deltas. The advisor confirms or reverts; either choice creates an append-only HouseholdSnapshot tagged with the action and the advisor identity.",
+      "footnote": "Vocabulary discipline (canon §6.3a): use “re-goaling”, “goal realignment”, “re-label dollars between goals”. Never use “reallocation”, “transfer”, or “move money” to describe this — those terms imply trades that do not occur."
+    },
+    "s10": {
+      "title": "Archive snapshots",
+      "summary": "Every state-changing action that affects a household's planning model creates an append-only HouseholdSnapshot. Snapshots capture a deep clone of the household plus precomputed aggregates (AUM split, asset mix, fund mix, blended risk score, anchor) for fast Compare-screen rendering.",
+      "trigger_realignment": "realignment",
+      "trigger_realignment_desc": "Re-goaling action that changed account-to-goal mapping",
+      "trigger_cash_in": "cash_in",
+      "trigger_cash_in_desc": "External funds added to a household account",
+      "trigger_cash_out": "cash_out",
+      "trigger_cash_out_desc": "Funds withdrawn from a household account",
+      "trigger_re_link": "re_link",
+      "trigger_re_link_desc": "External-holdings record updated against a goal",
+      "trigger_override": "override",
+      "trigger_override_desc": "Advisor saved a goal-risk override with rationale",
+      "trigger_re_goal": "re_goal",
+      "trigger_re_goal_desc": "Goal definition changed (target, horizon, tier)",
+      "trigger_restore": "restore",
+      "trigger_restore_desc": "Advisor restored from a prior snapshot (creates a new snapshot tagged restore; does not rewind state)",
+      "footnote": "Snapshots are append-only via Django model `save()` guards plus a Postgres BEFORE UPDATE/DELETE trigger. There is no admin path to mutate or delete a snapshot; the only “undo” is to take a new restore action."
+    }
   }
 }
