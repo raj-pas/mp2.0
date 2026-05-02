@@ -251,13 +251,22 @@ def process_document(document: models.ReviewDocument) -> None:
         "extraction": {**extraction_metadata, "discarded_fact_count": discarded_fact_count},
     }
 
+    # Phase 3 REC-1 close-out 2026-05-02: wrap fact persistence +
+    # FACTS_EXTRACTED state transition + reconcile-enqueue in a single
+    # atomic block. If enqueue_reconcile raises (DB pressure, FK
+    # violation, lock contention), facts + FACTS_EXTRACTED state save
+    # both roll back; the outer process_job try/except marks the job
+    # FAILED with `failure_code=reconcile_enqueue_failed`. Without this
+    # boundary, the doc could land FACTS_EXTRACTED but the workspace
+    # would never reconcile — appearing "processing" forever to the
+    # advisor with no recovery path. Mirrors the FileList-class
+    # "advisor sees stuck state" friction the pilot must avoid.
     with transaction.atomic():
         models.ExtractedFact.objects.filter(document=document).delete()
         models.ExtractedFact.objects.bulk_create(fact_rows)
-
-    document.status = models.ReviewDocument.Status.FACTS_EXTRACTED
-    document.save(update_fields=["status", "processing_metadata", "updated_at"])
-    enqueue_reconcile(document.workspace)
+        document.status = models.ReviewDocument.Status.FACTS_EXTRACTED
+        document.save(update_fields=["status", "processing_metadata", "updated_at"])
+        enqueue_reconcile(document.workspace)
     record_event(
         action="review_document_processed",
         entity_type="review_document",

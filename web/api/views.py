@@ -978,11 +978,18 @@ class ReviewDocumentManualEntryView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @transaction.atomic
     def post(self, request, workspace_id: str, document_id: int):  # noqa: ANN001
+        # Phase 3 BUG-1 close-out 2026-05-02: wrap the entire endpoint
+        # in `transaction.atomic` and `select_for_update` the document
+        # row so concurrent manual-entry calls serialize. Idempotent
+        # end-state (both calls land MANUAL_ENTRY) but the audit trail
+        # interleave + processing_metadata last-write semantics need
+        # the lock to be clean.
         if not can_access_real_pii(request.user):
             return Response({"detail": "Role cannot access real-client PII."}, status=403)
         workspace = _workspace_for_user(workspace_id, request.user)
-        document = get_object_or_404(workspace.documents, pk=document_id)
+        document = get_object_or_404(workspace.documents.select_for_update(), pk=document_id)
         # Manual-entry is the escape hatch for non-recoverable extraction
         # failures, not a generic "skip this doc" toggle. Restrict to
         # docs in terminal-or-near-terminal states so an advisor can't
