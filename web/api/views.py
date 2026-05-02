@@ -972,6 +972,31 @@ class ReviewDocumentManualEntryView(APIView):
             return Response({"detail": "Role cannot access real-client PII."}, status=403)
         workspace = _workspace_for_user(workspace_id, request.user)
         document = get_object_or_404(workspace.documents, pk=document_id)
+        # Manual-entry is the escape hatch for non-recoverable extraction
+        # failures, not a generic "skip this doc" toggle. Restrict to
+        # docs in terminal-or-near-terminal states so an advisor can't
+        # accidentally drop a successfully-reconciled doc out of the
+        # extraction record (which would lose its facts + audit
+        # provenance silently).
+        eligible_statuses = {
+            models.ReviewDocument.Status.FAILED,
+            models.ReviewDocument.Status.UNSUPPORTED,
+            models.ReviewDocument.Status.OCR_REQUIRED,
+        }
+        if document.status not in eligible_statuses:
+            return Response(
+                {
+                    "detail": (
+                        "Manual entry is only available for documents that failed "
+                        "extraction or require OCR. This document is in state "
+                        f"'{document.status}'."
+                    ),
+                    "code": "manual_entry_not_eligible",
+                    "current_status": document.status,
+                    "eligible_statuses": sorted(eligible_statuses),
+                },
+                status=409,
+            )
         previous_status = document.status
         previous_failure_code = document.processing_metadata.get("failure_code", "")
         document.status = models.ReviewDocument.Status.MANUAL_ENTRY

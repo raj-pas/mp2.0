@@ -56,7 +56,13 @@ def _person_to_engine(person: models.Person) -> Person:
         longevity_assumption=person.longevity_assumption,
         employment=person.employment,
         pensions=person.pensions,
-        investment_knowledge=person.investment_knowledge,
+        # Normalize case at the engine boundary — Bedrock-extracted real-
+        # PII values come back capitalized ("Medium") but the engine
+        # schema is `Literal["low", "medium", "high"]`. Lowercase here so
+        # we don't have to plumb every extraction prompt to enforce
+        # canonical case (canon §9.4.2: web layer translates DB models
+        # to engine schemas at the boundary; the engine stays strict).
+        investment_knowledge=_normalize_lowercase_enum(person.investment_knowledge, "medium"),
         trusted_contact_person=person.trusted_contact_person,
         poa_status=person.poa_status,
         will_status=person.will_status,
@@ -125,6 +131,25 @@ def _goal_to_engine(goal: models.Goal) -> Goal:
 
 def _float(value: Decimal) -> float:
     return float(value)
+
+
+def _normalize_lowercase_enum(value: str | None, default: str) -> str:
+    """Lowercase + strip a string-enum value at the engine boundary.
+
+    Bedrock-extracted real-PII values often come back capitalized
+    ("Medium" instead of "medium") because client docs use English
+    sentence case. The engine schemas are strict `Literal[...]` values
+    in lowercase. Normalize here rather than push case-discipline
+    upstream into every extraction prompt.
+
+    Returns `default` for missing/empty input. Trusts that the
+    lowercased result is one of the engine's allowed values; if not,
+    Pydantic validation downstream will surface the structural error
+    cleanly with the actual unexpected value.
+    """
+    if not value:
+        return default
+    return str(value).strip().lower() or default
 
 
 def to_engine_cma(snapshot: models.CMASnapshot) -> CMASnapshot:

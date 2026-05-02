@@ -223,6 +223,89 @@ def test_manual_entry_marks_document_and_audits(tmp_path, settings) -> None:
 
 
 @pytest.mark.django_db
+def test_manual_entry_rejects_non_terminal_doc_status(tmp_path, settings) -> None:
+    """Manual-entry is the escape hatch for non-recoverable extraction
+    failures — it must NOT silently drop a successfully-reconciled doc
+    out of the extraction record. Reject with 409 if the advisor tries
+    to mark a non-terminal doc as manual entry.
+    """
+    from django.urls import reverse
+    from rest_framework.test import APIClient
+
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(
+        label="Reconciled doc protection",
+        owner=user,
+        data_origin=models.ReviewWorkspace.DataOrigin.SYNTHETIC,
+    )
+    document = models.ReviewDocument.objects.create(
+        workspace=workspace,
+        original_filename="reconciled.pdf",
+        extension="pdf",
+        file_size=1,
+        sha256="reconciled-protection",
+        status=models.ReviewDocument.Status.RECONCILED,
+    )
+
+    response = client.post(
+        reverse("review-document-manual-entry", args=[workspace.external_id, document.id])
+    )
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["code"] == "manual_entry_not_eligible"
+    assert body["current_status"] == "reconciled"
+
+    # The doc's status didn't change.
+    document.refresh_from_db()
+    assert document.status == models.ReviewDocument.Status.RECONCILED
+
+
+@pytest.mark.django_db
+def test_manual_entry_accepts_unsupported_and_ocr_required(tmp_path, settings) -> None:
+    """Beyond `failed`, the eligible-states list also includes
+    `unsupported` (file type Bedrock can't parse) and `ocr_required`
+    (advisor opts out of OCR). Both should be markable as manual-entry.
+    """
+    from django.urls import reverse
+    from rest_framework.test import APIClient
+
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+    workspace = models.ReviewWorkspace.objects.create(
+        label="Eligible-state coverage",
+        owner=user,
+        data_origin=models.ReviewWorkspace.DataOrigin.SYNTHETIC,
+    )
+    for sha, status in (
+        ("eligible-unsupported", models.ReviewDocument.Status.UNSUPPORTED),
+        ("eligible-ocr", models.ReviewDocument.Status.OCR_REQUIRED),
+    ):
+        document = models.ReviewDocument.objects.create(
+            workspace=workspace,
+            original_filename=f"{sha}.pdf",
+            extension="pdf",
+            file_size=1,
+            sha256=sha,
+            status=status,
+        )
+        response = client.post(
+            reverse(
+                "review-document-manual-entry",
+                args=[workspace.external_id, document.id],
+            )
+        )
+        assert response.status_code == 200, (
+            f"manual-entry failed for status={status}: {response.content!r}"
+        )
+
+
+@pytest.mark.django_db
 def test_manual_entry_rejects_non_pii_role(tmp_path, settings) -> None:
     """Same RBAC as the rest of the review pipeline — the analyst role
     must NOT be able to mark documents as manual-entry on behalf of an
