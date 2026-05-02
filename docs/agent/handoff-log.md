@@ -2825,3 +2825,85 @@ checkpoints. If context limit approached mid-execution, follow the
 context-handoff protocol (update session-state.md + halt + ping
 user for fresh session).
 
+
+---
+
+## 2026-05-02 (later) — Phases 0-3 of beta-hardening shipped; 4-8 handed off to fresh session
+
+Per the plan's context-handoff protocol, halting after 4 phases of
+clean execution to let a fresh agent pick up the larger remaining
+phases (4 alone is the tool-use migration + delete legacy repair
+surfaces). Plan:
+`~/.claude/plans/you-are-continuing-a-playful-hammock.md`
+
+### Phases shipped this session
+
+| Phase | Commit | Tests added | Findings closed |
+|---|---|---|---|
+| 0 | `1e10ea7` | 0 | (audit + baseline + housekeeping) |
+| 1 | `a861c35` | +6 | ENUM-CASE (DEMO-blocker) |
+| 2 | `f2486f1` | +14 | PII-1/2/3/4/SER + REDACT-1 + grep guard |
+| 3 | `0277675` | +4 | BUG-1 + REC-1 |
+
+### Final gates at HEAD `0277675`
+
+- 386 pytest passing (was 362 baseline; +24 new)
+- ruff + format clean
+- typecheck + lint clean
+- vocab CI OK + PII grep guard OK
+- bandit (-ll) clean
+- makemigrations clean
+
+### Phases REMAINING for fresh session
+
+| Phase | Scope |
+|---|---|
+| **4** | Bedrock tool-use prompt overhaul: per-doc-type modules in `extraction/prompts/` (statement, kyc, meeting_note, planning, generic) with shared guardrails; rewrite `fact_extraction_prompt` to route + use tool-use API; delete legacy `_repair_json_text` + `_normalize_bedrock_payload` + `json_payload_from_model_text`. Includes Phase 4.0 SDK probe across claude-sonnet-4-6 + opus-4-6 + opus-4-7. Phase 4.4a behavioural parity tests (synthetic + real-PII redacted goldens). 12+ new tests. |
+| **4.5** | OpenAPI-typescript codegen wiring + drift CI gate (`scripts/check-openapi-codegen.sh`). Refactor `frontend/src/lib/review.ts` types to import from generated `api-types.ts`. |
+| **5a** | Conflict-resolution card UI: new `ReviewWorkspaceConflictResolutionView` POST endpoint; `useReviewConflicts` + `useResolveConflict` hooks; `ConflictPanel` + `ConflictCard` components; i18n keys. 5 backend + 4 Playwright tests. |
+| **5b** | UX hardening for limited-beta — 14 sub-phases (5b.1 through 5b.14 + smoke + demo-check). PilotBanner with server-side ack via User field, FeedbackButton + FeedbackModal + Feedback model + report endpoint, WorkerHealthBanner, WelcomeTour with server-side ack, DocDetailPanel slide-out, ConfidenceChip, inline fact edit, add-missing-fact, bulk + defer conflict UI, axe-core a11y, pilot-features-smoke.spec.ts. |
+| **5c** | Persist living docs `docs/agent/ux-spec.md` + `design-system.md` + `post-pilot-ux-backlog.md`; update CLAUDE.md (Start-Every-Session block + Useful Project Memory); write auto-memory entry `project_ux_spec.md` + index. |
+| **6** | Test-coverage gaps: TEST-GAP-1 + TEST-GAP-2; Hypothesis property tests (FactOverride + reconciliation + conflict state-machine); 100% coverage gate; concurrency stress (100 parallel/endpoint); Vitest + RTL + jest-dom unit tests; 4 edge-case scenarios; factory_boy fixtures; per-migration rollback tests. |
+| **6.9** | Performance budget gate via pytest-benchmark (P50<250ms / P99<1000ms). |
+| **7** | E2E validation: Niesner single-doc canary → 7-folder R10 re-sweep → DB state diff → real-browser smoke against Niesner + methodology + all new surfaces. Bedrock budget $100. Demo-state restore via `scripts/reset-v2-dev.sh --yes` + demo-prep scripts. |
+| **8** | Docs + commit + rollback (pilot-rollback.md) + provisioning command (`provision_pilot_advisors.py`) + tag `v0.1.0-pilot` + CHANGELOG.md + scheduled pre-pilot smoke (Tue/Wed/Thu 09:00 Winnipeg). |
+
+### Pointer for fresh session
+
+1. Read `~/.claude/plans/you-are-continuing-a-playful-hammock.md` end-to-end.
+2. Read `docs/agent/extraction-audit.md` for finding statuses.
+3. Read this section for Phase 0-3 context.
+4. Run gates from §8 of `docs/agent/post-r7-handoff-2026-05-01.md` to confirm baseline at HEAD `0277675` is green (386 pytest + PII grep + all standard gates).
+5. Start Phase 4 with the SDK probe (Phase 4.0). User availability is high (minute-grade response on per-phase pings + AskUserQuestion stop-conditions).
+
+### State as left
+
+- Postgres + backend running in docker
+- Vite + worker may need restart depending on idle time
+- DB: Sandra/Mike + Seltzer 5/5 + Weryha 5/5 + canary Phase-3 idempotency-test workspace (clean otherwise)
+- `MP20_BEDROCK_RESPONSES` debug flag is OFF
+- All work locally committed; user pushes Monday morning
+
+### Operational protocol locked 2026-05-02
+
+- Branch `feature/ux-rebuild`; per-phase commits; no push during session
+- Per-phase exit ping: verbose ~400 words with diff vs baseline + audit-finding closures + tests-added + reasoning + open items + new i18n strings (where applicable)
+- Full gate suite at every phase exit: ruff + format + bandit + mypy strict (engine modules) + pytest + makemigrations + typecheck + lint + eslint-plugin-security + build + vocab + PII grep + OpenAPI drift (Phase 4.5+) + perf bench (Phase 6.9+) + 100% coverage (Phase 6.4+) + Vitest unit (Phase 6.6+) + Playwright e2e + real-browser smoke + pilot-features-smoke + axe-core (Phase 5b+)
+- Stop-condition: halt + AskUserQuestion on regression / scope exceeded / phase output not meeting exit-criteria after 2 iterations
+- Bedrock spend authorized to $100; cost tracking deferred per user
+- Context-handoff via session-state.md update + handoff-log entry + halt + ping (this entry IS such a handoff)
+
+### How to apply
+
+This is a clean handoff at a phase boundary. Fresh session can pick up Phase 4 with:
+
+```bash
+cd /Users/saranyaraj/Projects/github-repo/mp2.0
+git status --short --branch  # confirm feature/ux-rebuild + HEAD 0277675
+git log --oneline -5  # confirm 4 new commits since f5f2519
+DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 \
+  uv run python -m pytest engine/tests/ web/api/tests/ web/audit/tests/ \
+  -q  # expect 386 passing
+bash scripts/check-pii-leaks.sh  # expect "PII grep guard: OK"
+```
+
