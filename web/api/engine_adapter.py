@@ -48,7 +48,10 @@ def _person_to_engine(person: models.Person) -> Person:
         household_id=person.household.external_id,
         name=person.name,
         dob=person.dob,
-        marital_status=person.marital_status,
+        # marital_status is `str` (not Literal) on the engine side — case
+        # normalization is cosmetic but consistent with the rest of the
+        # boundary. Empty stays empty.
+        marital_status=_normalize_lowercase_enum(person.marital_status, ""),
         blended_family_flag=person.blended_family_flag,
         citizenship=person.citizenship,
         residency=person.residency,
@@ -76,9 +79,36 @@ def _account_to_engine(account: models.Account) -> Account:
         household_id=account.household.external_id,
         owner_person_id=account.owner_person.external_id if account.owner_person else None,
         type=account.account_type,
-        regulatory_objective=account.regulatory_objective,
-        regulatory_time_horizon=account.regulatory_time_horizon,
-        regulatory_risk_rating=account.regulatory_risk_rating,
+        # Normalize at engine boundary — same rationale as
+        # `investment_knowledge` (canon §9.4.2: web layer translates DB
+        # to engine schemas; engine stays strict). Bedrock-extracted
+        # real-PII values arrive capitalized + spaced ("Growth and
+        # Income"); the engine schema is `Literal["growth_and_income",
+        # ...]`. Lowercase + strip + replace spaces with underscores,
+        # then validate against allowed values. Per canon §9.4.5: never
+        # silently default to a value the AI didn't extract — pass
+        # empty through; raise on unknown non-empty.
+        # Normalized strings flow into Pydantic Literal fields; the
+        # runtime check is in `_normalize_regulatory_enum` (raises on
+        # unknown). mypy can't see through the runtime tuple → Literal
+        # narrowing, so `# type: ignore[arg-type]` is honest about
+        # where the type-narrow happens (caller-side cast would be
+        # equally untyped).
+        regulatory_objective=_normalize_regulatory_enum(  # type: ignore[arg-type]
+            account.regulatory_objective,
+            ("income", "growth_and_income", "growth"),
+            "regulatory_objective",
+        ),
+        regulatory_time_horizon=_normalize_regulatory_enum(  # type: ignore[arg-type]
+            account.regulatory_time_horizon,
+            ("<3y", "3-10y", ">10y"),
+            "regulatory_time_horizon",
+        ),
+        regulatory_risk_rating=_normalize_regulatory_enum(  # type: ignore[arg-type]
+            account.regulatory_risk_rating,
+            ("low", "medium", "high"),
+            "regulatory_risk_rating",
+        ),
         current_value=_float(account.current_value),
         current_holdings=[
             Holding(
@@ -150,6 +180,44 @@ def _normalize_lowercase_enum(value: str | None, default: str) -> str:
     if not value:
         return default
     return str(value).strip().lower() or default
+
+
+def _normalize_regulatory_enum(
+    value: str | None,
+    allowed: tuple[str, ...],
+    field_name: str,
+) -> str:
+    """Normalize a regulatory ``Literal`` value extracted from real-PII docs.
+
+    Same rationale as ``_normalize_lowercase_enum`` — Bedrock returns
+    capitalized + spaced versions like ``"Growth and Income"``; the
+    engine schema is ``Literal["growth_and_income", ...]``. Lowercase
+    + strip + replace spaces with underscores; validate against
+    ``allowed``.
+
+    Per canon §9.4.5: never silently default to a value the AI didn't
+    extract. Empty/missing input passes through (downstream Pydantic
+    surfaces the missing-required-field error cleanly). Unknown
+    non-empty input raises ``ValueError`` with field name + actual
+    value so an advisor or operator can diagnose the extraction
+    mismatch.
+
+    Phase 1 close-out 2026-05-02 — closes ENUM-CASE audit finding.
+    Previously only ``investment_knowledge`` was normalized; the three
+    ``regulatory_*`` fields were passed raw and silently failed engine
+    validation when Bedrock returned capitalized values from
+    real-PII KYC docs.
+    """
+    if not value:
+        return ""  # downstream Pydantic surfaces the missing-required error
+    normalized = str(value).strip().lower().replace(" ", "_")
+    if normalized in allowed:
+        return normalized
+    raise ValueError(
+        f"engine_adapter: {field_name}={value!r} normalizes to {normalized!r} "
+        f"which is not in allowed values {allowed}. Real-PII extraction "
+        "may need an advisor manual override or a prompt fix."
+    )
 
 
 def to_engine_cma(snapshot: models.CMASnapshot) -> CMASnapshot:
