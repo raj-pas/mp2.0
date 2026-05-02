@@ -1,14 +1,27 @@
 # Next-Session Kickoff Prompt — Post-R7 Extraction Hardening
 
-This is the exact prompt to paste into a fresh Claude Code session that
-continues from HEAD `c07acc8` on `feature/ux-rebuild`. It establishes
-the mission, reading order, working phases, and constraints for the
-3-day demo + 1-week release window.
+> **⚠ SUPERSEDED 2026-05-01.** The extraction-hardening work this prompt
+> describes is now COMPLETE (Phases 3.A/B/E shipped, R10 sweep 55/55,
+> R8 methodology overlay also shipped, demo locked). HEAD is now
+> `cfe941c`.
+>
+> **For the NEXT session, start here instead:**
+> 1. `docs/agent/post-r7-handoff-2026-05-01.md` §3 — current state
+> 2. `docs/agent/post-r8-followups.md` — 4 demo-credibility testing
+>    items to do BEFORE the Mon 2026-05-04 demo (~1 hour total)
+> 3. `docs/agent/demo-script-2026-05-04.md` — the on-stage 8-step flow
+> 4. Memory entry `project_post_r8_demo_locked.md` is auto-loaded via
+>    MEMORY.md "START HERE"
+>
+> Keep this prompt as a record of how the extraction-hardening round
+> was scoped. Re-use ONLY if the demo or first-pilot-week surfaces a
+> NEW Bedrock failure mode that needs the same investigate → diagnose
+> → fix → test cycle.
 
-> **Tip:** start a fresh session in the repo root
-> `/Users/saranyaraj/Projects/github-repo/mp2.0`. Confirm `git log
-> --oneline -3` shows `c07acc8 docs(R7): handoff dossier...` at HEAD,
-> then paste everything below the line.
+---
+
+This is the prompt that scoped the (now-complete) post-R7 extraction-
+hardening round. Preserved for reference.
 
 ---
 

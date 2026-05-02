@@ -2502,3 +2502,48 @@ After demo + first-pilot-week feedback:
 2. Decide priority: fix-before-broader-rollout vs queue-for-Phase-B
 3. Then either P0 #2 (conflict-resolution UI) or R9 (CMA Workbench
    rebuild) per locked plan ordering
+
+## 2026-05-01 — Pre-compaction continuity prep
+
+User notified that conversation is approaching context-window limits;
+prepared continuity artifacts so a fresh session can resume cleanly
+from HEAD `cfe941c`.
+
+### Updates landed in this entry
+
+- `docs/agent/post-r7-handoff-2026-05-01.md` §3 ("Where We Are At
+  Exactly") rewritten to reflect HEAD `cfe941c`, post-R8 + demo-locked
+  state, scheduled bugfix-proposal agent, and new gate counts (332
+  pytest, 11/11 e2e).
+- New `docs/agent/post-r8-followups.md` — 4 demo-credibility testing
+  items identified during the post-R8 readiness review:
+  1. Extend real-browser-smoke to include /methodology
+  2. Cross-verify R8 worked-example numbers against engine code
+  3. Pre-upload Weryha as backup folder
+  4. Add /methodology cache-warm to demo pre-checklist
+  Each is bounded (~10-45 min); total ~1 hour. Sequencing
+  recommendation: Item 2 first (highest credibility risk if any
+  worked-example number is wrong on stage) then 1, 3, 4.
+- New memory entry
+  `~/.claude/projects/.../memory/project_post_r8_demo_locked.md`,
+  auto-loaded via MEMORY.md "START HERE" pointer.
+- Earlier kickoff prompt (`next-session-kickoff-2026-05-01.md`)
+  marked SUPERSEDED at the top with redirect to the post-R8
+  followups + master dossier as the new canonical entry points.
+
+### What a fresh session needs to know
+
+1. Read `docs/agent/post-r7-handoff-2026-05-01.md` §3 first for
+   current state.
+2. If pre-demo (Mon 2026-05-04): execute `docs/agent/post-r8-
+   followups.md` items per sequencing.
+3. If post-demo: read `docs/agent/post-pilot-bugfix-proposal.md`
+   (will exist after Wed 2026-05-06 scheduled agent fires) and
+   triage against P0 #2 (conflict-resolution UI).
+4. Always run gates from dossier §8 BEFORE any code change.
+
+### Hard deadlines (carried forward)
+
+- Mon 2026-05-04 — demo to CEO + CPO
+- Wed 2026-05-06 09:00 Winnipeg — scheduled bugfix-proposal agent fires
+- Mon 2026-05-08 — release to limited pilot
