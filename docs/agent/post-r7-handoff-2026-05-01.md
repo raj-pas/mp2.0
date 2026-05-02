@@ -109,11 +109,12 @@ ec98596 fix(R7): live FileList ref race in DocDropOverlay + locked-#28b real-PII
 
 `feature/ux-rebuild` is **6 commits ahead** of `origin/feature/ux-rebuild` at HEAD. Do not push without explicit user authorization. (This count fluctuates — origin doesn't auto-track all our commits; treat as "do not push.")
 
-### Local DB state (as of post-R8 + demo lock)
+### Local DB state (as of post-R8 + demo lock + empirical validation 2026-05-02)
 
 - **Sandra/Mike Chen** — synthetic, 1 household, fresh from `scripts/reset-v2-dev.sh --yes` reseed.
-- **`Seltzer review (demo prep)`** — real_derived workspace, **5/5 reconciled** (workspace ID dynamic; lookup by label). 1 person, 6 accounts, 4 goals, 18 conflicts, 0 failures. KYC ready ✓; engine_ready/construction_ready remain ⚠ (advisor decisions pending — by design for the demo flow).
-- **2 incidental e2e leftover artifacts** — 1 R7 e2e doc-drop workspace with a queued job, 1 wizard-created household. Demo flow won't surface either; cleanup not blocking.
+- **`Seltzer review (demo prep)`** — real_derived workspace, **5/5 reconciled** (workspace ID dynamic; lookup by label). KYC ready ✓; engine_ready/construction_ready remain ⚠ (advisor decisions pending — by design for the demo flow).
+- **`Weryha review (demo prep)`** — real_derived workspace, **5/5 reconciled** (NEW 2026-05-02; drop-in backup per the updated demo-script backup plan). KYC ready ✓; engine_ready/construction_ready remain ⚠ (advisor decisions pending — same shape as Seltzer).
+- **2 incidental R7 e2e leftover workspaces** — harmless noise from prior e2e runs; not surfaced by demo flow; cleanup not blocking.
 - Local advisor: `advisor@example.com` (password in `.env` at `MP20_LOCAL_ADMIN_PASSWORD`). Analyst: `analyst@example.com`.
 
 ### Live stack as left
@@ -144,8 +145,9 @@ ec98596 fix(R7): live FileList ref race in DocDropOverlay + locked-#28b real-PII
 - Legacy-label runtime tripwire OK (caught + fixed one Fraser reference during R8 build)
 - Niesner real-PII pipeline 12/12 reconciled with 493 facts
 - R10 sweep 55/55 reconciled with 2,304 facts
-- Real-browser smoke clean against pre-uploaded Seltzer (0 unexpected console signals); /methodology coverage extended (executes against live server with secure root + Bedrock env)
+- Real-browser smoke clean against pre-uploaded Seltzer **(empirically run 2026-05-02 — 1 test passing in 2.7s, 0 unexpected console signals)**; /methodology coverage extended in commit `43c1d55` and confirmed green: all 10 R8 section H2s visible + TOC click → Sleeve mix in viewport
 - Real-PII commit + portfolio gen validated end-to-end (Niesner)
+- **`scripts/demo-prep/upload_and_drain.py` empirically validated 2026-05-02** against Weryha (5/5 reconciled, 0 failed; ~2:45 wall-clock; exit 0). The Item #3 Weryha pre-upload is now actual demo-ready state in DB, not just script + checklist.
 - New `engine/tests/test_r8_worked_examples_match_engine.py` (8 tests): pins methodology.s* worked-example numbers to engine output; future drift fails CI before the methodology page lies on stage
 
 ### Scheduled follow-up

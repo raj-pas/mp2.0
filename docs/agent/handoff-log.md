@@ -2601,3 +2601,62 @@ proven Seltzer flow.
 Demo prep state is now **fully locked**. All credibility gaps closed.
 Run the demo morning pre-checklist as written in
 `docs/agent/demo-script-2026-05-04.md`.
+
+---
+
+## 2026-05-02 (later) — Empirical validation of post-R8 followups
+
+After the documentation closeout at HEAD `68b07f8`, the user explicitly
+requested an in-depth live-run + real-browser test to catch any
+regressions in the items just shipped. Both passed cleanly with zero
+regressions detected.
+
+### Live-run #2: scripts/demo-prep/upload_and_drain.py Weryha
+
+```
+$ uv run python scripts/demo-prep/upload_and_drain.py Weryha --expect-count 5
+=== Demo prep: Weryha pre-upload ===
+  workspace external_id: 015ba155-...
+  files uploaded: 5
+=== Worker drain (Weryha through Bedrock) ===
+  worker PID: 54517
+  [11 polls × 15s, ~2:45 wall-clock]
+=== Final demo state ===
+  reconciled: 5 | failed: 0 | total: 5
+  workspace status: review_ready
+OK Weryha 5/5 reconciled, ready for demo.
+```
+
+Side-effect (intentional + desired): Weryha is now in DB as the
+drop-in backup for demo morning, alongside Seltzer. No need to rerun
+the upload at the start of demo morning if state survives.
+
+### Real-browser-smoke #3: real-browser-smoke.spec.ts
+
+```
+$ PLAYWRIGHT_BASE_URL=http://localhost:5173 npx playwright test real-browser-smoke.spec.ts
+  Seltzer reconciled chips: 5
+  failed chips: 0
+  all 6 section-approval buttons visible
+  commit button correctly disabled (engine readiness not met)
+  all 10 R8 methodology section headings visible
+  TOC click → Sleeve mix section in viewport
+=== CONSOLE: clean (0 unexpected errors/warnings/failures) ===
+  ✓  1 [chromium] › real-browser-smoke.spec.ts (2.7s)
+  1 passed (4.0s)
+```
+
+Confirms Items #1 + #3 are not just static-tested but empirically run
+against live Bedrock + real Chromium. **Zero regressions caught.**
+
+### State after this validation
+
+DB: Sandra/Mike Chen + Seltzer 5/5 + Weryha 5/5 + 2 incidental R7
+e2e leftovers. The Seltzer/Weryha pair IS the desired demo target
+state per the updated backup plan in demo-script-2026-05-04.md.
+
+Stack: Postgres (mp20-db-1) + Backend (mp20-backend-1) + Vite all up
+on standard ports. Worker idle.
+
+No code changes; this is a validation-only follow-on. Dossier §3
+updated to reflect Weryha presence + empirical-validation evidence.
