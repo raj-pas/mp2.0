@@ -121,8 +121,14 @@ scripts/test-python-postgres.sh
 cd frontend
 npm install
 npm run build
+npm run codegen   # regenerate src/lib/api-types.ts when backend schema changes
 PLAYWRIGHT_BASE_URL=http://localhost:5173 npm run e2e:synthetic
 ```
+
+OpenAPI-typescript codegen (Phase 4.5): `frontend/src/lib/api-types.ts`
+is generated from drf-spectacular's schema. Run `npm run codegen` after
+any backend serializer change; CI gate `scripts/check-openapi-codegen.sh`
+fails on drift.
 
 ## Git Protocol
 

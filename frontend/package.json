@@ -15,7 +15,8 @@
     "format": "prettier --check 'src/**/*.{ts,tsx,css,json}'",
     "format:write": "prettier --write 'src/**/*.{ts,tsx,css,json}'",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "codegen": "cd .. && DATABASE_URL=${DATABASE_URL:-postgres://mp20:mp20@localhost:5432/mp20} uv run python web/manage.py spectacular --format openapi-json --file /tmp/mp20-api-schema.json >/dev/null 2>&1 && cd frontend && openapi-typescript /tmp/mp20-api-schema.json --output src/lib/api-types.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
