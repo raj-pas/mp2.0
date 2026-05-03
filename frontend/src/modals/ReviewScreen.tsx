@@ -316,6 +316,23 @@ function ProcessingPanel({
               ["bedrock_token_limit", "bedrock_non_json", "bedrock_schema_mismatch"].includes(
                 failureCode,
               );
+            const failureMessage =
+              isFailed && failureCode
+                ? t(`review.failure_code.${failureCode}`, {
+                    defaultValue: t("review.failure_code.fallback", {
+                      code: failureCode,
+                    }),
+                  })
+                : "";
+            const failureMsgId = `doc-${doc.id}-failure-msg`;
+            const showRetry = doc.retry_eligible && job?.status === "failed";
+            const attempts = job?.attempts ?? 0;
+            const maxAttempts = job?.max_attempts ?? 0;
+            const retryLabel = retrying
+              ? t("review.retrying")
+              : attempts > 0 && maxAttempts > 0
+                ? t("review.retry_with_attempts", { attempt: attempts, max: maxAttempts })
+                : t("review.retry_document");
             return (
               <li key={doc.id} className="flex flex-col gap-2 py-2">
                 <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3">
@@ -327,12 +344,18 @@ function ProcessingPanel({
                     </span>
                   </div>
                   <span
+                    {...(failureMessage ? { title: failureMessage } : {})}
+                    aria-label={
+                      failureMessage
+                        ? t("review.failure_chip_aria", { message: failureMessage })
+                        : undefined
+                    }
                     className={cn(
                       "border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest",
                       doc.status === "extracted" || doc.status === "reconciled"
                         ? "border-success/40 text-success"
                         : isFailed
-                          ? "border-danger/40 text-danger"
+                          ? "border-danger/40 text-danger cursor-help"
                           : isManualEntry
                             ? "border-accent-2/40 text-accent-2"
                             : "border-hairline text-muted",
@@ -340,15 +363,16 @@ function ProcessingPanel({
                   >
                     {doc.status}
                   </span>
-                  {doc.retry_eligible && job?.status === "failed" && (
+                  {showRetry && (
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       onClick={() => onRetry(doc.id)}
                       disabled={retrying || markingManualEntry}
+                      {...(failureMessage ? { "aria-describedby": failureMsgId } : {})}
                     >
-                      {t("review.retry_document")}
+                      {retryLabel}
                     </Button>
                   )}
                   {manualEntryEligible && (
@@ -358,18 +382,15 @@ function ProcessingPanel({
                       size="sm"
                       onClick={() => onMarkManualEntry(doc.id)}
                       disabled={retrying || markingManualEntry}
+                      {...(failureMessage ? { "aria-describedby": failureMsgId } : {})}
                     >
                       {t("review.mark_manual_entry")}
                     </Button>
                   )}
                 </div>
-                {isFailed && failureCode && (
-                  <p className="font-mono text-[10px] text-danger">
-                    {t(`review.failure_code.${failureCode}`, {
-                      defaultValue: t("review.failure_code.fallback", {
-                        code: failureCode,
-                      }),
-                    })}
+                {isFailed && failureMessage && (
+                  <p id={failureMsgId} className="font-mono text-[10px] text-danger">
+                    {failureMessage}
                   </p>
                 )}
               </li>
