@@ -3017,3 +3017,125 @@ makes structurally impossible).
 gate. `frontend/src/lib/api-types.ts` regen from drf-spectacular
 schema; refactor `lib/review.ts` types to import from generated
 types; new `scripts/check-openapi-codegen.sh` gate.
+
+---
+
+## 2026-05-02 (later, Phase 5 wave) — Phases 4 + 4.5 + 5a + 5b partial shipped
+
+This session shipped 5 commits past `448b281` (the prior halt point):
+
+* **HEAD `7a2e252` Phase 4** — Bedrock tool-use migration. SDK probe
+  matrix in `decisions.md` (Sonnet 4.6 + Opus 4.7 tool_use OK; Opus
+  4.6 not provisioned in account 865045593529). `extraction/prompts/`
+  restructured: new `base.py` with shared guardrails +
+  FACT_EXTRACTION_TOOL schema, expanded per-doc-type modules
+  (kyc/statement/meeting_note/planning/generic), `__init__.py`
+  dispatcher. `extraction/llm.py` calls `tools=[...]` +
+  `tool_choice={"type": "tool", "name": "fact_extraction"}`. Deleted
+  REPAIR-1/2 surfaces (`_repair_json_text`, `_normalize_bedrock_payload`,
+  `_normalize_fact_item`, `json_payload_from_model_text`,
+  `facts_from_bedrock_response`, `facts_from_model_text`,
+  `_looks_truncated`, `fact_extraction_prompt`). Confidence floor added
+  to `extraction/pipeline.py:_cap_fact_confidence`. +20 tests in
+  `web/api/tests/test_tool_use_extraction.py`; -6 obsolete JSON-repair
+  tests.
+
+* **HEAD `413fd02` Phase 4.5** — OpenAPI-typescript codegen + drift CI
+  gate. Generated `frontend/src/lib/api-types.ts` from drf-spectacular's
+  `/api/schema/`; new `scripts/check-openapi-codegen.sh` fails CI on
+  drift; `npm run codegen` chains spectacular + openapi-typescript.
+  Coverage caveat: 28 schemas covered (engine + wizard + risk +
+  descriptor enums); review-pipeline serializers (203 spectacular
+  warnings) not yet introspected — `lib/review.ts` hand types
+  preserved until @extend_schema decorators land post-pilot. Drift
+  gate has caught + corrected drift twice this session (Phase 5a
+  conflict endpoint + Phase 5b.1 disclaimer/tour/feedback endpoints).
+
+* **HEAD `2b28220` Phase 5a** — CONFLICT-CARD UI + endpoint. New
+  `ReviewWorkspaceConflictResolveView` (POST
+  /api/review-workspaces/<wsid>/conflicts/resolve/) atomic +
+  select_for_update with 4 structured failure codes
+  (field/chosen_fact_id_required, rationale_required,
+  evidence_ack_required, conflict_not_found, chosen_fact_not_in_conflict).
+  `_conflicts(workspace)` enriched with per-candidate metadata
+  (fact_id, value, confidence, derivation_method,
+  source_document_id/filename/type, source_location/page,
+  redacted_evidence_quote, asserted_at). Audit event
+  `review_conflict_resolved` per locked decision #37; metadata
+  records `rationale_len` (NOT rationale text) per canon §11.8.3.
+  Frontend `ConflictPanel` + `ConflictCard` + `useResolveConflict`
+  hook + 22 i18n keys + 8 backend tests.
+
+* **HEAD `288c3e7` Phase 5b.1+5b.6** — Pilot governance + day-1
+  critical UX. Migration `0010_advisorprofile_factoverride_feedback`
+  adds `AdvisorProfile` (1:1 with auth.User; disclaimer +
+  tour_completed_at + version), `Feedback` (Linear-mirroring
+  schema), `FactOverride` (append-only, mirrors HouseholdSnapshot
+  pattern). New endpoints: `POST /api/disclaimer/acknowledge/`,
+  `POST /api/tour/complete/` (idempotent — only first emits
+  audit), `POST /api/feedback/` (advisor submit), `GET
+  /api/feedback/report/` (analyst-only with status/severity/since/
+  advisor filters + CSV export via `?export=csv`), `PATCH
+  /api/feedback/<id>/` (analyst-only triage). Session payload
+  exposes disclaimer + tour state via direct query (bypasses
+  OneToOne instance cache). Frontend: `PilotBanner` (chrome) with
+  DISCLAIMER_VERSION constant, `FeedbackButton` + modal,
+  `WelcomeTour` 3-step coachmark — all using server-side ack so
+  state persists across devices. 12 backend tests.
+
+* **HEAD `e952c61` Phase 5b.2+5b.7+5b.9+5b.14+smoke** —
+  WorkerHealthBanner (renders only when `worker_health.status` is
+  stale/offline AND active jobs > 0); polling backoff in
+  `useReviewWorkspace` (3s base → 30s exponential w/ jitter once
+  stillProcessing; reduces real-PII workspace polling cost);
+  ConfidenceChip (color + text + ARIA label, single source of
+  truth for confidence rendering, wired into ConflictPanel
+  CandidateRow); axe-core/playwright dev-dep installed; new
+  `pilot-features-smoke.spec.ts` runs axe scans on `/` + `/review`
+  with wcag2a+wcag2aa tags + asserts 0 violations + smokes
+  PilotBanner + FeedbackButton flows.
+
+**Test count:** 362 baseline → 420 (+58 net new tests this session).
+
+**5b sub-phases NOT yet built (deferred):**
+* 5b.3 — Inline retry + manual-entry CTAs per failed doc row in
+  ProcessingPanel (currently in a separate area).
+* 5b.4 — DocDropOverlay improvements: failed-file retry button,
+  pre-upload size-limit copy, client-side duplicate detection.
+* 5b.5 — DocDetailPanel slide-out (per-doc fact contributions).
+  Backend serializer needs `contributed_facts` field.
+* 5b.7 (pagination portion) — ClientPicker pagination (slice
+  to first 20 + Load more); polling backoff portion DONE.
+* 5b.8 — Session-interruption recovery (preserve in-flight files
+  in sessionStorage on 401 + restore on re-login).
+* 5b.10/11 — FactOverride end-to-end: extend
+  ReviewWorkspaceStateView.patch with `fact_overrides` payload;
+  add-missing-fact affordance reuses same mechanism. Backend
+  needs to wire FactOverride into `current_facts_by_field`
+  resolution so overrides win in source-priority hierarchy.
+  Frontend needs inline edit UI in DocDetailPanel + ConflictCard.
+* 5b.12/13 — Bulk conflict resolve + defer-with-auto-resurface.
+  Backend extends conflict-resolve endpoint with `conflict_ids[]`
+  array; new `/api/review-workspaces/<wsid>/conflicts/<field>/defer/`
+  endpoint; reconcile_workspace adds re-surface logic when new
+  evidence appears for a deferred conflict's field.
+* 5b.demo-check — review demo-script-2026-05-04.md for new-surface
+  conflicts (pre-ack tour for demo advisor; harmless PilotBanner
+  during demo; etc.).
+
+**Pointer for fresh session continuing 5b remainder + onwards:**
+
+```bash
+cd /Users/saranyaraj/Projects/github-repo/mp2.0
+git status --short --branch  # confirm feature/ux-rebuild + HEAD e952c61
+git log --oneline -7  # confirm 5 new commits since 448b281
+DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 \
+  uv run python -m pytest engine/tests/ web/api/tests/ web/audit/tests/ \
+  -q  # expect 420 passing
+bash scripts/check-pii-leaks.sh  # expect "PII grep guard: OK"
+bash scripts/check-openapi-codegen.sh  # expect "OK" (regenerate via npm run codegen if drift)
+```
+
+Then re-read `~/.claude/plans/you-are-continuing-a-playful-hammock.md`
+Phase 5b sub-phases for remaining work, then proceed sub-phase by
+sub-phase with per-commit gate green.
