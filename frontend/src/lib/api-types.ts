@@ -244,6 +244,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/disclaimer/acknowledge/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST /api/disclaimer/acknowledge/ — Phase 5b.1.
+         *
+         *     Records a per-advisor disclaimer acknowledgement on the
+         *     AdvisorProfile + emits an immutable audit event capturing the
+         *     version + advisor + timestamp + ip/UA. Idempotent: re-posting
+         *     the same version updates the timestamp + emits a fresh audit
+         *     row. PII discipline: rationale-style fields aren't accepted;
+         *     only the version + auto-captured request context.
+         */
+        post: operations["disclaimer_acknowledge_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/feedback/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST /api/feedback/ — Phase 5b.1.
+         *
+         *     Persists advisor in-app feedback to the Feedback model. No runtime
+         *     Linear API call; ops triages from `GET /api/feedback/report/`
+         *     (analyst-only). Schema mirrors what Linear `save_issue` would
+         *     consume so a future automated-sync migration is a serializer +
+         *     cron task.
+         */
+        post: operations["feedback_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/feedback/{feedback_id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description PATCH /api/feedback/<id>/ — analyst-only triage update (5b.1). */
+        patch: operations["feedback_partial_update"];
+        trace?: never;
+    };
+    "/api/feedback/report/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET /api/feedback/report/ — analyst-only triage report (5b.1). */
+        get: operations["feedback_report_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/goals/{goal_id}/override/": {
         parameters: {
             query?: never;
@@ -884,6 +969,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tour/complete/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST /api/tour/complete/ — Phase 5b.6.
+         *
+         *     Marks the welcome tour as completed for the advisor (server-side
+         *     per-account ack so the tour never re-shows on any device for
+         *     this advisor). Audit event captures advisor + timestamp.
+         */
+        post: operations["tour_complete_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/treemap/": {
         parameters: {
             query?: never;
@@ -1505,6 +1613,80 @@ export interface operations {
             path: {
                 snapshot_id: string;
             };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    disclaimer_acknowledge_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    feedback_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    feedback_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                feedback_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    feedback_report_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -2299,6 +2481,24 @@ export interface operations {
         };
     };
     session_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tour_complete_create: {
         parameters: {
             query?: never;
             header?: never;

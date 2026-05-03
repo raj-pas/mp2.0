@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -138,6 +139,335 @@ class SessionView(APIView):
             metadata={"phase": "phase_1"},
         )
         return Response(_session_payload(request))
+
+
+class DisclaimerAcknowledgeView(APIView):
+    """POST /api/disclaimer/acknowledge/ — Phase 5b.1.
+
+    Records a per-advisor disclaimer acknowledgement on the
+    AdvisorProfile + emits an immutable audit event capturing the
+    version + advisor + timestamp + ip/UA. Idempotent: re-posting
+    the same version updates the timestamp + emits a fresh audit
+    row. PII discipline: rationale-style fields aren't accepted;
+    only the version + auto-captured request context.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):  # noqa: ANN001
+        version = (request.data.get("version") or "").strip()
+        if not version:
+            return Response(
+                {"detail": "version is required.", "code": "version_required"},
+                status=400,
+            )
+        if len(version) > 16:
+            return Response(
+                {"detail": "version too long.", "code": "version_too_long"},
+                status=400,
+            )
+        profile, _ = models.AdvisorProfile.objects.get_or_create(user=request.user)
+        now = timezone.now()
+        profile.disclaimer_acknowledged_at = now
+        profile.disclaimer_acknowledged_version = version
+        profile.save(
+            update_fields=[
+                "disclaimer_acknowledged_at",
+                "disclaimer_acknowledged_version",
+            ]
+        )
+        record_event(
+            action="disclaimer_acknowledged",
+            entity_type="advisor",
+            entity_id=str(request.user.pk),
+            actor=_actor(request),
+            metadata={
+                "version": version,
+                "acknowledged_at": now.isoformat(),
+                "advisor_id": request.user.pk,
+                "ip": _request_ip(request),
+                "user_agent": _request_ua(request),
+            },
+        )
+        return Response(
+            {"acknowledged_at": now.isoformat(), "version": version}
+        )
+
+
+class TourCompleteView(APIView):
+    """POST /api/tour/complete/ — Phase 5b.6.
+
+    Marks the welcome tour as completed for the advisor (server-side
+    per-account ack so the tour never re-shows on any device for
+    this advisor). Audit event captures advisor + timestamp.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):  # noqa: ANN001
+        profile, _ = models.AdvisorProfile.objects.get_or_create(user=request.user)
+        if profile.tour_completed_at is None:
+            profile.tour_completed_at = timezone.now()
+            profile.save(update_fields=["tour_completed_at"])
+            record_event(
+                action="tour_completed",
+                entity_type="advisor",
+                entity_id=str(request.user.pk),
+                actor=_actor(request),
+                metadata={
+                    "completed_at": profile.tour_completed_at.isoformat(),
+                    "advisor_id": request.user.pk,
+                },
+            )
+        return Response(
+            {"completed_at": profile.tour_completed_at.isoformat()}
+        )
+
+
+class FeedbackSubmitView(APIView):
+    """POST /api/feedback/ — Phase 5b.1.
+
+    Persists advisor in-app feedback to the Feedback model. No runtime
+    Linear API call; ops triages from `GET /api/feedback/report/`
+    (analyst-only). Schema mirrors what Linear `save_issue` would
+    consume so a future automated-sync migration is a serializer +
+    cron task.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):  # noqa: ANN001
+        severity = (request.data.get("severity") or "").strip()
+        description = (request.data.get("description") or "").strip()
+        what_were_you_trying = (request.data.get("what_were_you_trying") or "").strip()
+        route = (request.data.get("route") or "").strip()
+        session_id = (request.data.get("session_id") or "").strip()
+        browser_ua = _request_ua(request)[:512]
+
+        if severity not in {s.value for s in models.Feedback.Severity}:
+            return Response(
+                {
+                    "detail": "Invalid severity.",
+                    "code": "severity_invalid",
+                    "allowed": [s.value for s in models.Feedback.Severity],
+                },
+                status=400,
+            )
+        if len(description) < 20:
+            return Response(
+                {
+                    "detail": "Description must be at least 20 characters.",
+                    "code": "description_too_short",
+                },
+                status=400,
+            )
+        if len(description) > 5000:
+            return Response(
+                {"detail": "Description too long.", "code": "description_too_long"},
+                status=400,
+            )
+
+        feedback = models.Feedback.objects.create(
+            advisor=request.user,
+            severity=severity,
+            description=description,
+            what_were_you_trying=what_were_you_trying,
+            route=route[:128],
+            session_id=session_id[:64],
+            browser_user_agent=browser_ua,
+        )
+        record_event(
+            action="feedback_submitted",
+            entity_type="feedback",
+            entity_id=str(feedback.pk),
+            actor=_actor(request),
+            metadata={
+                "feedback_id": feedback.pk,
+                "severity": severity,
+                "route": feedback.route,
+                "description_len": len(description),
+            },
+        )
+        return Response({"id": feedback.pk, "status": feedback.status}, status=201)
+
+
+class FeedbackReportView(APIView):
+    """GET /api/feedback/report/ — analyst-only triage report (5b.1)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):  # noqa: ANN001
+        if role_for_user(request.user) != "financial_analyst":
+            return Response(
+                {"detail": "Analyst role required.", "code": "analyst_required"},
+                status=403,
+            )
+        queryset = models.Feedback.objects.select_related("advisor").all()
+
+        status_filter = (request.query_params.get("status") or "").strip()
+        severity_filter = (request.query_params.get("severity") or "").strip()
+        since_filter = (request.query_params.get("since") or "").strip()
+        advisor_filter = (request.query_params.get("advisor") or "").strip()
+
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        if severity_filter:
+            queryset = queryset.filter(severity=severity_filter)
+        if since_filter:
+            try:
+                since_date = datetime.fromisoformat(since_filter)
+                queryset = queryset.filter(created_at__gte=since_date)
+            except ValueError:
+                return Response(
+                    {
+                        "detail": "since must be ISO-8601 (YYYY-MM-DD).",
+                        "code": "since_invalid",
+                    },
+                    status=400,
+                )
+        if advisor_filter:
+            queryset = queryset.filter(advisor_id=advisor_filter)
+
+        rows = [
+            {
+                "id": f.pk,
+                "advisor": f.advisor.email or f.advisor.get_username(),
+                "severity": f.severity,
+                "status": f.status,
+                "description": f.description,
+                "what_were_you_trying": f.what_were_you_trying,
+                "route": f.route,
+                "session_id": f.session_id,
+                "browser_user_agent": f.browser_user_agent,
+                "created_at": f.created_at.isoformat(),
+                "ops_notes": f.ops_notes,
+                "linear_issue_url": f.linear_issue_url,
+            }
+            for f in queryset[:1000]
+        ]
+
+        record_event(
+            action="feedback_report_viewed",
+            entity_type="feedback",
+            actor=_actor(request),
+            metadata={
+                "row_count": len(rows),
+                "filters": {
+                    "status": status_filter,
+                    "severity": severity_filter,
+                    "since": since_filter,
+                    "advisor": advisor_filter,
+                },
+            },
+        )
+
+        if (request.query_params.get("export") or "").lower() == "csv":
+            import csv
+            import io
+
+            buf = io.StringIO()
+            writer = csv.DictWriter(
+                buf,
+                fieldnames=[
+                    "id",
+                    "advisor",
+                    "severity",
+                    "status",
+                    "description",
+                    "what_were_you_trying",
+                    "route",
+                    "session_id",
+                    "browser_user_agent",
+                    "created_at",
+                    "ops_notes",
+                    "linear_issue_url",
+                ],
+            )
+            writer.writeheader()
+            writer.writerows(rows)
+            response = Response(
+                buf.getvalue(),
+                content_type="text/csv",
+            )
+            response["Content-Disposition"] = "attachment; filename=feedback.csv"
+            return response
+
+        return Response({"rows": rows, "count": len(rows)})
+
+
+class FeedbackUpdateView(APIView):
+    """PATCH /api/feedback/<id>/ — analyst-only triage update (5b.1)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, feedback_id: int):  # noqa: ANN001
+        if role_for_user(request.user) != "financial_analyst":
+            return Response(
+                {"detail": "Analyst role required.", "code": "analyst_required"},
+                status=403,
+            )
+        try:
+            feedback = models.Feedback.objects.get(pk=feedback_id)
+        except models.Feedback.DoesNotExist:
+            return Response(
+                {"detail": "Feedback not found.", "code": "feedback_not_found"},
+                status=404,
+            )
+
+        update_fields: list[str] = []
+        if "status" in request.data:
+            new_status = request.data["status"]
+            if new_status not in {s.value for s in models.Feedback.Status}:
+                return Response(
+                    {"detail": "Invalid status.", "code": "status_invalid"},
+                    status=400,
+                )
+            feedback.status = new_status
+            update_fields.append("status")
+        if "ops_notes" in request.data:
+            feedback.ops_notes = (request.data.get("ops_notes") or "")[:5000]
+            update_fields.append("ops_notes")
+        if "linear_issue_url" in request.data:
+            feedback.linear_issue_url = (request.data.get("linear_issue_url") or "")[:1024]
+            update_fields.append("linear_issue_url")
+
+        if not update_fields:
+            return Response(
+                {"detail": "Nothing to update.", "code": "no_changes"},
+                status=400,
+            )
+        feedback.save(update_fields=update_fields)
+
+        record_event(
+            action="feedback_triaged",
+            entity_type="feedback",
+            entity_id=str(feedback.pk),
+            actor=_actor(request),
+            metadata={
+                "feedback_id": feedback.pk,
+                "fields_updated": update_fields,
+                "new_status": feedback.status,
+            },
+        )
+        return Response(
+            {
+                "id": feedback.pk,
+                "status": feedback.status,
+                "ops_notes": feedback.ops_notes,
+                "linear_issue_url": feedback.linear_issue_url,
+            }
+        )
+
+
+def _request_ip(request) -> str:  # noqa: ANN001
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()[:64]
+    return (request.META.get("REMOTE_ADDR") or "")[:64]
+
+
+def _request_ua(request) -> str:  # noqa: ANN001
+    return (request.META.get("HTTP_USER_AGENT") or "")[:512]
 
 
 class ClientListView(APIView):
@@ -1565,6 +1895,11 @@ def _workspace_for_user(workspace_id: str, user):
 def _session_payload(request) -> dict:  # noqa: ANN001
     user = getattr(request, "user", None)
     if user and user.is_authenticated:
+        # Direct query bypasses any cached OneToOne relationship state on
+        # the user instance — APIClient.force_authenticate keeps the same
+        # User object across requests, so an instance-level fields_cache
+        # could otherwise return stale "DoesNotExist".
+        profile = models.AdvisorProfile.objects.filter(user=user).first()
         return {
             "authenticated": True,
             "csrf_token": get_token(request),
@@ -1574,6 +1909,19 @@ def _session_payload(request) -> dict:  # noqa: ANN001
                 "role": role_for_user(user),
                 "team": user_team_slug(user),
                 "engine_enabled": getattr(settings, "MP20_ENGINE_ENABLED", True),
+                "disclaimer_acknowledged_at": (
+                    profile.disclaimer_acknowledged_at.isoformat()
+                    if profile and profile.disclaimer_acknowledged_at
+                    else None
+                ),
+                "disclaimer_acknowledged_version": (
+                    profile.disclaimer_acknowledged_version if profile else ""
+                ),
+                "tour_completed_at": (
+                    profile.tour_completed_at.isoformat()
+                    if profile and profile.tour_completed_at
+                    else None
+                ),
             },
         }
     return {"authenticated": False, "csrf_token": get_token(request), "user": None}

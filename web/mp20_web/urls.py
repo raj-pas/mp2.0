@@ -29,6 +29,31 @@ urlpatterns = [
     path("api/auth/login/", views.LocalLoginView.as_view(), name="local-login"),
     path("api/auth/logout/", views.LocalLogoutView.as_view(), name="local-logout"),
     path("api/session/", views.SessionView.as_view(), name="session"),
+    path(
+        "api/disclaimer/acknowledge/",
+        views.DisclaimerAcknowledgeView.as_view(),
+        name="disclaimer-acknowledge",
+    ),
+    path(
+        "api/tour/complete/",
+        views.TourCompleteView.as_view(),
+        name="tour-complete",
+    ),
+    path(
+        "api/feedback/",
+        views.FeedbackSubmitView.as_view(),
+        name="feedback-submit",
+    ),
+    path(
+        "api/feedback/report/",
+        views.FeedbackReportView.as_view(),
+        name="feedback-report",
+    ),
+    path(
+        "api/feedback/<int:feedback_id>/",
+        views.FeedbackUpdateView.as_view(),
+        name="feedback-update",
+    ),
     path("api/clients/", views.ClientListView.as_view(), name="client-list"),
     path("api/clients/<str:household_id>/", views.ClientDetailView.as_view(), name="client-detail"),
     path(

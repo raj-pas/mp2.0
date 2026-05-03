@@ -12,6 +12,7 @@ import { Button } from "../components/ui/button";
 import { BrandMark } from "./BrandMark";
 import { ClientPicker } from "./ClientPicker";
 import { ModeToggle, type GroupByMode } from "./ModeToggle";
+import { FeedbackButton } from "./FeedbackButton";
 import { UserChip } from "./UserChip";
 
 interface TopBarProps {
@@ -98,6 +99,7 @@ export function TopBar({
       </Button>
 
       <Divider />
+      <FeedbackButton />
       <UserChip name={user.name} role={user.role} />
     </header>
   );

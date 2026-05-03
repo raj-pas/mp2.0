@@ -1,4 +1,50 @@
 {
+  "chrome": {
+    "pilot_banner": {
+      "aria_label": "Pilot disclaimer",
+      "title": "Pilot — limited beta.",
+      "body": "This build operates on real client data. Triage feedback via the Feedback button.",
+      "dismiss": "I understand",
+      "dismiss_pending": "Saving…",
+      "error": "Could not save acknowledgement."
+    },
+    "feedback": {
+      "button": "Feedback",
+      "open_label": "Open feedback form",
+      "close_label": "Close feedback form",
+      "modal_label": "Submit feedback",
+      "title": "Feedback to ops",
+      "context_note": "Auto-included: current route, session id, browser. Don't paste client data — narrate in your own words.",
+      "severity_label": "How blocking is this?",
+      "severity_blocking": "Blocking",
+      "severity_friction": "Friction",
+      "severity_suggestion": "Suggestion",
+      "description_label": "What happened?",
+      "description_placeholder": "Describe what went wrong, what you expected, and any signals (toast text, error code, behavior).",
+      "description_hint": "Minimum 20 characters.",
+      "trying_label": "What were you trying to do?",
+      "trying_placeholder": "Optional. The flow you were following when this came up.",
+      "submit": "Send",
+      "submit_pending": "Sending…",
+      "cancel": "Cancel",
+      "submit_success_title": "Feedback received",
+      "submit_success_body": "Thanks — ops will triage it.",
+      "submit_error": "Could not send feedback."
+    },
+    "welcome_tour": {
+      "aria_label": "Welcome tour",
+      "title": "Welcome to MP2.0",
+      "step_pick_client_heading": "Pick a client",
+      "step_pick_client_body": "Use the picker in the topbar to choose a household. The stage centers on that client — AUM, accounts, goals, and risk.",
+      "step_drill_treemap_heading": "Drill into accounts and goals",
+      "step_drill_treemap_body": "Click any tile in the treemap to open the account or goal view. The right-side context panel shows source provenance for the values you see.",
+      "step_review_doc_drop_heading": "Onboard new clients",
+      "step_review_doc_drop_body": "Visit Review to drag-and-drop a folder of client docs. Extraction runs in the background; review the conflict cards before committing the household.",
+      "next": "Next",
+      "skip": "Skip tour",
+      "done": "Got it"
+    }
+  },
   "topbar": {
     "brand": "MP2.0",
     "brand_subtitle": "Advisor Console",

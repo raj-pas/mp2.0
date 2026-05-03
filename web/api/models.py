@@ -905,3 +905,136 @@ class HouseholdSnapshot(models.Model):
                 "snapshot tagged 'restore' instead of mutating."
             )
         return super().save(*args, **kwargs)
+
+
+class AdvisorProfile(models.Model):
+    """1:1 profile extending the default auth.User with pilot ack fields.
+
+    Phase 5b.1 (locked 2026-05-02): the project doesn't ship a custom
+    User model so we extend via a profile. Audit-event metadata still
+    captures version-by-version disclaimer/tour history (the immutable
+    audit log is the source of truth for "advisor X acknowledged
+    version Y at timestamp Z" queries); this profile holds the
+    "current state" used by the session payload to gate UI surfaces.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        related_name="advisor_profile",
+        on_delete=models.CASCADE,
+        primary_key=True,
+    )
+    disclaimer_acknowledged_at = models.DateTimeField(null=True, blank=True)
+    disclaimer_acknowledged_version = models.CharField(max_length=16, blank=True, default="")
+    tour_completed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self) -> str:
+        return f"AdvisorProfile<{self.user_id}>"
+
+
+class Feedback(models.Model):
+    """Pilot in-app feedback (Phase 5b.1).
+
+    Schema mirrors what Linear's `save_issue` MCP call would consume,
+    so a future automated-sync migration is a serializer + cron task.
+    For now ops triages from `GET /api/feedback/report/` (analyst-only).
+    Real-PII discipline: the advisor's free-text fields are persisted
+    verbatim; the runtime never auto-includes workspace_id/household
+    context.
+    """
+
+    class Severity(models.TextChoices):
+        BLOCKING = "blocking", "Blocking"
+        FRICTION = "friction", "Friction"
+        SUGGESTION = "suggestion", "Suggestion"
+
+    class Status(models.TextChoices):
+        NEW = "new", "New"
+        TRIAGED = "triaged", "Triaged"
+        IN_PROGRESS = "in_progress", "In progress"
+        CLOSED = "closed", "Closed"
+
+    advisor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="feedback_submissions",
+        on_delete=models.PROTECT,
+    )
+    severity = models.CharField(max_length=16, choices=Severity.choices)
+    description = models.TextField()
+    what_were_you_trying = models.TextField(blank=True)
+    route = models.CharField(max_length=128)
+    session_id = models.CharField(max_length=64, blank=True)
+    browser_user_agent = models.CharField(max_length=512, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(
+        max_length=32, choices=Status.choices, default=Status.NEW
+    )
+    ops_notes = models.TextField(blank=True)
+    linear_issue_url = models.URLField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status", "-created_at"]),
+            models.Index(fields=["severity", "-created_at"]),
+            models.Index(fields=["advisor", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Feedback<{self.severity}:{self.status}> by {self.advisor_id} at {self.created_at}"
+
+
+class FactOverride(models.Model):
+    """Append-only advisor override / addition for an extracted fact.
+
+    Phase 5b.10 (locked 2026-05-02 — append-only). Each advisor edit
+    creates a NEW row; never UPDATE existing rows. Latest row wins
+    per `(workspace, field)` group via `MAX(created_at)`. Mirrors the
+    HouseholdSnapshot append-only pattern.
+
+    `is_added` distinguishes:
+      * False: advisor overrode an extracted fact (extracted fact
+        exists for the same field path).
+      * True: advisor ADDED a fact that extraction never produced
+        (e.g. a goal that wasn't documented in the uploaded folder).
+
+    Source-priority hierarchy (canon §11.4): advisor override is the
+    highest-priority source for the given field path. The reviewed-
+    state composer reads `MAX(created_at)` per (workspace, field) and
+    overrides the extracted current_facts mapping.
+    """
+
+    workspace = models.ForeignKey(
+        "ReviewWorkspace",
+        related_name="fact_overrides",
+        on_delete=models.CASCADE,
+    )
+    field = models.CharField(max_length=255)
+    value = models.JSONField()
+    rationale = models.TextField(blank=True)
+    is_added = models.BooleanField(default=False)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="fact_overrides",
+        on_delete=models.PROTECT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["workspace", "field", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        kind = "added" if self.is_added else "overridden"
+        return f"FactOverride<{self.workspace_id}:{self.field}:{kind}>"
+
+    def save(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        if self.pk and FactOverride.objects.filter(pk=self.pk).exists():
+            raise ValidationError(
+                "FactOverride is append-only; create a NEW row to record "
+                "an advisor change rather than mutating an existing row "
+                "(canon §11.4 advisor source-priority + audit history)."
+            )
+        return super().save(*args, **kwargs)

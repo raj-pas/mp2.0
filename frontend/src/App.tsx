@@ -13,6 +13,8 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Skeleton } from "./components/ui/skeleton";
 import { ContextPanel, type ContextPanelKind } from "./ctx-panel/ContextPanel";
 import { TopBar } from "./chrome/TopBar";
+import { PilotBanner } from "./chrome/PilotBanner";
+import { WelcomeTour } from "./chrome/WelcomeTour";
 import { useRememberedClientId } from "./chrome/ClientPicker";
 import { type GroupByMode } from "./chrome/ModeToggle";
 import { useLocalStorage } from "./lib/local-storage";
@@ -124,6 +126,7 @@ function AuthenticatedShell({
 
   return (
     <div className="flex min-h-screen flex-col bg-paper text-ink">
+      <PilotBanner user={user} />
       <TopBar
         selectedClientId={rememberedId}
         onSelectClient={(id) => {
@@ -138,6 +141,7 @@ function AuthenticatedShell({
       <div className="flex flex-1 overflow-hidden">
         <RouteHost role={role} />
       </div>
+      {showClientControls && <WelcomeTour user={user} />}
     </div>
   );
 }
