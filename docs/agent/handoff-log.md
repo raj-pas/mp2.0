@@ -3603,3 +3603,226 @@ Captured here so sub-session #2 can decide whether to address.
 **Next sub-session:** #2 still picks up Phase 5b.4/5/7-pag/10/11/12/13
 + UX-polish pass per `docs/agent/production-quality-bar.md`
 §1.10 + §6. Bring-up reading list unchanged.
+
+## 2026-05-03 (sub-session #2) — Phase 5b.4 / 5 / 7 / 10 / 11 / 12 / 13 + UX-polish pass
+
+**HEAD:** `a91a71d` (8 commits past `1c4e0aa`).
+
+User authorized continuous execution of all 7 sub-sessions; I'm
+working through them with full gate-suite discipline at each
+phase exit.
+
+### Commits (in order)
+
+1. `d0eb452` — Phase 5b.4 (DocDropOverlay improvements)
+2. `976f53b` — Phase 5b.5 (DocDetailPanel slide-out)
+3. `a6d98de` — Phase 5b.7 (ClientPicker pagination)
+4. `b63865a` — Phase 5b.10 + 5b.11 (FactOverride end-to-end)
+5. `8f95206` — Phase 5b.12 (bulk conflict resolve)
+6. `abced64` — Phase 5b.13 (defer conflict + auto-resurface)
+7. `a91a71d` — UX-polish pass (toast dedup + prefers-reduced-motion)
+
+### Phase 5b.4 — DocDropOverlay (commit `d0eb452`)
+
+Three improvements stacked on the 5b.8 recovery substrate:
+- 50MB per-file size cap via new MAX_FILE_BYTES constant + new
+  `admitFiles` helper that filters too-large files with a
+  per-file ignored entry. Surfaced in dropzone empty-state copy.
+- Picker-side dup detection on `(name + size)` pair; toasts the
+  skipped duplicates.
+- Failed-files retry: when `response.ignored` lists `upload_failed`
+  entries, the matching File objects retain in `retryableFiles`
+  state + the workspace external_id in `retryWorkspaceId`. New
+  "Retry N files" UI section reuses `useUploadDocuments` (SHA256
+  dedup makes the retry safe against partial-success mid-batch).
+
+### Phase 5b.5 — DocDetailPanel slide-out (commit `976f53b`)
+
+Closes UX dimension B.1.
+
+Backend:
+- New endpoint `GET /api/review-workspaces/<wsid>/documents/<docid>/`
+  returning ReviewDocument + `contributed_facts` array.
+- `serialize_doc_contributed_facts` helper in review_state.py
+  filters facts via `current_facts_by_field` to facts where
+  THIS document is the canonical source; runs evidence quotes
+  through the same `redact_evidence_quote` pipeline as conflict
+  candidates.
+
+Frontend:
+- `useReviewDocument(workspaceId, documentId)` TanStack hook.
+- `DocDetailPanel` slide-out (right-edge, 420px, semi-transparent
+  backdrop, Escape closes, focus moves to close button on open).
+- Renders facts grouped by section (people / household / accounts
+  / goals / risk) with ConfidenceChip + redacted evidence.
+- Tailwind keyframes (`slideInFromRight`, `slideInFromLeft`,
+  `fadeIn`) wired with `motion-safe:` prefix.
+- `ProcessingPanel` doc rows now wrap filename in a clickable
+  `<button>` that fires `onOpenDetail(docId)` with sr-only
+  `aria-label`.
+
+Tests: 4 new (test_phase5b_doc_detail.py). Cross-workspace doc-id
+guard (404 when doc not in queried workspace), redacted evidence
+phone-pattern enforcement, empty-state, unauthenticated 403.
+
+### Phase 5b.7 — ClientPicker pagination (commit `a6d98de`)
+
+PAGE_SIZE=20 slice with "Load N more" CTA. Filter applies to FULL
+set (search isn't truncated by visible window). Cursor resets when
+popover opens or search query changes.
+
+### Phase 5b.10 + 5b.11 — FactOverride end-to-end (commit `b63865a`)
+
+The FactOverride model was already shipped at HEAD `288c3e7`
+(append-only, save() raises on existing pk). This phase wires the
+endpoint + reviewed-state composer integration + UI surface.
+
+Backend:
+- New `POST /api/review-workspaces/<wsid>/facts/override/` endpoint
+  (`ReviewWorkspaceFactOverrideView`).
+- Atomic + select_for_update + validation (field, value, rationale ≥
+  4 chars).
+- Re-composes reviewed_state with override layered in; rolls back
+  on contract validation failure.
+- Re-evaluates section approvals; flips approved sections to
+  NEEDS_ATTENTION when blockers shift.
+- Audit `review_fact_overridden` per row with structural metadata
+  only (rationale_len, NOT rationale text).
+- `is_added=True` path supports advisor-added facts (5b.11) using
+  the same persistence machinery.
+
+Reviewed-state composer:
+- New `_FactOverrideAsFact` lightweight stand-in implements
+  ExtractedFact's interface so all consumers stay agnostic.
+- `_latest_overrides()` reads MAX(created_at) per field via natural
+  ORDER BY -created_at + take-first.
+- `_apply_fact_overrides()` overlays advisor values on top of
+  current_facts. Source-priority hierarchy: advisor > extracted.
+- `_field_sources` branches on `is_advisor_override` flag.
+
+Frontend:
+- `useApplyFactOverride(workspaceId)` mutation hook.
+- DocDetailPanel: per-fact "Edit" pencil button → inline
+  `FactEditForm` with value + rationale (cancel/save). useEffect
+  + ref pattern for autofocus (rules out jsx-a11y/no-autofocus).
+- DocDetailPanel: "Add fact" CTA → `AddFactSection` form with
+  field path + value + rationale. Datalist suggestions per section.
+
+Tests: 9 new (test_phase5b_fact_override.py). Append-only enforcement
++ idempotent append on repeat edits + latest-row-wins reviewed_state +
+audit emission shape + value/rationale/field validation + model-level
+save() guard + 401/403/404.
+
+### Phase 5b.12 — Bulk conflict resolve (commit `8f95206`)
+
+Closes UX dimension C.5.
+
+Backend:
+- New `POST /api/review-workspaces/<wsid>/conflicts/bulk-resolve/`.
+- Body: `{resolutions: [{field, chosen_fact_id}, ...], rationale,
+  evidence_ack}`.
+- Atomic; validates every resolution; ANY failure rolls the WHOLE
+  batch back. No partial-resolve states.
+- One `review_conflict_resolved` audit event per resolved conflict
+  with `bulk: True` + `bulk_count: N` for ops correlation. Audit
+  emitted AFTER atomic block commits.
+
+Frontend:
+- `useBulkResolveConflicts` hook.
+- ConflictPanel lifts `bulkSelections: Map<field, chosen_fact_id>`
+  state. When ≥2 entries, `BulkResolveBar` renders above cards
+  with shared rationale + evidence_ack form.
+- ConflictCard: when advisor has picked a candidate, "Add to bulk"
+  checkbox appears. While in bulk, per-card rationale + Submit
+  hidden — bulk bar drives submission.
+
+Tests: 4 new (test_phase5b_bulk_conflict_resolve.py). Multi-conflict
+happy path + partial-failure rollback + input validation +
+unauthenticated.
+
+### Phase 5b.13 — Defer conflict + auto-resurface (commit `abced64`)
+
+Closes UX dimension C.6.
+
+Backend:
+- New `POST /api/review-workspaces/<wsid>/conflicts/defer/`.
+- Body: `{field, rationale}`. Rationale ≥ 4 chars.
+- Marks conflict in reviewed_state with deferred / deferred_at /
+  deferred_by / deferred_rationale; drops any prior re_surfaced_at.
+- Audit `review_conflict_deferred` per locked #37 (rationale_len
+  only).
+
+Section blockers (`section_blockers` in review_state.py):
+- Deferred conflicts (without re_surfaced_at) drop their
+  conflict-kind blocker — no longer block section approval.
+- Resurfaced deferred conflicts re-block until resolved.
+
+Auto-resurface (`_conflicts` rebuild in `reviewed_state_from_workspace`):
+- Reads prior `workspace.reviewed_state.conflicts` to identify
+  deferred fields.
+- For each fresh conflict: if deferred AND candidate fact_ids
+  GREW since deferral, mark `re_surfaced_at` to NOW. Stable when
+  no new evidence arrived (no spurious flapping).
+- Also preserves resolution state across reconcile (resolved
+  conflicts keep chosen_fact_id + rationale + resolved_by).
+
+Frontend:
+- `useDeferConflict` hook.
+- `ReviewConflict` type extended with deferred / deferred_at /
+  deferred_by / deferred_rationale / re_surfaced_at.
+- ConflictCard: "Decide later" ghost button next to Submit. On
+  click, opens defer form with rationale textarea. Renders
+  "Deferred" chip when deferred, "New evidence" danger chip
+  when resurfaced. Surfaces deferred_rationale as italic context.
+
+Tests: 6 new (test_phase5b_defer_conflict.py). Marks-as-advisory +
+audit shape (no rationale text in metadata) + section blocker drops
+on defer + auto-resurface on new evidence + no flapping without
+new evidence + input validation + unauthenticated.
+
+### UX-polish pass (commit `a91a71d`)
+
+Two cross-cutting refinements:
+
+Toast dedup (`frontend/src/lib/toast.ts`):
+- Same `(kind, message, description)` triple within 1.5s window
+  suppressed. Prevents stacking under rapid mutation chains
+  (e.g., bulk-resolve onSuccess → toast → invalidate → re-render
+  → React-strict-mode-double-invoke).
+- In-memory Map cap at 32 with periodic cleanup.
+
+Global prefers-reduced-motion (`frontend/src/index.css`):
+- @media (prefers-reduced-motion: reduce) sets animation-duration
+  + transition-duration to 1ms; visual end-state preserved.
+- Single rule covers Tailwind utilities + Radix dialogs + Sonner
+  toasts + skeleton pulse without per-component edits.
+
+### Gates after sub-session #2
+
+- 453 pytest passing (+19 new across 5b.5/10/11/12/13: 4 + 9 + 0
+  + 4 + 6 — 5b.10/11 share a test file; 5b.4/7 + UX-polish add
+  no backend tests).
+- ruff/format clean
+- PII grep + vocab + OpenAPI codegen + migrations + frontend
+  typecheck/lint/build all clean
+
+### Open items / not in scope for sub-session #2
+
+- Vitest unit tests for `lib/upload-recovery.ts` + new components →
+  sub-session #4.
+- Live e2e for the full 401-mid-upload → re-login → resume flow →
+  sub-session #6.
+- DocDropOverlay's pendingWorkspaceId race with workspace label
+  edits during resume (advisor edits label after restore; upload
+  goes to existing workspace whose stored label is the original).
+  Cosmetic; documented in handoff for sub-session #2 follow-up
+  but not fixed (would need PATCH workspace endpoint, out of scope).
+- Audit-event ordering across the 5b.10/11 reviewed_state validation
+  rollback path (audit currently AFTER atomic block; if rollback
+  fires, NO audit emitted — desired). Verified in tests.
+
+### Next sub-session
+
+#3: Phase 5c UX spec docs + Phase 6 scaffolding (factory_boy +
+Vitest + RTL + jest-dom). Bring-up unchanged: production-quality-bar
++ recent handoffs + master plan.
