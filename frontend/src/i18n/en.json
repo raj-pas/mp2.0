@@ -67,7 +67,9 @@
     "client_picker_search": "Search clients",
     "client_picker_no_match": "No clients match.",
     "client_picker_error": "Could not load clients.",
-    "client_picker_add": "Add new household"
+    "client_picker_add": "Add new household",
+    "client_picker_load_more_one": "Load 1 more household",
+    "client_picker_load_more_other": "Load {{remaining}} more households"
   },
   "auth": {
     "login_title": "Sign in",

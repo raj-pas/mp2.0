@@ -1,6 +1,6 @@
 import * as Popover from "@radix-ui/react-popover";
 import { ChevronDown, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
@@ -9,6 +9,14 @@ import { useClients, type ClientSummary } from "../lib/clients";
 import { useLocalStorage } from "../lib/local-storage";
 import { formatCadCompact } from "../lib/format";
 import { cn } from "../lib/cn";
+
+/**
+ * Page size for the in-popover client list. Phase 5b.7 — keeps the
+ * advisor's first-paint render snappy when the team's roster grows
+ * past 20-30 households. Filter applies to the FULL set so search
+ * isn't artificially scoped to the visible page.
+ */
+const PAGE_SIZE = 20;
 
 interface ClientPickerProps {
   selectedId: string | null;
@@ -21,6 +29,7 @@ export function ClientPicker({ selectedId, onSelect, enabled = true }: ClientPic
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const clients = useClients(enabled);
 
   const filtered = useMemo<ClientSummary[]>(() => {
@@ -29,6 +38,22 @@ export function ClientPicker({ selectedId, onSelect, enabled = true }: ClientPic
     if (q.length === 0) return clients.data;
     return clients.data.filter((c) => c.display_name.toLowerCase().includes(q));
   }, [clients.data, query]);
+
+  const sliced = useMemo<ClientSummary[]>(
+    () => filtered.slice(0, visibleCount),
+    [filtered, visibleCount],
+  );
+
+  // Reset pagination cursor when:
+  //  - the popover opens (first paint always shows the same window)
+  //  - the search query changes (so filtered results aren't truncated
+  //    behind a stale cursor from before the user typed)
+  useEffect(() => {
+    if (open) setVisibleCount(PAGE_SIZE);
+  }, [open]);
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [query]);
 
   const selected =
     selectedId !== null ? (clients.data?.find((c) => c.id === selectedId) ?? null) : null;
@@ -103,7 +128,7 @@ export function ClientPicker({ selectedId, onSelect, enabled = true }: ClientPic
                 {t("topbar.client_picker_add")}
               </span>
             </button>
-            {filtered.map((client) => {
+            {sliced.map((client) => {
               const active = client.id === selectedId;
               return (
                 <button
@@ -128,6 +153,19 @@ export function ClientPicker({ selectedId, onSelect, enabled = true }: ClientPic
                 </button>
               );
             })}
+            {filtered.length > sliced.length && (
+              <button
+                type="button"
+                onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                className="flex w-full items-center justify-between bg-paper-2 px-3 py-2 text-left transition-colors hover:bg-paper"
+              >
+                <span className="font-mono text-[10px] uppercase tracking-widest text-ink">
+                  {t("topbar.client_picker_load_more", {
+                    remaining: filtered.length - sliced.length,
+                  })}
+                </span>
+              </button>
+            )}
           </div>
         </Popover.Content>
       </Popover.Portal>
