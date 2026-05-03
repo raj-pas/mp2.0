@@ -157,16 +157,21 @@ def test_meeting_note_prompt_uses_low_confidence_for_aspirational() -> None:
     assert "low" in prompt  # tier in confidence guidance
 
 
-def test_prompt_version_v2_tooluse_set_per_doc_type() -> None:
-    """Each per-doc-type module must carry the v2_tooluse suffix to
-    distinguish from the pre-tool-use prompt versions.
+def test_prompt_version_v3_tooluse_set_per_doc_type() -> None:
+    """Each per-doc-type module must carry the v3_tooluse suffix.
+
+    Phase 9 (2026-05-03) bumped all per-type prompt versions from
+    v2 to v3 to reflect the permissive-base + strong-signal +
+    evidence-quote-validation calibration. The version bump is the
+    audit-trail marker downstream consumers use to attribute facts
+    to the new prompt regime.
     """
     expected = {
-        "kyc": "kyc_review_facts_v2_tooluse",
-        "statement": "statement_review_facts_v2_tooluse",
-        "meeting_note": "meeting_note_review_facts_v2_tooluse",
-        "planning": "planning_review_facts_v2_tooluse",
-        "generic_financial": "generic_review_facts_v2_tooluse",
+        "kyc": "kyc_review_facts_v3_tooluse",
+        "statement": "statement_review_facts_v3_tooluse",
+        "meeting_note": "meeting_note_review_facts_v3_tooluse",
+        "planning": "planning_review_facts_v3_tooluse",
+        "generic_financial": "generic_review_facts_v3_tooluse",
     }
     for doc_type, version in expected.items():
         assert PROMPT_VERSION_BY_TYPE[doc_type] == version, (

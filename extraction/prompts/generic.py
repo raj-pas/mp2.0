@@ -12,7 +12,7 @@ from __future__ import annotations
 from extraction.prompts.base import compose_prompt
 from extraction.schemas import ClassificationResult
 
-PROMPT_VERSION = "generic_review_facts_v2_tooluse"
+PROMPT_VERSION = "generic_review_facts_v3_tooluse"
 
 
 _TYPE_BODY = """\

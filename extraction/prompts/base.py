@@ -27,21 +27,54 @@ from typing import Any
 from extraction.schemas import ClassificationResult
 
 # Tool-use prompt-version suffix; per-doc-type modules append to their
-# own prefix (e.g. "kyc_review_facts_v2_tooluse").
-TOOLUSE_VERSION_SUFFIX = "v2_tooluse"
+# own prefix (e.g. "kyc_review_facts_v3_tooluse"). Bumped to v3 in
+# Phase 9 to reflect the permissive-base + strong-signal calibration.
+TOOLUSE_VERSION_SUFFIX = "v3_tooluse"
 
 
 # Shared no-fabrication guidance with worked examples.
 #
-# The examples block is critical: prior unified prompt had only the
-# one-liner "Do not invent missing financial numbers" which Bedrock
-# routinely interpreted loosely (returning ranges as midpoints,
-# inferring net_worth from declared salary, etc.). Worked examples
-# anchor the rule.
+# Phase 9 calibration (2026-05-03): the original v2 block told Bedrock
+# to "OMIT when uncertain" and Bedrock generalized "default to omission"
+# — which dropped legitimate signal alongside hallucinations (Seltzer
+# CS Address.pdf 12 → 8 facts, AW Address.pdf 12 → 2). The v3 block
+# distinguishes STRONG document signal (extract eagerly) from SOFT
+# inference (be conservative). The forbidden-inversion list still
+# anchors the no-fabrication rule for ranges, aspirational language,
+# and unselected checkboxes.
 NO_FABRICATION_BLOCK = """\
 DO NOT INVENT, ESTIMATE, OR INTERPOLATE FINANCIAL NUMBERS, NAMES, DATES,
 OR ANY OTHER FIELD VALUE. If the document does not explicitly state a
 value, OMIT the fact (do not include it in the facts array).
+
+STRONG signal — EXTRACT eagerly when these patterns appear:
+  - Named field labels followed by values
+    (e.g. "Date of Birth: 1962-04-15", "Marital Status: married",
+    "Account Number: 12345").
+  - Dollar amounts in fixed table cells with header context
+    (e.g. a "Market Value" column with "$42,150.00" rows).
+  - ISO dates printed in headers, footers, or labeled positions
+    (e.g. "Statement Date: 2024-09-30").
+  - Account-holder name blocks at the top of statements / KYC docs
+    (single-holder OR joint blocks; emit people[N].display_name in
+    document order).
+  - Holdings table rows: each row is one fact under
+    accounts[N].holdings[M] with the printed symbol + units + market
+    value. Do not skip rows.
+  - Address blocks: emit each visible component as a separate fact
+    if the doc-type-specific guidance enumerates address fields,
+    OR as a single combined people[N].address quote with
+    confidence="medium" if the guidance does not.
+  - Goal names mentioned in narrative or labeled fields: emit
+    goals[N].name with confidence="medium" even if the target_amount
+    is missing (omit only target_amount in that case, not the goal).
+
+SOFT inference — be conservative when these patterns appear:
+  - Ranges or estimates ("$400k-$500k", "around 5 years", "maybe").
+  - Aspirational language ("might retire by 65", "thinking about").
+  - Hedged language ("around", "approximately", "roughly").
+  - Inferred-from-prose synthesis (e.g. inferring household income
+    from salary + spouse's stated salary).
 
 Examples of FORBIDDEN inversion:
   - Document says "client mentioned maybe retiring in 3 years" -> OMIT
@@ -62,6 +95,11 @@ Examples of FORBIDDEN inversion:
 If a value appears as a range or estimate in the source, return the
 exact source quote in evidence_quote with confidence="low". Never
 collapse a range to a single number.
+
+Inferred facts (derivation_method="inferred") MUST carry a verbatim
+evidence_quote that supports the inference. The runtime drops
+inferred facts whose evidence_quote does not appear (substring
+overlap) in the source document text.
 """
 
 

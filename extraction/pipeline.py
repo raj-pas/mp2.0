@@ -20,6 +20,7 @@ from extraction.schemas import (
     FactCandidate,
     ParsedDocument,
 )
+from extraction.validation import filter_inferred_facts_by_evidence
 
 _CONFIDENCE_RANK: dict[Confidence, int] = {"low": 1, "medium": 2, "high": 3}
 _CONFIDENCE_BY_RANK: dict[int, Confidence] = {1: "low", 2: "medium", 3: "high"}
@@ -93,9 +94,17 @@ def extract_facts_for_document(
                     extraction_run_id=extraction_run_id,
                     config=bedrock_config,
                 )
+                kept_facts, validation_metadata = _filter_inferred(
+                    facts, parsed.text, extraction_run_id
+                )
                 return (
-                    _cap_fact_confidence(facts, classification),
-                    {**metadata, **native_metadata, "extraction_path": "vision_native_pdf"},
+                    _cap_fact_confidence(kept_facts, classification),
+                    {
+                        **metadata,
+                        **native_metadata,
+                        **validation_metadata,
+                        "extraction_path": "vision_native_pdf",
+                    },
                 )
             except RuntimeError:
                 facts, overflow = extract_visual_facts_with_bedrock(
@@ -107,10 +116,14 @@ def extract_facts_for_document(
                     max_pages=ocr_max_pages,
                     config=bedrock_config,
                 )
+                kept_facts, validation_metadata = _filter_inferred(
+                    facts, parsed.text, extraction_run_id
+                )
                 return (
-                    _cap_fact_confidence(facts, classification),
+                    _cap_fact_confidence(kept_facts, classification),
                     {
                         **metadata,
+                        **validation_metadata,
                         "ocr_overflow": overflow,
                         "extraction_path": "vision_image_blocks",
                     },
@@ -125,9 +138,12 @@ def extract_facts_for_document(
                 max_chars=text_max_chars,
                 config=bedrock_config,
             )
+            kept_facts, validation_metadata = _filter_inferred(
+                facts, parsed.text, extraction_run_id
+            )
             return (
-                _cap_fact_confidence(facts, classification),
-                {**metadata, "extraction_path": "text"},
+                _cap_fact_confidence(kept_facts, classification),
+                {**metadata, **validation_metadata, "extraction_path": "text"},
             )
         facts, overflow = extract_visual_facts_with_bedrock(
             path=path,
@@ -138,10 +154,12 @@ def extract_facts_for_document(
             max_pages=ocr_max_pages,
             config=bedrock_config,
         )
+        kept_facts, validation_metadata = _filter_inferred(facts, parsed.text, extraction_run_id)
         return (
-            _cap_fact_confidence(facts, classification),
+            _cap_fact_confidence(kept_facts, classification),
             {
                 **metadata,
+                **validation_metadata,
                 "ocr_overflow": overflow,
                 "extraction_path": "vision_image_blocks",
             },
@@ -153,6 +171,26 @@ def extract_facts_for_document(
         text=parsed.text,
         extraction_run_id=extraction_run_id,
     ), metadata
+
+
+def _filter_inferred(
+    facts: list[FactCandidate],
+    parsed_text: str,
+    extraction_run_id: str,
+) -> tuple[list[FactCandidate], dict[str, Any]]:
+    """Drop inferred facts whose evidence_quote does not match source.
+
+    Phase 9.3 hallucination guard: extracted facts pass through; only
+    inferred facts are gated. Returns the kept facts and a metadata
+    dict capturing the structural drop count for audit-trail rows.
+    """
+    kept, dropped = filter_inferred_facts_by_evidence(
+        facts, parsed_text, extraction_run_id=extraction_run_id
+    )
+    metadata: dict[str, Any] = {}
+    if dropped:
+        metadata["evidence_drops"] = len(dropped)
+    return kept, metadata
 
 
 def heuristic_facts(

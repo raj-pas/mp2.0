@@ -47,6 +47,54 @@ Total: $0.1391
 Cumulative across sub-session: $0.1391
 Cumulative all sub-sessions: ~$3.14
 
+---
+
+## 2026-05-03 — Sub-session #9 — Phase 9 prompt-recovery canary
+
+**Phase:** #9.4 — re-canary against Seltzer + Niesner spot-check
+under the new permissive-base + evidence-validator prompts
+(`v3_tooluse` per type).
+**HEAD before:** `735ecae` (#8 close-out)
+**HEAD after:** (this commit)
+**Duration:** Seltzer 142s + Niesner 320s = 462s wall-clock
+**Calls:** 14 (5 Seltzer + 9 Niesner)
+**Total input tokens:** 40,349
+**Total output tokens:** 6,468
+**Estimated cost:** $0.2181
+
+| Doc / call | Path | Input tok | Output tok | Cost | Facts | Notes |
+|---|---|---|---|---|---|---|
+| seltzer-01-identity | vision_native_pdf | 5,004 | 288 | $0.0193 | 2 | Phase 4 baseline 8; -75% (single-page Croesus) |
+| seltzer-02-identity | vision_native_pdf | 5,005 | 629 | $0.0245 | 6 | Phase 4 baseline 5; +20% |
+| seltzer-03-kyc | text | (text path) | (text path) | (text path) | 29 | Phase 4 baseline 27; +7% |
+| seltzer-04-kyc | vision_native_pdf | 5,107 | 1,747 | $0.0415 | 18 | Phase 4 baseline 16; +13% |
+| seltzer-05-meeting_note | text | (text path) | (text path) | (text path) | 40 | Phase 4 baseline 38; +5% |
+| niesner-03-planning | text | (text path) | (text path) | (text path) | 111 | new doc class; Phase 4 hadn't extracted |
+| niesner-05-identity | vision_native_pdf | 5,006 | 629 | $0.0245 | 6 | spot-check vs #8.5 |
+| niesner-06-kyc | vision_native_pdf | 5,108 | 1,162 | $0.0328 | 12 | new (post-Phase-4) |
+| niesner-07-identity | vision_native_pdf | 5,005 | 284 | $0.0193 | 2 | spot-check vs #8.5 |
+| niesner-08-meeting_note | text | (text path) | (text path) | (text path) | 38 | Phase 4 baseline 34; +12% |
+| niesner-09-identity | vision_native_pdf | 5,006 | 630 | $0.0245 | 6 | new (post-Phase-4) |
+| niesner-10-kyc | text | (text path) | (text path) | (text path) | 42 | new (post-Phase-4) |
+| niesner-11-kyc | vision_native_pdf | 5,108 | 1,099 | $0.0318 | 10 | new (post-Phase-4) |
+| niesner-12-planning | text | (text path) | (text path) | (text path) | 52 | new (post-Phase-4) |
+
+Total: $0.2181
+Cumulative across sub-session: $0.2181
+Cumulative all sub-sessions: ~$3.36
+
+Stop-condition checks (Phase 9 design doc §9.4):
+- [x] Per-call cost under $0.50/doc — max $0.0415 ✓
+- [x] No anomalous structure — every doc returned ≥2 facts ✓
+- [x] Real-PII discipline maintained — structural counts only ✓
+- [x] Zero `defaulted` facts ✓
+- [x] Zero hallucinated section paths ✓
+- [ ] Recall recovery ≥20pp — actual +1pp on Seltzer total. See
+  `r10-sweep-results-2026-05-03.md` for the honest reading;
+  documented as expected single-wave-iteration outcome and
+  forwarded to post-pilot multi-tool-architecture (Phase 9.4
+  design doc).
+
 Stop-condition checks:
 - [x] Per-call cost under $0.50/doc — max $0.0345 ✓
 - [x] No anomalous structure — every image-PDF returned ≥4 facts ✓
