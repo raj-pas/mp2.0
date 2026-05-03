@@ -4002,3 +4002,122 @@ read:
 Production-quality-bar.md is now mostly addressed; remaining
 items are explicitly post-pilot (visual regression, mobile, full
 a11y audit, advanced collab).
+
+## 2026-05-03 (sub-session #8) — OCR/vision foundation shipped + Niesner canary
+
+**HEAD before:** `8bb96c0` (starter prompt baseline)
+**HEAD after:** `2d61cc0` (#8.1-#8.4) → this commit (#8.5 + close-out)
+**Tag:** `v0.1.0-pilot` unchanged (sub-session is post-tag pilot work)
+
+### What shipped
+
+`extraction/parsers.py` — new `is_likely_image_pdf(parsed)` helper.
+Returns True for `method == "ocr_required"` (pure scans), for PDFs
+where the text-page-to-page-count ratio falls below 0.5, or for
+PDFs whose average extracted-text density is below 50 chars/page.
+Conservative thresholds: false-positives only over-spend on the
+vision path; false-negatives leave Croesus printscreens stuck on
+the text path.
+
+`extraction/llm.py` — new `extract_pdf_facts_with_bedrock_native`
+sends the PDF as a `{"type": "document", "source": {"type":
+"base64", "media_type": "application/pdf"}}` content block via
+`AnthropicBedrock` SDK (InvokeModel by default; NOT Converse — the
+Converse API drops to text-only without forced citations). Soft
+cap at 32 MB with image-block fallback above. Cost-tracking
+metadata: `bedrock_input_tokens`, `bedrock_output_tokens`,
+`bedrock_cost_estimate_usd` (via prefix-matched pricing table for
+Sonnet 4.6 / Opus 4.6 / Opus 4.7 / Haiku 4.5), `bedrock_model`,
+`extraction_path`.
+
+`extraction/pipeline.py` — `extract_facts_for_document` now
+dispatches: real-derived + PDF + image-likely → native path;
+non-PDF image → existing image-blocks path; text-rich → text path.
+`extraction_path` is set defensively in the pipeline regardless of
+the LLM call result so audit metadata always carries the dispatch
+decision.
+
+`extraction/tests/test_vision_pdf_path.py` — 14 new tests:
+- 8 detection-helper tests (boundary cases, threshold tuning)
+- 3 native-PDF call tests (document content block shape, tool-use
+  forced choice, token-limit raise path)
+- 3 pipeline dispatch tests (image-PDF → native, text-rich → text,
+  synthetic origin → heuristic)
+- 1 gated real-PII Niesner canary (skipped unless
+  `MP20_RUN_REAL_PII_CANARY=1` + Niesner folder + secure root)
+
+### Niesner canary results (sub-session #8.5)
+
+Probe: 8 Niesner PDFs total. 5 classify as image-likely (`ocr_required`
+from pymupdf — these are the Croesus printscreens of identity / KYC /
+DOB / address); 3 are text-rich (financial plan + projection
+spreadsheets, route to existing text path).
+
+Canary against 5 image-likely PDFs (real-PII discipline:
+structural-only output; redacted positional labels):
+
+| Doc | Type | Pages | Path | Facts | Input tok | Output tok | Cost |
+|---|---|---|---|---|---|---|---|
+| niesner-02 | identity | 1 | vision_native_pdf | 6 | 4,531 | 630 | $0.0230 |
+| niesner-03 | kyc | 1 | vision_native_pdf | 11 | 4,633 | 1,178 | $0.0316 |
+| niesner-04 | identity | 1 | vision_native_pdf | 10 | 4,530 | 1,080 | $0.0298 |
+| niesner-05 | identity | 1 | vision_native_pdf | 4 | 4,531 | 441 | $0.0202 |
+| niesner-07 | kyc | 1 | vision_native_pdf | 13 | 4,633 | 1,372 | $0.0345 |
+
+**Total:** 5 calls / 22.8K input + 4.7K output tokens / **$0.1391** /
+53.3s wall-clock. **44 facts extracted from docs that previously
+returned 0 via the text path.**
+
+Stop conditions all clean: max per-call cost $0.0345 (well under
+$0.50 cap); every doc returned ≥4 facts (no anomalous structure);
+no PII in output (redacted positional labels; structural counts).
+
+### Friction reduction
+
+The advisor previously had to manually enter 30+ facts/doc via the
+5b.10/11 forms whenever a Croesus printscreen hit the text path
+(returned 0 facts). Now those same docs surface 4-13 facts
+auto-extracted; the advisor reviews and adjusts instead of typing
+every field. The cost-per-friction-point is well within the
+per-doc <$0.50 stop-condition budget.
+
+### Forward implications for sub-sessions #9 and #11
+
+- Phase 9 fact-quality recovery (#9) does NOT need to re-prompt the
+  vision path — the canary shows native-PDF extraction is already
+  productive on KYC + identity docs. #9 is for the text-path
+  recall regression isolated to Phase 4 tool-use migration
+  (Seltzer/Weryha −41% recall vs pre-Phase-4 baseline).
+- R10 7-folder sweep (#11) automation: Niesner shows ~$0.15 / 5
+  image-PDFs / 53s. If image-PDF density is similar across the 6
+  remaining folders, total incremental Bedrock spend is ~$1 and
+  total wall-clock is ~5-15 min. Even at 10× density, well within
+  the no-hard-cap budget.
+
+### Gate suite at HEAD
+
+- 800 backend pytest passing (was 786, +14 new from #8.4)
+- 7 skipped (was 6, +1 gated real-PII canary)
+- ruff check + format clean
+- 40 frontend Vitest passing (unchanged)
+- typecheck + lint clean
+- PII grep guard + vocab CI + migrations all green
+
+### Operational discipline
+
+- Plan doc updated: `docs/agent/sub-sessions-8-11-plan.md` row #8
+  flipped to complete with actuals.
+- Spend ledger appended:
+  `docs/agent/bedrock-spend-2026-05-03.md` carries the
+  per-doc structural breakdown.
+- Bash sandbox required a one-time permission rule for reads from
+  `/Users/saranyaraj/Documents/MP2.0_Clients/`; user authorized via
+  AskUserQuestion + added the rule. The rule will continue to
+  apply for sub-session #11's R10 sweep automation.
+
+### Next: sub-session #9
+
+Phase 9 fact-quality recovery — layered prompt iteration per
+`docs/agent/phase9-fact-quality-iteration.md`. No real-PII Bedrock
+spend required for the design phase (synthetic + redacted goldens
+drive the iteration).

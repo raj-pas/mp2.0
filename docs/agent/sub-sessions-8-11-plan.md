@@ -14,8 +14,16 @@ near the end). Status updates land here as commits happen.
 
 ## Sub-session #8 — OCR/vision ingestion foundation
 
-**Status:** in_progress
+**Status:** complete (2026-05-03)
 **Estimated:** 2 days, ~1500-2000 lines, ~$5-15 Bedrock canary
+**Actual:** ~3h wall-clock, 715 lines diff, $0.14 Bedrock canary
+**Outcome:** 5 Niesner image-PDFs that previously returned 0 facts
+now extract 4-13 facts each via the new native-PDF path. Total
+canary cost $0.1391 / 22.8K input + 4.7K output tokens / 53.3s
+elapsed across 5 sequential calls. Per-doc cost $0.020-0.034 —
+well under the $0.50 stop-condition. See
+`docs/agent/bedrock-spend-2026-05-03.md` for the structural-only
+breakdown.
 
 ### Why first
 
