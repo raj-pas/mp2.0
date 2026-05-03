@@ -39,6 +39,8 @@ import {
   type SectionApprovalStatus,
   type WorkerHealth,
   useApproveSection,
+  type AuditTimelineEvent,
+  useAuditTimeline,
   useCommitWorkspace,
   useUncommitWorkspace,
   useMarkManualEntry,
@@ -146,12 +148,22 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
     >
       <header className="flex items-baseline justify-between">
         <div>
-          <h2
-            id="review-screen-title"
-            className="font-serif text-xl font-medium tracking-tight text-ink"
-          >
-            {workspace.label}
-          </h2>
+          <div className="flex items-baseline gap-2">
+            <h2
+              id="review-screen-title"
+              className="font-serif text-xl font-medium tracking-tight text-ink"
+            >
+              {workspace.label}
+            </h2>
+            {workspace.data_origin === "synthetic" && (
+              <span
+                className="border border-accent-2/40 px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-accent-2"
+                aria-label={t("review.synthetic_badge_aria")}
+              >
+                {t("review.synthetic_badge")}
+              </span>
+            )}
+          </div>
           <p className="mt-1 font-mono text-[10px] uppercase tracking-widest text-muted">
             {t("review.subtitle", {
               status: workspace.status,
@@ -266,6 +278,7 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
             }
           />
           <StatePeekPanel state={stateQuery.data?.state} />
+          <AuditTimelinePanel workspaceId={workspaceId} />
         </aside>
       </div>
       <DocDetailPanel
@@ -642,6 +655,61 @@ function SectionApprovalPanel({
         })}
       </ul>
     </section>
+  );
+}
+
+function AuditTimelinePanel({ workspaceId }: { workspaceId: string }) {
+  const { t } = useTranslation();
+  const timeline = useAuditTimeline(workspaceId);
+  const events = timeline.data?.events ?? [];
+  if (timeline.isPending && events.length === 0) {
+    return (
+      <section className="border border-hairline-2 bg-paper-2 p-4">
+        <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted">
+          {t("review.audit_timeline_title")}
+        </h3>
+        <Skeleton className="h-16 w-full" />
+      </section>
+    );
+  }
+  return (
+    <section className="border border-hairline-2 bg-paper-2 p-4">
+      <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted">
+        {t("review.audit_timeline_title")}
+      </h3>
+      {events.length === 0 ? (
+        <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
+          {t("review.audit_timeline_empty")}
+        </p>
+      ) : (
+        <ol className="flex max-h-64 flex-col gap-2 overflow-y-auto">
+          {events.slice(0, 25).map((event) => (
+            <AuditTimelineRow key={event.id} event={event} />
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+function AuditTimelineRow({ event }: { event: AuditTimelineEvent }) {
+  const { t } = useTranslation();
+  const ts = event.created_at ? new Date(event.created_at) : null;
+  const tsLabel = ts ? ts.toLocaleString() : "—";
+  return (
+    <li className="border-b border-hairline pb-1 last:border-b-0">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="font-sans text-[12px] text-ink">
+          {t(`review.audit_action.${event.action}`, {
+            defaultValue: event.action,
+          })}
+        </span>
+        <span className="font-mono text-[9px] uppercase tracking-widest text-muted">
+          {tsLabel}
+        </span>
+      </div>
+      <p className="font-mono text-[10px] text-muted">{event.actor}</p>
+    </li>
   );
 }
 

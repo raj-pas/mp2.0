@@ -152,3 +152,8 @@ fails on drift.
 - `docs/agent/production-quality-bar.md` — production-grade UX-polish + comprehensive test-coverage map + production-infra requirements; load-bearing for sub-sessions #2-#7 (every per-phase ping gates on items from this doc)
 - `docs/agent/ux-spec.md` — durable UX spec (UX dimensions taxonomy A-M + design principles + canonical flows + decision log); read before any new advisor-facing surface work
 - `docs/agent/design-system.md` — design tokens + component inventory + patterns + copy conventions + ErrorBoundary architecture; read before changing component patterns or copy
+- `docs/agent/sub-sessions-8-11-plan.md` — sub-sessions #8-#11 single roadmap (OCR/vision + Phase 9 fact-quality + Tier 1/2/3 advisor friction); status timeline per item
+- `docs/agent/bedrock-spend-2026-05-03.md` — append-only spend ledger; structural-only per-call breakdown for every Bedrock canary (canon §11.8.3)
+- `docs/agent/post-pilot-improvements.md` — append-only deferred backlog (re-edit-flow upgrade post-pilot, multi-tool architecture, demo-restore --dry-run)
+- `docs/agent/r10-sweep-results-2026-05-03.md` — Phase 9 canary results (Seltzer + Niesner pre/post; +1pp recall vs Phase 4; structural-quality wins preserved)
+- `docs/agent/demo-restore-runbook.md` — Mon 2026-05-04 demo state restore procedure (reset-v2-dev.sh + upload_and_drain.py + post-restore validation steps)

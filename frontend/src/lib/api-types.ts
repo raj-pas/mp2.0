@@ -765,6 +765,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/review-workspaces/{workspace_id}/audit-timeline/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Sub-session #11.1 — audit-trail visibility for advisors.
+         *
+         *     Returns the append-only audit events for a workspace in
+         *     chronological order (newest first per AuditEvent.Meta).
+         *     Used by ReviewScreen's AuditTimelinePanel to surface what
+         *     happened on this workspace without requiring analyst access.
+         *
+         *     Real-PII discipline (canon §11.8.3): the advisor is already
+         *     authenticated + authorized for this workspace's data so
+         *     metadata values flow back. Response capped at 100 events.
+         */
+        get: operations["review_workspaces_audit_timeline_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/review-workspaces/{workspace_id}/commit/": {
         parameters: {
             query?: never;
@@ -2431,6 +2459,26 @@ export interface operations {
         };
     };
     review_workspaces_approve_section_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    review_workspaces_audit_timeline_retrieve: {
         parameters: {
             query?: never;
             header?: never;

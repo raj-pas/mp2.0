@@ -691,6 +691,49 @@ export type UncommitWorkspaceResponse = {
   workspace: ReviewWorkspace;
 };
 
+export type AuditTimelineEvent = {
+  id: number;
+  action: string;
+  actor: string;
+  entity_type: string;
+  entity_id: string;
+  metadata: Record<string, unknown>;
+  created_at: string | null;
+};
+
+export type AuditTimelineResponse = {
+  events: AuditTimelineEvent[];
+};
+
+const auditTimelineKey = (workspaceId: string) => ["review-workspace-audit-timeline", workspaceId];
+
+/**
+ * Sub-session #11.1 — audit-trail timeline for the workspace.
+ *
+ * Polls every 30s when the workspace is in flight. Stops polling
+ * after the workspace commits (the audit trail stops growing once
+ * the user no longer interacts with the workspace; refetches still
+ * happen when the user navigates back to the page).
+ */
+export function useAuditTimeline(
+  workspaceId: string | null,
+  options: { enabled?: boolean } = {},
+) {
+  return useQuery<AuditTimelineResponse>({
+    queryKey: workspaceId ? auditTimelineKey(workspaceId) : ["review-workspace-audit-timeline-noop"],
+    queryFn: () => {
+      if (workspaceId === null) {
+        return Promise.reject(new Error("workspace id required"));
+      }
+      return apiFetch<AuditTimelineResponse>(
+        `/api/review-workspaces/${encodeURIComponent(workspaceId)}/audit-timeline/`,
+      );
+    },
+    enabled: workspaceId !== null && (options.enabled ?? true),
+    refetchInterval: 30_000,
+  });
+}
+
 /**
  * Sub-session #10.6 — soft-undo a recently-committed workspace.
  * Returns the workspace flipped back to ``review_ready`` status. The

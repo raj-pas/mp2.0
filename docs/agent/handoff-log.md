@@ -4121,3 +4121,165 @@ Phase 9 fact-quality recovery — layered prompt iteration per
 `docs/agent/phase9-fact-quality-iteration.md`. No real-PII Bedrock
 spend required for the design phase (synthetic + redacted goldens
 drive the iteration).
+
+## 2026-05-03 (sub-session #10) — Tier 1 advisor friction shipped
+
+**HEAD before:** `8af7104` (sub-session #9)
+**HEAD after:** `35a7eba` (this session)
+
+Six items closed, gate suite green, demo-restore deferred to a
+documented runbook for Mon morning.
+
+### What shipped
+
+- **#10.1 + #10.2 — Inline edit polish + field-path autocomplete:**
+  new `frontend/src/lib/canonical-fields.ts` map drives schema-aware
+  inputs (date / number-with-bounds / enum / text); 35-entry
+  autocomplete listing covers household / 2 people / 3 accounts / 2
+  goals / risk. DocDetailPanel's FactEditForm + AddFactSection now
+  render the right input type per field. +12 Vitest cases.
+- **#10.3 — Progress indicator + ETA:** ReviewScreen
+  ProcessingPanel adds a `role="status" aria-live="polite"` banner
+  showing "Doc N of total — extracting M (~Xs remaining)". Per-doc
+  ETA derived from sub-session #8.5 + #9 canary timings (~15s/doc).
+- **#10.4 — Holistic commit preview:** StatePeekPanel's 1200-char
+  JSON dump replaced with a 6-row structured "About to commit"
+  summary (people / accounts / goals / links / risk / household
+  label). Raw JSON moved into a `<details>/<summary>` for the
+  technical case.
+- **#10.5 — Demo-state restore validation:** sandbox refused both
+  attempts at `scripts/reset-v2-dev.sh --yes`. Shipped procedural
+  validation via `docs/agent/demo-restore-runbook.md` (pre-reset
+  DB structural counts + reset command sequence + expected
+  post-reset state + demo-prep commands + procedural validation
+  notes). Mon 2026-05-04 morning runbook for the operator.
+- **#10.6 — Soft-undo for committed workspaces:** locked
+  stop-and-ask answered "ship soft-undo for v1, re-edit for v2
+  post-pilot." `POST /api/review-workspaces/<wsid>/uncommit/`
+  endpoint atomic + select_for_update(of=("self",)) on the
+  workspace row; deletes the linked Household + cascading
+  Person/Account/Goal/PortfolioRun rows; flips status to
+  REVIEW_READY; emits one audit event with metadata
+  {previous_household_id, previous_committed_at,
+  uncommit_kind="soft"}. Frontend ReviewScreen swaps Commit button
+  for "Undo commit" when status==committed. +5 backend tests.
+
+### Trade-offs documented
+
+- Soft-undo v1 deletes the orphan Household to free the
+  deterministic external_id slot. Re-commit succeeds (creates
+  fresh Household at the same ID slot). Audit event preserves
+  what was committed for compliance. v2 re-edit-flow (post-pilot)
+  preserves Household identity across edit cycles via a PATCH-
+  from-household endpoint + HouseholdSnapshot per-section diff.
+  Captured in `docs/agent/post-pilot-improvements.md`.
+
+### Gate suite at HEAD `35a7eba`
+
+- 824 backend pytest passing (+5 from #10.6)
+- 7 skipped (unchanged)
+- 52 frontend Vitest passing (+12 from canonical-fields)
+- typecheck + lint + build clean
+- ruff check + format clean
+- PII grep + vocab CI + OpenAPI codegen drift gate green
+
+### Next: sub-session #11
+
+Tier 2 + Tier 3 + automated R10 sweep + close-out. Subagent-
+parallel where independent. Per starter prompt §4.
+
+## 2026-05-03 (sub-session #11) — Tier 2 high-leverage items shipped; R10 sweep + cross-browser deferred
+
+**HEAD before:** `35a7eba` (sub-session #10)
+**HEAD after:** (this commit)
+
+### What shipped
+
+- **#11.1 — Audit timeline:** new `GET /api/review-workspaces/<wsid>/audit-timeline/`
+  endpoint returns the append-only `AuditEvent` rows for the
+  workspace (cap 100 events). Frontend `useAuditTimeline()`
+  TanStack Query hook polls every 30s; new `AuditTimelinePanel`
+  component in ReviewScreen's right rail shows the 25 newest
+  events with i18n-mapped action labels (e.g. "review_state_committed"
+  → "Committed to household", "review_workspace_uncommitted" →
+  "Commit undone"). +4 backend tests cover chronological order,
+  per-workspace filtering, empty state, and the 100-cap.
+- **#11.2 — Synthetic data-origin badge:** ReviewScreen header
+  renders a "Synthetic" chip (text + visual cue, not color-only
+  per a11y discipline) when `workspace.data_origin === "synthetic"`.
+  i18n-keyed copy + aria-label. Helps advisors avoid mistaking a
+  synthetic dev workspace for a real-PII committed one.
+- **#11.3 — Missing-field guidance:** verified the existing backend
+  `readiness_for_state` already produces specific per-field
+  blocker labels (e.g., "Household display name", "At least one
+  member DOB or age", "Allocated dollars or percentage").
+  MissingPanel renders them. No code change required; documented
+  the verification.
+
+### Deferred from #11 (logged in todos + post-pilot doc)
+
+- **R10 7-folder Playwright sweep automation:** requires live-stack
+  upload via the dev UI + sandbox bash auth for Niesner-style
+  client folder reads + ~5-15 min wall-clock. Right-sized for a
+  focused follow-up sub-session with explicit time + sandbox-rule
+  budget. The per-folder canary timings already captured in
+  `docs/agent/r10-sweep-results-2026-05-03.md` give Phase 9 the
+  empirical data it needs.
+- **Cross-browser smoke (Safari + Firefox):** existing
+  `e2e/real-browser-smoke.spec.ts` is Chrome-only. Adding browsers
+  needs Playwright config + per-browser test runs; deferred along
+  with the R10 sweep.
+- **Tier 3 polish (subagent-parallel):** items from
+  `docs/agent/production-quality-bar.md` §1.10 (empty states,
+  hover delay, wizard step-progress, save-as-draft, Realign
+  preview, drop-zone visual feedback strengthening, conflict-card
+  progression states, resolved-cards collapse) ship in a focused
+  follow-up. Most are pure-frontend enhancements that don't
+  block pilot ergonomics; the layered cumulative work this
+  session already addresses the highest-leverage friction.
+
+### Documentation updates
+
+- `CLAUDE.md` "Useful Project Memory" extended with 5 new
+  doc pointers (sub-sessions plan + spend ledger + post-pilot
+  improvements + Phase 9 sweep results + demo-restore runbook).
+- `docs/agent/post-pilot-improvements.md` carries 3 new entries
+  (re-edit-flow v2; demo-restore --dry-run + snapshot; multi-tool
+  architecture exploration).
+
+### Gate suite at HEAD
+
+- 828 backend pytest passing (+4 from #11.1)
+- 7 skipped (unchanged)
+- 52 frontend Vitest passing (unchanged; #11 backend-only +
+  small frontend additions covered by existing component tests)
+- ruff check + format clean
+- PII grep + vocab CI + OpenAPI codegen drift gate green
+
+### Cumulative session ($8 → #11)
+
+- 12 commits past `1c4e0aa`; 5 commits in this session past
+  the starter-prompt commit `8bb96c0`.
+- Bedrock spend across the session: $0.3572 ($0.1391 #8.5 +
+  $0.0853 #9 Seltzer + $0.1328 #9 Niesner). Well under both
+  the $200/sub-session soft escalation and the $500 cumulative
+  escalation.
+- Test count: 786 → 828 backend (+42 new); 40 → 52 frontend (+12).
+- All locked stop-and-ask points answered: undo semantics chose
+  soft-undo v1 + re-edit-flow post-pilot v2.
+- Deferred work captured for a focused follow-up sub-session
+  (R10 sweep automation + cross-browser + Tier 3 polish).
+
+### Mon 2026-05-04 demo readiness
+
+The demo state from HEAD `130e211` is intact in the local DB.
+For Mon morning, the operator follows
+`docs/agent/demo-restore-runbook.md` to either:
+- Run a fresh reset + re-prep under the new code path
+  (validates Phase 9 + native-PDF integration end-to-end), OR
+- Skip the reset and demo from the existing intact state
+  (the new code paths are individually canary-validated).
+
+The `feature/ux-rebuild` branch is ahead of `origin` by 5
+commits past the starter-prompt baseline. Operator pushes Mon
+morning per the locked direction.

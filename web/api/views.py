@@ -2347,6 +2347,45 @@ class ReviewWorkspaceCommitView(APIView):
         )
 
 
+class ReviewWorkspaceAuditTimelineView(APIView):
+    """Sub-session #11.1 — audit-trail visibility for advisors.
+
+    Returns the append-only audit events for a workspace in
+    chronological order (newest first per AuditEvent.Meta).
+    Used by ReviewScreen's AuditTimelinePanel to surface what
+    happened on this workspace without requiring analyst access.
+
+    Real-PII discipline (canon §11.8.3): the advisor is already
+    authenticated + authorized for this workspace's data so
+    metadata values flow back. Response capped at 100 events.
+    """
+
+    permission_classes = [IsAuthenticated]
+    DEFAULT_LIMIT = 100
+
+    def get(self, request, workspace_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        workspace = _workspace_for_user(workspace_id, request.user)
+        events_qs = AuditEvent.objects.filter(
+            entity_type="review_workspace",
+            entity_id=workspace.external_id,
+        ).order_by("-created_at")[: self.DEFAULT_LIMIT]
+        events = [
+            {
+                "id": event.pk,
+                "action": event.action,
+                "actor": event.actor,
+                "entity_type": event.entity_type,
+                "entity_id": event.entity_id,
+                "metadata": event.metadata,
+                "created_at": event.created_at.isoformat() if event.created_at else None,
+            }
+            for event in events_qs
+        ]
+        return Response({"events": events})
+
+
 class ReviewWorkspaceUncommitView(APIView):
     """Soft-undo a committed review workspace (sub-session #10.6).
 
