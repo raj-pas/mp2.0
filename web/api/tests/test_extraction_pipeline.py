@@ -12,8 +12,6 @@ from extraction.llm import (
     BedrockSchemaMismatchError,
     BedrockTokenLimitError,
     _bedrock_max_tokens,
-    facts_from_model_text,
-    json_payload_from_model_text,
     visual_content_blocks,
 )
 from extraction.parsers import parse_document_path
@@ -65,22 +63,6 @@ def test_xlsx_parser_preserves_sheet_names_and_row_locations(tmp_path) -> None:
     assert parsed.metadata["sheet_names"] == ["Retirement Projection"]
     assert "Retirement Projection!2" in parsed.text
     assert classification.document_type == "planning"
-
-
-def test_bedrock_fact_parser_accepts_aliases_and_skips_null_values() -> None:
-    facts = facts_from_model_text(
-        """
-        [
-          {"field_path": "household.display_name", "raw_value": "Demo", "confidence": "High"},
-          {"path": "risk.household_score", "value": null, "confidence_level": "low"}
-        ]
-        """,
-        "run-1",
-    )
-
-    assert len(facts) == 1
-    assert facts[0].field == "household.display_name"
-    assert facts[0].confidence == "high"
 
 
 def test_pdf_visual_blocks_use_provider_safe_payloads(tmp_path) -> None:
@@ -542,51 +524,6 @@ def test_bedrock_max_tokens_falls_back_on_invalid_env(monkeypatch) -> None:
     for bad in ("not-a-number", "0", "-100", ""):
         monkeypatch.setenv("MP20_BEDROCK_MAX_TOKENS", bad)
         assert _bedrock_max_tokens() == 16384, f"failed for env value: {bad!r}"
-
-
-def test_bedrock_truncated_response_raises_token_limit_error() -> None:
-    """A response that ran out of tokens mid-JSON must raise the typed
-    BedrockTokenLimitError, not a generic ValueError. This is what
-    drove the 2026-05-01 max_tokens 4096→16384 fix; if the typed code
-    drifts, the manual-entry UI can't route advisors to the right
-    recovery path.
-    """
-    truncated = (
-        '```json\n{\n  "facts": [\n    {\n      "field": "household.display_name",\n'
-        '      "value": "Demo",\n      "confidence": "high",\n      "derivation'
-    )
-    with pytest.raises(BedrockTokenLimitError) as exc_info:
-        json_payload_from_model_text(truncated)
-    assert exc_info.value.failure_code == "bedrock_token_limit"
-    assert isinstance(exc_info.value, ValueError)  # backwards-compat with old catch blocks
-
-
-def test_bedrock_unrecoverable_garbage_raises_non_json_error() -> None:
-    """A response that's neither valid JSON nor recoverable via the repair
-    paths must raise BedrockNonJsonError. Different code from
-    BedrockTokenLimitError so the UI can offer different advisor copy.
-    """
-    garbage = "I'm sorry, I can't help with that."
-    with pytest.raises(BedrockNonJsonError) as exc_info:
-        json_payload_from_model_text(garbage)
-    assert exc_info.value.failure_code == "bedrock_non_json"
-    assert isinstance(exc_info.value, ValueError)
-
-
-def test_bedrock_schema_mismatch_raises_typed_error() -> None:
-    """JSON that parses but doesn't match the expected fact-payload shape
-    must raise BedrockSchemaMismatchError. This is distinct from
-    truncation / non-JSON so we can route it differently in the UI.
-    """
-    # `field` missing entirely; not a recoverable shape under any of the
-    # alias normalizers in _normalize_fact_item.
-    bad_shape = '{"facts": [{"value": 12345}]}'
-    with pytest.raises((BedrockSchemaMismatchError, BedrockNonJsonError)):
-        # Either typed error is acceptable here as long as it's typed —
-        # the boundary between "shape recoverable via aliases" and
-        # "fundamentally broken" is fuzzy and the test should not pin it
-        # to one outcome.
-        facts_from_model_text(bad_shape, "regression-run")
 
 
 def test_bedrock_extraction_error_inherits_value_error() -> None:

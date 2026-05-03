@@ -387,3 +387,30 @@ authoritative when more detail is needed.
   (Cautious / Conservative-balanced / Balanced / Balanced-growth /
   Growth-oriented) used everywhere; mockup labels retired.
 - 216 engine parity + property + purity tests passing.
+
+## Phase 4.0 — Bedrock tool-use SDK probe (2026-05-02)
+
+Probed forward-compat across active + future model classes via
+`AnthropicBedrock.messages.create(..., tools=[...])` with explicit
+long-term `AKIA*` creds (account `865045593529`, region `ca-central-1`).
+
+| Model | Short id | Inference-profile ARN | Result |
+|---|---|---|---|
+| Sonnet 4.6 (active) | `global.anthropic.claude-sonnet-4-6` | `arn:aws:bedrock:ca-central-1:865045593529:inference-profile/global.anthropic.claude-sonnet-4-6` | tool_use OK; stop_reason=tool_use |
+| Opus 4.6 | `global.anthropic.claude-opus-4-6` | (ARN form) | `BadRequestError 400 — model identifier is invalid` (not provisioned in this Bedrock subscription) |
+| Opus 4.7 | `global.anthropic.claude-opus-4-7` | (ARN form) | tool_use OK; stop_reason=tool_use |
+
+Decision: **proceed Phase 4.1+** with tool-use migration. Active model
+(Sonnet 4.6) supports tool-use end-to-end; forward-compat to Opus 4.7
+verified. Opus 4.6 is an availability gap (AWS account config) not a
+capability gap; `BEDROCK_MODEL` env can be bumped to either Sonnet 4.6
+or Opus 4.7 without code change post-migration.
+
+Auth gotcha worth recording: a stale `AWS_SESSION_TOKEN` set in a
+local shell env will be picked up by the boto3 credential chain and
+silently override explicit `aws_access_key`/`aws_secret_key` passed
+to `AnthropicBedrock(...)`, surfacing as `PermissionDeniedError 403
+"security token expired"`. Local validation runs that touch Bedrock
+should prefix with `unset AWS_SESSION_TOKEN` (or run in a Docker
+container with no inherited STS context). Worker-via-docker-compose
+isn't affected.

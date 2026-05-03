@@ -2907,3 +2907,113 @@ DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 \
 bash scripts/check-pii-leaks.sh  # expect "PII grep guard: OK"
 ```
 
+
+
+---
+
+## 2026-05-02 (later) — Phase 4 done: Bedrock tool-use migration
+
+Beta-hardening Phase 4 shipped. Closes audit-finding cluster
+**PROMPT-1/2/3/4/5 + REPAIR-1/2** via migration to Anthropic
+Bedrock tool-use API. Eliminates the entire JSON-repair surface
+(`_repair_json_text`, `_normalize_bedrock_payload`,
+`_normalize_fact_item`, `json_payload_from_model_text`,
+`facts_from_bedrock_response`, `facts_from_model_text`,
+`_looks_truncated`) — deleted, not deprecated.
+
+**Phase 4.0 SDK probe** (matrix in `docs/agent/decisions.md`):
+* Sonnet 4.6 (active model): tool_use OK; stop_reason=tool_use.
+* Opus 4.6: not provisioned in Bedrock account 865045593529
+  (BadRequestError 400 — model identifier invalid).
+* Opus 4.7: tool_use OK; stop_reason=tool_use.
+
+Decision: proceed with tool-use migration. Active model + next-gen
+Opus both support; Opus 4.6 is an account-config gap, not a
+capability gap.
+
+Auth gotcha worth recording: a stale `AWS_SESSION_TOKEN` in the
+parent shell env causes `AnthropicBedrock(...)` to override
+explicit `aws_access_key`/`aws_secret_key` via the boto3 credential
+chain, surfacing as `PermissionDeniedError 403 "security token
+expired"`. Local validation runs that touch Bedrock should prefix
+with `unset AWS_SESSION_TOKEN`. Worker-via-docker-compose isn't
+affected.
+
+**Phase 4.1 prompt modules** (`extraction/prompts/`):
+* `base.py` (NEW): `SHARED_GUARDRAILS` (no_fabrication with worked
+  examples + confidence_guidance per source class +
+  canonical_vocabulary_block + canonical_field_inventory),
+  `FACT_EXTRACTION_TOOL` schema (mirrors `BedrockFact`),
+  `compose_prompt(...)` helper.
+* `__init__.py` (NEW): dispatcher `build_prompt_for(document_type)`
+  + `PROMPT_VERSION_BY_TYPE` (moved from `extraction/llm.py`).
+* `kyc.py`, `statement.py`, `meeting_note.py` (UPDATED): expanded
+  with `build_prompt(...)` + type-specific extraction body. Bumped
+  PROMPT_VERSION to `*_v2_tooluse` suffix.
+* `planning.py`, `generic.py` (NEW): planning explicitly forbids
+  markdown tables; generic is the multi_schema_sweep fallback.
+
+**Phase 4.2-4.3 tool-use call** (`extraction/llm.py`):
+* `extract_text_facts_with_bedrock` + `extract_visual_facts_with_bedrock`
+  now pass `tools=[FACT_EXTRACTION_TOOL]` +
+  `tool_choice={"type": "tool", "name": "fact_extraction"}`.
+* New `_facts_from_tool_use_response(response, run_id)` parses the
+  tool_use content block, validates via `BedrockFactsPayload`, and
+  returns `FactCandidate` list.
+* Failure modes: missing tool_use block + `stop_reason="max_tokens"`
+  → `BedrockTokenLimitError`; missing tool_use block + other stop
+  reason → `BedrockSchemaMismatchError`; tool input validation
+  failure → `BedrockSchemaMismatchError`.
+* `BedrockNonJsonError` retained for backwards compat; no longer
+  raised by core path.
+
+**Phase 4.3 confidence floor** (`extraction/pipeline.py`):
+* New `_cap_fact_confidence(facts, classification)` caps each
+  fact's confidence to the classification confidence
+  (PROMPT-5). Applied in `extract_facts_for_document` for
+  real_derived path. Idempotent.
+
+**Phase 4.4 parity**: structural parity covered by 20 new tool-use
+tests in `web/api/tests/test_tool_use_extraction.py`. Behavioural
+parity against real-PII Niesner data deferred to Phase 7.3 R10
+canary (single-doc retry against tool-use path before 7-folder
+sweep). Deletion of legacy JSON-repair functions verified —
+removing them broke 6 pre-existing tests, all of which exercised
+the now-impossible failure shapes (markdown table, alternate keys,
+trailing comma JSON repair); deleted obsolete tests rather than
+update them since the tool schema removes the failure class.
+
+**Tests added (20)**: `test_tool_use_extraction.py` covers:
+schema invariants (1), per-doc-type modules (5), tool-use response
+parsing (6 happy + error paths), confidence floor (3), tool-use
+call shape (1), pipeline integration (2), BedrockFact validator
+round trip (1).
+
+**Tests deleted (6 obsolete)**: `test_bedrock_fact_parser_accepts_aliases_and_skips_null_values`,
+`test_bedrock_truncated_response_raises_token_limit_error`,
+`test_bedrock_unrecoverable_garbage_raises_non_json_error`,
+`test_bedrock_schema_mismatch_raises_typed_error`,
+`test_bedrock_json_payload_accepts_fenced_response`,
+`test_bedrock_json_payload_repairs_trailing_commas`.
+
+**Gate suite**: 400 pytest (380 baseline + 20 new tool-use; -6
+obsolete) + ruff + format + makemigrations + typecheck + lint +
+build + vocab + PII grep all green at HEAD.
+
+**Diff vs f5f2519 baseline**: pytest 362 → 400 (+38 net); web suite
+148 → 186 (+38). Phase 4 net: +20 new tests, -6 obsolete tests
+(deletions belong to JSON-repair surface that the new architecture
+makes structurally impossible).
+
+**Open items**:
+- Phase 4.4a synthetic + redacted-golden parity tests deferred to
+  Phase 7.3 R10 canary because the FactCandidate output contract
+  is unchanged; structural test coverage already exists.
+- Frontend i18n key `review.failure_code.bedrock_non_json` is now
+  dormant (the failure class is structurally unreachable). Left in
+  place; cleanup is post-pilot scope.
+
+**Next**: Phase 4.5 — OpenAPI-typescript codegen wiring + drift CI
+gate. `frontend/src/lib/api-types.ts` regen from drf-spectacular
+schema; refactor `lib/review.ts` types to import from generated
+types; new `scripts/check-openapi-codegen.sh` gate.

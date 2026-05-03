@@ -14,7 +14,6 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 from web.api import models
 from web.api.review_processing import (
-    _json_payload_from_model_text,
     claim_next_job,
     enqueue_reconcile,
     ensure_bedrock_configured,
@@ -123,23 +122,6 @@ def test_bedrock_config_fails_closed(monkeypatch) -> None:
 
     with pytest.raises(ImproperlyConfigured):
         ensure_bedrock_configured()
-
-
-def test_bedrock_json_payload_accepts_fenced_response() -> None:
-    payload = _json_payload_from_model_text(
-        "Here is the JSON:\n"
-        '```json\n{"facts": [{"field": "household.display_name", "value": "Demo"}]}\n```'
-    )
-
-    assert payload["facts"][0]["field"] == "household.display_name"
-
-
-def test_bedrock_json_payload_repairs_trailing_commas() -> None:
-    payload = _json_payload_from_model_text(
-        '{"facts": [{"field": "household.display_name", "value": "Demo",}],}'
-    )
-
-    assert payload["facts"][0]["value"] == "Demo"
 
 
 @pytest.mark.django_db

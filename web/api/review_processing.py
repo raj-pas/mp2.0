@@ -8,10 +8,7 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.utils import timezone
-from extraction.llm import (
-    bedrock_config_from_env,
-    json_payload_from_model_text,
-)
+from extraction.llm import bedrock_config_from_env
 from extraction.parsers import ParserDependencyError, parse_document_path
 from extraction.pipeline import classify_from_parsed, extract_facts_for_document
 from extraction.schemas import SUPPORTED_EXTENSIONS, ParsedDocument
@@ -396,10 +393,6 @@ def ensure_bedrock_configured() -> None:
         bedrock_config_from_env(getattr(settings, "AWS_REGION", "ca-central-1"))
     except RuntimeError as exc:
         raise ImproperlyConfigured(str(exc)) from exc
-
-
-def _json_payload_from_model_text(content: str) -> dict[str, Any]:
-    return json_payload_from_model_text(content)
 
 
 def _failure_code_for(exc: Exception) -> str:

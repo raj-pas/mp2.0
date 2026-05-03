@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,38 @@ from extraction.llm import (
     extract_text_facts_with_bedrock,
     extract_visual_facts_with_bedrock,
 )
-from extraction.schemas import ClassificationResult, DataOrigin, FactCandidate, ParsedDocument
+from extraction.schemas import (
+    ClassificationResult,
+    Confidence,
+    DataOrigin,
+    FactCandidate,
+    ParsedDocument,
+)
+
+_CONFIDENCE_RANK: dict[Confidence, int] = {"low": 1, "medium": 2, "high": 3}
+_CONFIDENCE_BY_RANK: dict[int, Confidence] = {1: "low", 2: "medium", 3: "high"}
+
+
+def _cap_fact_confidence(
+    facts: list[FactCandidate], classification: ClassificationResult
+) -> list[FactCandidate]:
+    """Cap each fact's confidence by the classification confidence.
+
+    Phase 4 (PROMPT-5): a low-confidence classification cannot produce
+    high-confidence facts. Tied to source class so downstream
+    reconciliation (canon §11.4 source-priority hierarchy) does not
+    over-weight facts from a sweep that wasn't even sure about the doc
+    type. Idempotent: running this twice is a no-op.
+    """
+    classification_rank = _CONFIDENCE_RANK.get(classification.confidence, 2)
+    capped: list[FactCandidate] = []
+    for fact in facts:
+        fact_rank = _CONFIDENCE_RANK.get(fact.confidence, 2)
+        if fact_rank <= classification_rank:
+            capped.append(fact)
+            continue
+        capped.append(replace(fact, confidence=_CONFIDENCE_BY_RANK[classification_rank]))
+    return capped
 
 
 def extract_facts_for_document(
@@ -44,7 +76,7 @@ def extract_facts_for_document(
                 max_chars=text_max_chars,
                 config=bedrock_config,
             )
-            return facts, metadata
+            return _cap_fact_confidence(facts, classification), metadata
         facts, overflow = extract_visual_facts_with_bedrock(
             path=path,
             filename=filename,
@@ -54,7 +86,10 @@ def extract_facts_for_document(
             max_pages=ocr_max_pages,
             config=bedrock_config,
         )
-        return facts, {**metadata, "ocr_overflow": overflow}
+        return (
+            _cap_fact_confidence(facts, classification),
+            {**metadata, "ocr_overflow": overflow},
+        )
 
     return heuristic_facts(
         filename=filename,

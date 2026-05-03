@@ -1,3 +1,29 @@
+"""Bedrock-based fact extraction (Phase 4 tool-use migration).
+
+Uses Anthropic's tool-use API on Bedrock to constrain the response
+shape via JSON Schema. Replaces the prior free-form JSON path that
+required ``_repair_json_text`` + ``_normalize_bedrock_payload`` +
+``json_payload_from_model_text`` (REPAIR-1 / REPAIR-2 closure).
+
+Tool-use call shape:
+  client.messages.create(
+      model=...,
+      tools=[FACT_EXTRACTION_TOOL],
+      tool_choice={"type": "tool", "name": "fact_extraction"},
+      messages=[{"role": "user", "content": <prompt>}],
+  )
+
+Per-doc-type prompts live in ``extraction/prompts/<doc_type>.py``;
+the dispatcher ``extraction.prompts.build_prompt_for(doc_type)``
+returns the right builder.
+
+Real-PII discipline (canon §11.8.3): raw Bedrock content (text or
+tool input) MAY contain extracted client values. The
+``_maybe_write_bedrock_debug`` helper persists raw payloads only
+inside ``MP20_SECURE_DATA_ROOT/_debug/`` and only when the
+``MP20_DEBUG_BEDROCK_RESPONSES=1`` env flag is set.
+"""
+
 from __future__ import annotations
 
 import base64
@@ -12,11 +38,27 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from extraction.prompts.classify import PROMPT_VERSION as CLASSIFY_PROMPT_VERSION
-from extraction.prompts.kyc import PROMPT_VERSION as KYC_PROMPT_VERSION
-from extraction.prompts.meeting_note import PROMPT_VERSION as MEETING_PROMPT_VERSION
-from extraction.prompts.statement import PROMPT_VERSION as STATEMENT_PROMPT_VERSION
+from extraction.prompts import (
+    FACT_EXTRACTION_TOOL,
+    PROMPT_VERSION_BY_TYPE,
+    build_prompt_for,
+)
 from extraction.schemas import BedrockFactsPayload, ClassificationResult, FactCandidate
+
+__all__ = [
+    "DEFAULT_BEDROCK_MAX_TOKENS",
+    "FACT_EXTRACTION_TOOL",
+    "PROMPT_VERSION_BY_TYPE",
+    "BedrockConfig",
+    "BedrockExtractionError",
+    "BedrockSchemaMismatchError",
+    "BedrockTokenLimitError",
+    "_bedrock_max_tokens",
+    "bedrock_config_from_env",
+    "extract_text_facts_with_bedrock",
+    "extract_visual_facts_with_bedrock",
+    "visual_content_blocks",
+]
 
 MAX_IMAGE_BLOCK_BYTES = 4_500_000
 MAX_VISUAL_REQUEST_BYTES = 18_000_000
@@ -25,15 +67,15 @@ MAX_VISUAL_REQUEST_BYTES = 18_000_000
 #
 # Default 16384: empirically chosen during 2026-05-01 extraction-quality
 # hardening. The previous default (4096) truncated mid-JSON for spreadsheet
-# planning docs and large native PDFs — Bedrock generated valid `{"facts":
-# [ ... ]}` shape but ran out of output budget at ~11.7K chars, with the
-# repair-retry hitting the same wall. 16384 gives ~3x headroom while
-# staying well under Sonnet 4.6's per-call ceiling on Bedrock.
+# planning docs and large native PDFs. Tool-use migration (Phase 4) keeps
+# the same budget because the tool input shape is more verbose per-fact
+# than the bare JSON it replaces (each fact carries explicit field +
+# value + confidence + derivation + source_location + evidence_quote +
+# source_page + asserted_at), so a similar headroom is needed.
 #
 # Override via MP20_BEDROCK_MAX_TOKENS for ops-time tuning without code
 # change (raise for very large planning docs, lower if Bedrock spend
-# becomes a concern). Keep this as a single source of truth so all three
-# call sites stay aligned.
+# becomes a concern).
 DEFAULT_BEDROCK_MAX_TOKENS = 16384
 
 
@@ -48,19 +90,6 @@ def _bedrock_max_tokens() -> int:
     return value if value > 0 else DEFAULT_BEDROCK_MAX_TOKENS
 
 
-PROMPT_VERSION_BY_TYPE = {
-    "kyc": KYC_PROMPT_VERSION,
-    "statement": STATEMENT_PROMPT_VERSION,
-    "meeting_note": MEETING_PROMPT_VERSION,
-    "planning": "planning_generic_v1",
-    "crm_export": "crm_export_generic_v1",
-    "identity": "identity_generic_v1",
-    "spreadsheet": "spreadsheet_generic_v1",
-    "generic_financial": "generic_financial_v1",
-    "unknown": CLASSIFY_PROMPT_VERSION,
-}
-
-
 @dataclass(frozen=True)
 class BedrockConfig:
     model: str
@@ -71,13 +100,18 @@ class BedrockConfig:
 
 # Typed extraction errors with structured `failure_code` strings that the
 # worker maps onto `processing_metadata.failure_code` and the UI renders
-# into actionable advisor copy. All inherit from ValueError so existing
-# `except ValueError:` callers (the repair-retry path, _fail_or_retry,
-# etc.) keep working without churn.
+# into actionable advisor copy. Inherit from ValueError so existing
+# `except ValueError:` callers keep working without churn.
 #
 # Each subclass owns one diagnosable failure mode. The list below is the
-# single source of truth for the failure_code vocabulary used in
-# i18n keys (`review.failure_code.<code>`) and frontend rendering.
+# single source of truth for the failure_code vocabulary used in i18n
+# keys (`review.failure_code.<code>`) and frontend rendering.
+#
+# Tool-use migration (Phase 4) collapsed the failure surface: the prior
+# `BedrockNonJsonError` (free-form JSON couldn't be repaired) is no
+# longer reachable because the API constrains the response shape. The
+# class is retained for backwards compat with existing imports but is
+# no longer raised by the core extraction path.
 
 
 class BedrockExtractionError(ValueError):
@@ -87,64 +121,43 @@ class BedrockExtractionError(ValueError):
 
 
 class BedrockNonJsonError(BedrockExtractionError):
-    """Bedrock returned text that JSON repair couldn't recover."""
+    """Retained for backwards compat with the pre-tool-use code path.
+
+    No longer raised by the core extraction path -- tool-use forces the
+    response shape, so non-JSON model output cannot occur. Kept as a
+    typed leaf in case ad-hoc text-mode callers (which do not exist
+    today) need a stable code.
+    """
 
     failure_code = "bedrock_non_json"
 
 
 class BedrockTokenLimitError(BedrockExtractionError):
-    """Bedrock response truncated mid-output (exceeded output token budget).
+    """Bedrock response exceeded the output token budget.
 
-    Detected when the response payload looks like it ran out of tokens
-    mid-structure: unbalanced braces/brackets, ends mid-string, or ends
-    with a trailing comma. This is the failure mode that drove the
-    2026-05-01 max_tokens 4096→16384 fix; if it shows up again the
-    surface area is now distinct from generic non-JSON errors.
+    Detected by `stop_reason == "max_tokens"` on the tool-use response
+    when no tool_use content block was emitted. Recovery: bump
+    `MP20_BEDROCK_MAX_TOKENS`, re-classify the doc as a chunkable
+    type, or route to manual-entry.
     """
 
     failure_code = "bedrock_token_limit"
 
 
 class BedrockSchemaMismatchError(BedrockExtractionError):
-    """JSON parsed cleanly but didn't match the expected fact-payload schema."""
+    """Tool-use response did not contain a valid fact_extraction block.
+
+    Two underlying causes:
+      1. Model returned plain text instead of calling the tool (refusal,
+         policy filter, or off-topic content). `stop_reason` will be
+         `end_turn` or `stop_sequence`.
+      2. Tool was called but `input` failed BedrockFactsPayload
+         validation (rare; happens if the model emits a value that
+         violates the deeper schema constraints, e.g. `confidence`
+         outside the allowed enum).
+    """
 
     failure_code = "bedrock_schema_mismatch"
-
-
-def _looks_truncated(content: str) -> bool:
-    r"""Heuristic: does this Bedrock response read as token-limit-truncated?
-
-    Sonnet output that hits max_tokens stops mid-token, leaving the JSON
-    structure unclosed. We treat a response as truncated only when the
-    model *clearly started constructing JSON* and then got cut off:
-
-      1. At least one opening brace or bracket exists (we have JSON-ish
-         structure to evaluate; pure prose like "I'm sorry, I can't..."
-         does not qualify — that's `bedrock_non_json` territory).
-      2. AND any of:
-         - bracket/brace counts unbalanced (more opens than closes), OR
-         - text ends mid-value (last non-whitespace char is ``,`` or ``:``), OR
-         - text doesn't end on a closing token (``}``, ``]``, or a code
-           fence) — model was cut mid-word/mid-string.
-    """
-    stripped = content.rstrip()
-    if not stripped:
-        return False
-    open_braces = stripped.count("{")
-    close_braces = stripped.count("}")
-    open_brackets = stripped.count("[")
-    close_brackets = stripped.count("]")
-    # Require some JSON-ish structure to have been started — otherwise
-    # this is non-JSON prose, not a truncation event.
-    if open_braces == 0 and open_brackets == 0:
-        return False
-    if open_braces > close_braces or open_brackets > close_brackets:
-        return True
-    if stripped[-1] in {",", ":"}:
-        return True
-    if not (stripped.endswith("}") or stripped.endswith("]") or stripped.endswith("```")):
-        return True
-    return False
 
 
 def bedrock_config_from_env(default_region: str = "ca-central-1") -> BedrockConfig:
@@ -165,51 +178,6 @@ def bedrock_config_from_env(default_region: str = "ca-central-1") -> BedrockConf
     )
 
 
-def json_payload_from_model_text(content: str) -> Any:
-    normalized = content.strip()
-    normalized = re.sub(r"^```(?:json)?\s*", "", normalized)
-    normalized = re.sub(r"\s*```$", "", normalized)
-    try:
-        return json.loads(normalized)
-    except json.JSONDecodeError as exc:
-        repaired = _repair_json_text(normalized)
-        try:
-            return json.loads(repaired)
-        except json.JSONDecodeError:
-            pass
-        object_start = normalized.find("{")
-        object_end = normalized.rfind("}")
-        array_start = normalized.find("[")
-        array_end = normalized.rfind("]")
-        use_array = (
-            array_start != -1
-            and array_end != -1
-            and (object_start == -1 or array_start < object_start)
-        )
-        if use_array:
-            start = array_start
-            end = array_end
-        else:
-            start = object_start
-            end = object_end
-        if start == -1 or end == -1 or end <= start:
-            if _looks_truncated(normalized):
-                raise BedrockTokenLimitError(
-                    "Bedrock extraction response was truncated before JSON closed."
-                ) from exc
-            raise BedrockNonJsonError("Bedrock extraction did not return valid JSON.") from exc
-        try:
-            return json.loads(_repair_json_text(normalized[start : end + 1]))
-        except json.JSONDecodeError as nested_exc:
-            if _looks_truncated(normalized):
-                raise BedrockTokenLimitError(
-                    "Bedrock extraction response was truncated before JSON closed."
-                ) from nested_exc
-            raise BedrockNonJsonError(
-                "Bedrock extraction did not return valid JSON."
-            ) from nested_exc
-
-
 def extract_text_facts_with_bedrock(
     *,
     filename: str,
@@ -221,23 +189,16 @@ def extract_text_facts_with_bedrock(
     config: BedrockConfig,
 ) -> list[FactCandidate]:
     client = _bedrock_client(config)
-    prompt = fact_extraction_prompt(
-        filename=filename,
-        document_type=document_type,
-        classification=classification,
-        text=text[:max_chars],
-    )
+    builder = build_prompt_for(document_type)
+    prompt = builder(filename, classification, text[:max_chars])
     response = client.messages.create(
         model=config.model,
         max_tokens=_bedrock_max_tokens(),
+        tools=[FACT_EXTRACTION_TOOL],
+        tool_choice={"type": "tool", "name": "fact_extraction"},
         messages=[{"role": "user", "content": prompt}],
     )
-    return facts_from_bedrock_response(
-        response,
-        extraction_run_id,
-        client=client,
-        model=config.model,
-    )
+    return _facts_from_tool_use_response(response, extraction_run_id)
 
 
 def extract_visual_facts_with_bedrock(
@@ -256,82 +217,101 @@ def extract_visual_facts_with_bedrock(
         raise ValueError(
             "Document requires OCR, but no supported visual payload could be prepared."
         )
-    prompt = fact_extraction_prompt(
-        filename=filename,
-        document_type=document_type,
-        classification=classification,
-        text="Use the attached page or image content as the source.",
+    builder = build_prompt_for(document_type)
+    prompt = builder(
+        filename,
+        classification,
+        "Use the attached page or image content as the source.",
     )
     response = client.messages.create(
         model=config.model,
         max_tokens=_bedrock_max_tokens(),
-        messages=[{"role": "user", "content": [*image_blocks, {"type": "text", "text": prompt}]}],
+        tools=[FACT_EXTRACTION_TOOL],
+        tool_choice={"type": "tool", "name": "fact_extraction"},
+        messages=[
+            {
+                "role": "user",
+                "content": [*image_blocks, {"type": "text", "text": prompt}],
+            }
+        ],
     )
     return (
-        facts_from_bedrock_response(
-            response,
-            extraction_run_id,
-            client=client,
-            model=config.model,
-        ),
+        _facts_from_tool_use_response(response, extraction_run_id),
         overflow,
     )
 
 
-def fact_extraction_prompt(
-    *,
-    filename: str,
-    document_type: str,
-    classification: ClassificationResult,
-    text: str,
-) -> str:
-    prompt_version = PROMPT_VERSION_BY_TYPE.get(document_type, "generic_financial_v1")
-    schema_hints = ", ".join(classification.schema_hints or ["generic_financial_sweep"])
-    low_confidence_instruction = (
-        "Classification is low-confidence, so run a multi-schema sweep across household, "
-        "people, accounts, holdings, goals, goal-account mapping, and risk. "
-        if classification.route == "multi_schema_sweep"
-        else ""
+def _facts_from_tool_use_response(
+    response: Any,
+    extraction_run_id: str,
+) -> list[FactCandidate]:
+    """Extract FactCandidate list from a Bedrock tool-use response.
+
+    Tool-use is forced via tool_choice, so a successful call carries
+    exactly one tool_use content block whose .input matches
+    FACT_EXTRACTION_TOOL.input_schema. Missing tool_use block is the
+    error case; stop_reason disambiguates the two failure modes.
+    """
+    tool_use_block = None
+    for block in getattr(response, "content", []) or []:
+        if getattr(block, "type", None) == "tool_use":
+            tool_use_block = block
+            break
+
+    if tool_use_block is None:
+        # Capture the raw text for diagnostic dumping (gated by
+        # MP20_DEBUG_BEDROCK_RESPONSES + MP20_SECURE_DATA_ROOT). PII risk:
+        # text content may carry extracted client values.
+        text_content = "".join(getattr(b, "text", "") or "" for b in (response.content or []))
+        _maybe_write_bedrock_debug("no_tool_use", extraction_run_id, text_content)
+        stop_reason = getattr(response, "stop_reason", None)
+        if stop_reason == "max_tokens":
+            raise BedrockTokenLimitError(
+                "Bedrock fact_extraction call exceeded output token budget."
+            )
+        raise BedrockSchemaMismatchError("Bedrock did not emit a fact_extraction tool_use block.")
+
+    raw_input = getattr(tool_use_block, "input", None)
+    if not isinstance(raw_input, dict):
+        _maybe_write_bedrock_debug(
+            "bad_tool_input",
+            extraction_run_id,
+            json.dumps(raw_input, default=str)[:12000],
+        )
+        raise BedrockSchemaMismatchError(
+            "Bedrock fact_extraction tool_use input was not a JSON object."
+        )
+
+    _maybe_write_bedrock_debug(
+        "tool_input",
+        extraction_run_id,
+        json.dumps(raw_input, default=str)[:12000],
     )
-    return (
-        "Extract MP2.0 advisor-review facts from this client document. Return JSON only in "
-        'this shape: {"facts":[{"field":"...","value":...,"confidence":"high|medium|low",'
-        '"derivation_method":"extracted|inferred|defaulted","source_location":"...",'
-        '"source_page":null,"evidence_quote":"short source quote","asserted_at":null}]}. '
-        "Use canonical fields such as household.display_name, household.household_type, "
-        "people[0].display_name, people[0].date_of_birth, people[0].age, "
-        "accounts[0].account_type, accounts[0].current_value, accounts[0].holdings, "
-        "accounts[0].missing_holdings_confirmed, goals[0].name, "
-        "goals[0].time_horizon_years, goal_account_links[0].goal_name, "
-        "goal_account_links[0].allocated_amount, and risk.household_score. "
-        "Risk scores must use the MP2.0 1-5 scale when the document provides enough "
-        "context; otherwise leave them missing. Do not invent missing financial numbers. "
-        "Separate factual extraction from behavioral synthesis; behavioral context belongs "
-        "under behavioral_notes.* and is not an engine input unless mapped to a canonical "
-        "field. For account numbers, SIN, tax IDs, and similar identifiers, include only "
-        "the field name and raw value in JSON; the application will hash and redact them. "
-        f"{low_confidence_instruction}"
-        f"Prompt version: {prompt_version}\n"
-        f"Filename label: {filename}\n"
-        f"Document type: {document_type}\n"
-        f"Classifier route: {classification.route}; confidence: {classification.confidence}; "
-        f"schema hints: {schema_hints}\n\n"
-        f"Text:\n{text}"
-    )
+
+    try:
+        parsed = BedrockFactsPayload.model_validate(raw_input)
+    except ValidationError as exc:
+        raise BedrockSchemaMismatchError(
+            "Bedrock fact_extraction tool input did not match the expected schema."
+        ) from exc
+
+    return [
+        FactCandidate(
+            **fact.model_dump(mode="json"),
+            extraction_run_id=extraction_run_id,
+        )
+        for fact in parsed.facts
+        if not _is_missing_fact_value(fact.value)
+    ]
 
 
 def _maybe_write_bedrock_debug(stage: str, extraction_run_id: str, content: str) -> None:
-    """Optionally persist a raw Bedrock response for diagnostic use.
+    """Optionally persist a raw Bedrock payload for diagnostic use.
 
     Gated on MP20_DEBUG_BEDROCK_RESPONSES=1. Writes only inside
     MP20_SECURE_DATA_ROOT/_debug/. Never to stdout, repo, or external
     sinks. Real-PII discipline (canon §11.8.3): contents may include
     extracted client text; treat the path as PII storage.
-
-    Off by default. Used to investigate JSON-parse failures during
-    extraction-quality hardening — characterize whether Bedrock is
-    returning markdown tables, prose preambles, truncated output, or
-    schema-drifted JSON.
     """
     if os.getenv("MP20_DEBUG_BEDROCK_RESPONSES") != "1":
         return
@@ -344,105 +324,6 @@ def _maybe_write_bedrock_debug(stage: str, extraction_run_id: str, content: str)
     timestamp = int(time.time() * 1000)
     target = debug_dir / f"{safe_id}-{stage}-{timestamp}.txt"
     target.write_text(content, encoding="utf-8")
-
-
-def facts_from_bedrock_response(  # noqa: ANN001
-    response,
-    extraction_run_id: str,
-    *,
-    client=None,
-    model: str | None = None,
-) -> list[FactCandidate]:
-    content = "".join(block.text for block in response.content if hasattr(block, "text"))
-    _maybe_write_bedrock_debug("first", extraction_run_id, content)
-    try:
-        return facts_from_model_text(content, extraction_run_id)
-    except ValueError:
-        if client is None or model is None:
-            raise
-    repair_response = client.messages.create(
-        model=model,
-        max_tokens=_bedrock_max_tokens(),
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    "Convert the following extraction response into JSON only with shape "
-                    '{"facts":[{"field":"...","value":...,"confidence":"high|medium|low",'
-                    '"derivation_method":"extracted|inferred|defaulted","source_location":"...",'
-                    '"source_page":null,"evidence_quote":"short quote","asserted_at":null}]}. '
-                    "Drop commentary and omit facts with unknown or null values.\n\n"
-                    f"Response:\n{content[:12000]}"
-                ),
-            }
-        ],
-    )
-    repaired_content = "".join(
-        block.text for block in repair_response.content if hasattr(block, "text")
-    )
-    _maybe_write_bedrock_debug("repair", extraction_run_id, repaired_content)
-    return facts_from_model_text(repaired_content, extraction_run_id)
-
-
-def facts_from_model_text(content: str, extraction_run_id: str) -> list[FactCandidate]:
-    payload = _normalize_bedrock_payload(json_payload_from_model_text(content))
-    try:
-        parsed = BedrockFactsPayload.model_validate(payload)
-    except ValidationError as exc:
-        raise BedrockSchemaMismatchError(
-            "Bedrock extraction JSON did not match the expected fact schema."
-        ) from exc
-    return [
-        FactCandidate(
-            **fact.model_dump(mode="json"),
-            extraction_run_id=extraction_run_id,
-        )
-        for fact in parsed.facts
-        if not _is_missing_fact_value(fact.value)
-    ]
-
-
-def _normalize_bedrock_payload(payload: Any) -> dict[str, Any]:
-    if isinstance(payload, list):
-        return {"facts": [_normalize_fact_item(item) for item in payload]}
-    if not isinstance(payload, dict):
-        raise BedrockSchemaMismatchError("Bedrock extraction did not return a JSON object.")
-    facts = payload.get("facts")
-    if facts is None:
-        for key in ("extracted_facts", "fields", "results", "data"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                facts = value
-                break
-            if isinstance(value, dict) and isinstance(value.get("facts"), list):
-                facts = value["facts"]
-                break
-    if facts is None:
-        facts = []
-    return {"facts": [_normalize_fact_item(item) for item in facts if isinstance(item, dict)]}
-
-
-def _normalize_fact_item(item: dict[str, Any]) -> dict[str, Any]:
-    field = item.get("field") or item.get("field_path") or item.get("path") or item.get("key")
-    value = item.get("value")
-    if "value" not in item:
-        value = item.get("raw_value", item.get("normalized_value"))
-    confidence = item.get("confidence", item.get("confidence_level", "medium"))
-    derivation_method = item.get("derivation_method", item.get("method", "extracted"))
-    source_location = (
-        item.get("source_location") or item.get("location") or item.get("source") or ""
-    )
-    evidence_quote = item.get("evidence_quote") or item.get("quote") or item.get("evidence") or ""
-    return {
-        "field": field or "",
-        "value": value,
-        "confidence": confidence,
-        "derivation_method": derivation_method,
-        "source_location": source_location,
-        "source_page": item.get("source_page", item.get("page")),
-        "evidence_quote": evidence_quote,
-        "asserted_at": item.get("asserted_at"),
-    }
 
 
 def _is_missing_fact_value(value: Any) -> bool:
@@ -512,7 +393,7 @@ def _pdf_page_image_blocks(
     return blocks, overflow
 
 
-def _safe_pdf_page_image_block(page) -> dict[str, Any] | None:  # noqa: ANN001
+def _safe_pdf_page_image_block(page: Any) -> dict[str, Any] | None:
     import fitz
 
     for scale in (1.25, 1.0, 0.75, 0.5):
@@ -536,9 +417,3 @@ def _image_block(content: bytes, media_type: str) -> dict[str, Any]:
             "data": base64.b64encode(content).decode(),
         },
     }
-
-
-def _repair_json_text(content: str) -> str:
-    repaired = re.sub(r",(\s*[}\]])", r"\1", content)
-    repaired = repaired.replace("\u201c", '"').replace("\u201d", '"').replace("\u2019", "'")
-    return repaired
