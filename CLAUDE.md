@@ -146,3 +146,6 @@ fails on drift.
 - `docs/agent/open-questions.md` — tracked unresolved decisions
 - `docs/agent/r10-sweep-results-2026-05-02.md` — Phase 4 tool-use migration R10 sweep (per-doc structural diff; canon §9.4.5 quality wins + −41% recall regression)
 - `docs/agent/phase9-fact-quality-iteration.md` — post-pilot fact-quality iteration plan; recovers legitimate recall in the new tool-use path without re-introducing hallucinations
+- `docs/agent/pilot-rollback.md` — Sev-1 rollback procedure for the limited-beta pilot (kill-switch, code revert, DB recovery, on-call list)
+- `docs/agent/pilot-success-metrics.md` — quantitative pilot success metrics + weekly cadence + GA criteria + off-ramp conditions
+- `docs/agent/next-session-starter-prompt.md` — copy/paste-ready bring-up prompt for the next sub-session (pre-flight checks + locked decisions + sub-session plan)

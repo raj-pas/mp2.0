@@ -3246,3 +3246,68 @@ bash scripts/check-openapi-codegen.sh  # expect "OK"
 Then re-read `~/.claude/plans/you-are-continuing-a-playful-hammock.md`
 + `docs/agent/phase9-fact-quality-iteration.md` for the next
 session's scope.
+
+---
+
+## 2026-05-03 — Phase 8 release-essentials + tag v0.1.0-pilot + starter prompt
+
+After Phase 7 R10 sweep validation + Phase 9 design, user asked to
+continue end-to-end with Phase 8 (release-essentials) before
+/compact + next sub-session.
+
+**HEAD `d2abfa1` Phase 8** — release-blocker work:
+* `docs/agent/pilot-rollback.md` — Sev-1 incident response.
+  Severity classification (Sev-1 vs Sev-2/3), engine kill-switch
+  via `MP20_ENGINE_ENABLED=0`, per-phase code revert table
+  mapping THIS session's commits to revert candidates, DB
+  recovery (targeted vs full reset; pilot-data caveat), pre-pilot
+  dry-run checklist, anti-patterns.
+* `docs/agent/pilot-success-metrics.md` — 8 quantitative bars
+  for pilot health. Weekly check-in cadence. GA criteria
+  (2 weeks of green). Off-ramp conditions (Sev-1 escalation,
+  blocking-feedback >50%, compliance escalation, Bedrock
+  >$500/wk, audit invariant violation).
+* `web/api/management/commands/provision_pilot_advisors.py`
+  + `web/api/tests/test_provision_pilot_advisors.py` (7 tests).
+  Reads YAML from `$MP20_SECURE_DATA_ROOT`. Idempotent. Refuses
+  plain-text passwords (validates via `identify_hasher`). Audit-
+  event-emitting per advisor per run.
+* `CHANGELOG.md` — Keep-a-Changelog format. v0.1.0-pilot entry
+  documents all session work. Forward-link to Phase 9.
+* `git tag -a v0.1.0-pilot` annotated tag at HEAD `d2abfa1`.
+
+**Phase 8.7 (scheduled pre-pilot smoke) NOT created** — needs
+Claude GitHub App on raj-pas/mp2.0 (not installed) + reachable
+pilot stack. Cron + prompt template captured in pilot-rollback.md
+for ops to run `/schedule` after GitHub App is installed.
+
+**HEAD `8259278` next-session starter prompt** —
+`docs/agent/next-session-starter-prompt.md`. Single-purpose
+artifact for post-/compact session start. 12 numbered sections
+(pre-flight, reading list, context-mgmt strategy, locked
+decisions, gate suite, stop conditions, anti-patterns, patterns
+shipped, sub-session #1 plan, forward roadmap, communication
+style, real-PII discipline, first concrete action).
+
+Use by copy/paste from the BEGIN/END markers into the next
+session's first message.
+
+**Session totals through this commit:**
+* 12 commits past `448b281`.
+* Tests: 362 baseline → **429** (+67 net new).
+* Bedrock spend: ~$3 across 12 real-PII doc retries (Phase 7
+  R10 partial sweep).
+* Tag `v0.1.0-pilot` at `d2abfa1`.
+
+**Sub-sessions remaining (per starter prompt §2):**
+| # | Phase scope | Est commits | Est lines |
+|---|---|---|---|
+| #1 | 5b.3 + 5b.8 | 2-3 | 200-400 |
+| #2 | 5b.4 + 5b.5 + 5b.7-pag + 5b.10/11 + 5b.12/13 | 4-6 | 1500-2200 |
+| #3 | 5c + Phase 6 scaffolding | 2-3 | 800-1200 |
+| #4 | Phase 6 deep tests (subagent-parallel) | 4-6 | 1500-2500 |
+| #5 | Phase 6.9 + final gates + push prep | 2-3 | 400-800 |
+
+**Pointer for next sub-session:** read
+`docs/agent/next-session-starter-prompt.md` between BEGIN/END
+markers. It is the bring-up brief.
