@@ -30,6 +30,15 @@ export type UploadDraft = {
   data_origin: DataOrigin;
   files: UploadFileMeta[];
   saved_at: number;
+  /**
+   * Set when the workspace was created server-side before the 401
+   * fired (i.e., create succeeded, upload failed). On resume the
+   * upload is retargeted at this existing workspace — the SHA256
+   * dedup in the upload endpoint makes this safe even if some
+   * files succeeded before the 401. Absent when create itself
+   * 401'd; resume creates a fresh workspace in that case.
+   */
+  workspace_id?: string;
 };
 
 function storage(): Storage | null {
@@ -45,6 +54,7 @@ export function saveUploadDraft(input: {
   label: string;
   data_origin: DataOrigin;
   files: File[] | UploadFileMeta[];
+  workspace_id?: string;
 }): void {
   const store = storage();
   if (store === null) return;
@@ -57,6 +67,7 @@ export function saveUploadDraft(input: {
     data_origin: input.data_origin,
     files: fileMeta,
     saved_at: Date.now(),
+    ...(input.workspace_id !== undefined ? { workspace_id: input.workspace_id } : {}),
   };
   store.setItem(STORAGE_KEY, JSON.stringify(payload));
 }

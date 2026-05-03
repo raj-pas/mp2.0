@@ -44,6 +44,7 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
   const [dataOrigin, setDataOrigin] = useState<"real_derived" | "synthetic">("synthetic");
   const [files, setFiles] = useState<File[]>([]);
   const [pendingFileMeta, setPendingFileMeta] = useState<UploadFileMeta[]>([]);
+  const [pendingWorkspaceId, setPendingWorkspaceId] = useState<string | null>(null);
   const [isDragOver, setDragOver] = useState(false);
 
   const createWorkspace = useCreateWorkspace();
@@ -51,16 +52,22 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
 
   // Phase 5b.8: restore an upload draft if a prior attempt was
   // interrupted by a 401. We can preserve label + data_origin +
-  // file metadata, but not the File bytes (browsers don't expose
-  // them across sessionStorage). The pendingFileMeta state shows
-  // the advisor which files they originally dropped so they can
-  // re-pick the same set.
+  // file metadata + (optionally) workspace_id, but not the File
+  // bytes — browsers don't expose them across sessionStorage. The
+  // pendingFileMeta state shows the advisor which files they
+  // originally dropped so they can re-pick the same set.
+  // The pendingWorkspaceId routes resume uploads at the existing
+  // workspace (avoiding orphan-workspace leaks; see handoff
+  // 2026-05-03 for the deep design analysis: D + E option).
   useEffect(() => {
     const draft = consumeUploadDraft();
     if (draft === null) return;
     setLabel(draft.label);
     setDataOrigin(draft.data_origin);
     setPendingFileMeta(draft.files);
+    if (draft.workspace_id !== undefined) {
+      setPendingWorkspaceId(draft.workspace_id);
+    }
     toastSuccess(
       t("docdrop.draft_restored_title"),
       t("docdrop.draft_restored_body", {
@@ -104,95 +111,142 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
     setLabel("");
     setDataOrigin("synthetic");
     setPendingFileMeta([]);
+    setPendingWorkspaceId(null);
     clearUploadDraft();
   }
 
-  function handleStart() {
-    if (label.trim().length === 0 || files.length === 0) return;
-    createWorkspace.mutate(
-      { label: label.trim(), data_origin: dataOrigin },
+  function bounceToLogin() {
+    toastError(t("docdrop.session_expired_title"), {
+      description: t("docdrop.session_expired_body"),
+    });
+    queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
+  }
+
+  function handleUploadSuccess(
+    workspaceId: string,
+    response: { uploaded: { document_id: number }[]; ignored: { reason: string; filename: string }[] },
+  ) {
+    // Resume succeeded — clear the draft so a future re-mount of
+    // DocDropOverlay doesn't restore stale state.
+    clearUploadDraft();
+    setPendingWorkspaceId(null);
+    setPendingFileMeta([]);
+
+    const failedFiles = response.ignored
+      .filter((row) => row.reason === "upload_failed")
+      .map((row) => row.filename);
+    if (response.uploaded.length === 0) {
+      toastError(t("docdrop.upload_error"), {
+        description: t("docdrop.upload_all_failed", {
+          count: failedFiles.length,
+        }),
+      });
+      return;
+    }
+    if (failedFiles.length > 0) {
+      toastSuccess(
+        t("docdrop.upload_partial_title"),
+        t("docdrop.upload_partial_body", {
+          uploaded: response.uploaded.length,
+          failed: failedFiles.length,
+          names: failedFiles.join(", "),
+        }),
+      );
+    } else {
+      toastSuccess(t("docdrop.upload_success_title"), t("docdrop.upload_success_body"));
+    }
+    onWorkspaceReady(workspaceId);
+    setLabel("");
+    setFiles([]);
+  }
+
+  function executeUpload(workspaceId: string, allowCreateFallback: boolean) {
+    upload.mutate(
+      { workspaceId, files },
       {
-        onSuccess: (workspace) => {
-          upload.mutate(
-            { workspaceId: workspace.external_id, files },
-            {
-              onSuccess: (response) => {
-                // The upload endpoint partial-failure tolerates per-file
-                // errors. Surface that explicitly to the advisor so
-                // they don't think every file went through when half
-                // were rejected.
-                const failedFiles = response.ignored
-                  .filter((row) => row.reason === "upload_failed")
-                  .map((row) => row.filename);
-                if (response.uploaded.length === 0) {
-                  toastError(t("docdrop.upload_error"), {
-                    description: t("docdrop.upload_all_failed", {
-                      count: failedFiles.length,
-                    }),
-                  });
-                } else if (failedFiles.length > 0) {
-                  toastSuccess(
-                    t("docdrop.upload_partial_title"),
-                    t("docdrop.upload_partial_body", {
-                      uploaded: response.uploaded.length,
-                      failed: failedFiles.length,
-                      names: failedFiles.join(", "),
-                    }),
-                  );
-                  onWorkspaceReady(workspace.external_id);
-                  setLabel("");
-                  setFiles([]);
-                } else {
-                  toastSuccess(
-                    t("docdrop.upload_success_title"),
-                    t("docdrop.upload_success_body"),
-                  );
-                  onWorkspaceReady(workspace.external_id);
-                  setLabel("");
-                  setFiles([]);
-                }
-              },
-              onError: (err) => {
-                const e = normalizeApiError(err, t("docdrop.upload_error"));
-                if (isAuthError(e)) {
-                  // Session expired mid-upload. Save metadata so the
-                  // advisor doesn't have to retype the workspace label
-                  // or guess which files were attempted; invalidating
-                  // the session query bounces SessionGate to LoginRoute.
-                  saveUploadDraft({
-                    label: label.trim(),
-                    data_origin: dataOrigin,
-                    files,
-                  });
-                  toastError(t("docdrop.session_expired_title"), {
-                    description: t("docdrop.session_expired_body"),
-                  });
-                  queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
-                  return;
-                }
-                toastError(t("docdrop.upload_error"), { description: e.message });
-              },
-            },
-          );
-        },
+        onSuccess: (response) => handleUploadSuccess(workspaceId, response),
         onError: (err) => {
-          const e = normalizeApiError(err, t("docdrop.create_error"));
+          const e = normalizeApiError(err, t("docdrop.upload_error"));
           if (isAuthError(e)) {
+            // Draft was already stashed at handleStart; just bounce.
+            bounceToLogin();
+            return;
+          }
+          if (e.status === 404 && allowCreateFallback) {
+            // Stale workspace_id (server-side state divergence: the
+            // workspace was deleted, or _workspace_for_user no longer
+            // owns it). Fall through to a fresh create + upload —
+            // the SHA256 dedup in the upload endpoint makes this
+            // safe even if some original files already existed
+            // somewhere we can't see.
+            setPendingWorkspaceId(null);
             saveUploadDraft({
               label: label.trim(),
               data_origin: dataOrigin,
               files,
             });
-            toastError(t("docdrop.session_expired_title"), {
-              description: t("docdrop.session_expired_body"),
-            });
-            queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
+            executeCreateThenUpload();
+            return;
+          }
+          toastError(t("docdrop.upload_error"), { description: e.message });
+        },
+      },
+    );
+  }
+
+  function executeCreateThenUpload() {
+    createWorkspace.mutate(
+      { label: label.trim(), data_origin: dataOrigin },
+      {
+        onSuccess: (workspace) => {
+          // Re-stash with workspace_id so a 401 mid-upload doesn't
+          // leak the just-created workspace as an orphan.
+          saveUploadDraft({
+            label: label.trim(),
+            data_origin: dataOrigin,
+            files,
+            workspace_id: workspace.external_id,
+          });
+          executeUpload(workspace.external_id, false);
+        },
+        onError: (err) => {
+          const e = normalizeApiError(err, t("docdrop.create_error"));
+          if (isAuthError(e)) {
+            // Draft was already stashed at handleStart (no
+            // workspace_id since create itself failed); just bounce.
+            bounceToLogin();
             return;
           }
           toastError(t("docdrop.create_error"), { description: e.message });
         },
       },
     );
+  }
+
+  function handleStart() {
+    if (label.trim().length === 0 || files.length === 0) return;
+
+    // Option E: stash the draft IMMEDIATELY so an unexpected 401 in
+    // either create OR upload doesn't lose the advisor's input. We
+    // re-stash with workspace_id once create succeeds (Option D) so
+    // a 401 mid-upload preserves the workspace pointer too.
+    saveUploadDraft({
+      label: label.trim(),
+      data_origin: dataOrigin,
+      files,
+      ...(pendingWorkspaceId !== null ? { workspace_id: pendingWorkspaceId } : {}),
+    });
+
+    // Option D: if we have a workspace_id from a prior interrupted
+    // upload, skip create and upload directly. SHA256 dedup in the
+    // upload endpoint makes this safe even if some files succeeded
+    // before the prior 401. On 404 (workspace deleted server-side),
+    // executeUpload falls back to fresh create.
+    if (pendingWorkspaceId !== null) {
+      executeUpload(pendingWorkspaceId, true);
+      return;
+    }
+    executeCreateThenUpload();
   }
 
   const isSubmitting = createWorkspace.isPending || upload.isPending;

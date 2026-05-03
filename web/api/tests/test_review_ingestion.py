@@ -206,6 +206,35 @@ def test_upload_ignores_system_files_before_job_creation(tmp_path, settings) -> 
 
 
 @pytest.mark.django_db
+def test_upload_to_stale_workspace_id_returns_404(tmp_path, settings) -> None:
+    """Pins the 404 contract that DocDropOverlay's session-recovery
+    path depends on (Phase 5b.8 Option D fallback).
+
+    When a session expires mid-upload, the frontend stashes the
+    workspace_id in sessionStorage. On re-login the resume flow
+    posts directly to that workspace; if the workspace was deleted
+    server-side or never owned by this user (defensive against
+    server-side state divergence), the upload must return 404 so
+    the frontend falls through to a fresh create + upload. A 403
+    or 500 here would silently break recovery.
+    """
+    settings.MP20_SECURE_DATA_ROOT = str(tmp_path / "secure")
+    user = _user()
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    response = client.post(
+        reverse(
+            "review-workspace-upload",
+            args=["00000000-0000-0000-0000-000000000000"],
+        ),
+        {"files": [SimpleUploadedFile("a.txt", b"x")]},
+        format="multipart",
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
 def test_real_upload_uses_secure_storage_and_queues_without_backend_flag(
     tmp_path, settings
 ) -> None:
