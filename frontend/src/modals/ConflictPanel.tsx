@@ -20,6 +20,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "../components/ui/button";
+import { ConfidenceChip } from "../components/ConfidenceChip";
 import { Skeleton } from "../components/ui/skeleton";
 import {
   type ConflictCandidate,
@@ -245,7 +246,6 @@ function CandidateRow({
   onSelect,
   fieldName,
 }: CandidateRowProps) {
-  const { t } = useTranslation();
   const valueDisplay = formatCandidateValue(candidate.value);
   return (
     <label
@@ -267,9 +267,7 @@ function CandidateRow({
         <span className="flex-1 font-sans text-[12px] font-medium text-ink">
           {valueDisplay}
         </span>
-        <span className="font-sans text-[10px] uppercase tracking-wider text-muted">
-          {t(`review.conflict.confidence_${candidate.confidence}` as const)}
-        </span>
+        <ConfidenceChip level={candidate.confidence} />
       </div>
       <div className="ml-5 flex flex-wrap gap-1.5">
         <span className="rounded-sm bg-ink/5 px-1 py-0.5 font-sans text-[9px] uppercase tracking-wider text-muted">

@@ -59,9 +59,7 @@ def test_disclaimer_acknowledge_persists_version_and_emits_audit() -> None:
     assert profile.disclaimer_acknowledged_version == "v1"
     assert profile.disclaimer_acknowledged_at is not None
 
-    events = AuditEvent.objects.filter(
-        action="disclaimer_acknowledged", entity_id=str(user.pk)
-    )
+    events = AuditEvent.objects.filter(action="disclaimer_acknowledged", entity_id=str(user.pk))
     assert events.count() == 1
     metadata = events.first().metadata
     assert metadata["version"] == "v1"
@@ -125,9 +123,7 @@ def test_tour_complete_persists_and_emits_audit() -> None:
     profile = models.AdvisorProfile.objects.get(user=user)
     assert profile.tour_completed_at is not None
 
-    events = AuditEvent.objects.filter(
-        action="tour_completed", entity_id=str(user.pk)
-    )
+    events = AuditEvent.objects.filter(action="tour_completed", entity_id=str(user.pk))
     assert events.count() == 1
 
 
@@ -140,9 +136,7 @@ def test_tour_complete_is_idempotent_and_emits_only_once() -> None:
     client.post(reverse("tour-complete"), {}, format="json")
     client.post(reverse("tour-complete"), {}, format="json")  # second call
 
-    events = AuditEvent.objects.filter(
-        action="tour_completed", entity_id=str(user.pk)
-    )
+    events = AuditEvent.objects.filter(action="tour_completed", entity_id=str(user.pk))
     assert events.count() == 1, "second tour-complete must NOT emit an audit event"
 
 
@@ -174,9 +168,7 @@ def test_feedback_submit_persists_row_and_emits_audit() -> None:
     assert feedback.description.startswith("The doc-drop")
     assert feedback.status == "new"
 
-    events = AuditEvent.objects.filter(
-        action="feedback_submitted", entity_id=str(feedback.pk)
-    )
+    events = AuditEvent.objects.filter(action="feedback_submitted", entity_id=str(feedback.pk))
     assert events.count() == 1
 
 
@@ -244,9 +236,7 @@ def test_feedback_report_filters_by_status_and_severity() -> None:
     rows = response.json()["rows"]
     assert len(rows) == 2
 
-    response = client.get(
-        reverse("feedback-report"), {"severity": "blocking"}
-    )
+    response = client.get(reverse("feedback-report"), {"severity": "blocking"})
     rows = response.json()["rows"]
     assert len(rows) == 1
     assert rows[0]["severity"] == "blocking"
@@ -307,9 +297,7 @@ def test_feedback_update_emits_audit_event() -> None:
     assert feedback.status == "triaged"
     assert feedback.ops_notes.startswith("Re-tested")
 
-    events = AuditEvent.objects.filter(
-        action="feedback_triaged", entity_id=str(feedback.pk)
-    )
+    events = AuditEvent.objects.filter(action="feedback_triaged", entity_id=str(feedback.pk))
     assert events.count() == 1
     metadata = events.first().metadata
     assert metadata["new_status"] == "triaged"

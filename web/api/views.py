@@ -189,9 +189,7 @@ class DisclaimerAcknowledgeView(APIView):
                 "user_agent": _request_ua(request),
             },
         )
-        return Response(
-            {"acknowledged_at": now.isoformat(), "version": version}
-        )
+        return Response({"acknowledged_at": now.isoformat(), "version": version})
 
 
 class TourCompleteView(APIView):
@@ -219,9 +217,7 @@ class TourCompleteView(APIView):
                     "advisor_id": request.user.pk,
                 },
             )
-        return Response(
-            {"completed_at": profile.tour_completed_at.isoformat()}
-        )
+        return Response({"completed_at": profile.tour_completed_at.isoformat()})
 
 
 class FeedbackSubmitView(APIView):

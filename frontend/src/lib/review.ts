@@ -112,6 +112,13 @@ export type SectionApproval = {
   approved_at: string;
 };
 
+export type WorkerHealth = {
+  status: "online" | "stale" | "offline" | "idle";
+  name?: string;
+  last_seen_at?: string | null;
+  active_job_count?: number;
+};
+
 export type ReviewWorkspace = {
   id: number;
   external_id: string;
@@ -134,7 +141,7 @@ export type ReviewWorkspace = {
    * sections or shows non-required ones the user can never satisfy).
    */
   required_sections: string[];
-  worker_health: Record<string, unknown>;
+  worker_health: WorkerHealth;
   timeline: Array<{ action: string; created_at: string; metadata: Record<string, unknown> }>;
   created_at: string;
   updated_at: string;
@@ -202,7 +209,19 @@ export function useReviewWorkspace(
       const stillProcessing = data.processing_jobs.some(
         (job) => job.status === "queued" || job.status === "processing",
       );
-      return stillProcessing ? 3000 : false;
+      if (!stillProcessing) return false;
+      // Phase 5b.7: exponential backoff with jitter while still
+      // processing. Starts at 3s; doubles up to 30s. fetchFailureCount
+      // tracks consecutive errors / no-state-change refetches; we
+      // approximate by using dataUpdateCount + errorUpdateCount to
+      // back off when the workspace state isn't changing. Reduces
+      // polling cost for slow Bedrock-bound real-PII workspaces
+      // without losing responsiveness during active work.
+      const updates =
+        query.state.dataUpdateCount + query.state.errorUpdateCount;
+      const baseMs = Math.min(3000 * 2 ** Math.floor(updates / 5), 30000);
+      const jitter = Math.floor(Math.random() * 500);
+      return baseMs + jitter;
     },
   });
 }

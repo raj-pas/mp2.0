@@ -36,6 +36,7 @@ import {
   type ReviewConflict,
   type ReviewWorkspace,
   type SectionApprovalStatus,
+  type WorkerHealth,
   useApproveSection,
   useCommitWorkspace,
   useMarkManualEntry,
@@ -180,6 +181,7 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
 
       <div className="grid grid-cols-[1fr_360px] gap-4">
         <main className="flex flex-col gap-4">
+          <WorkerHealthBanner health={workspace.worker_health} />
           <ProcessingPanel
             workspace={workspace}
             onRetry={(documentId) => retry.mutate({ documentId })}
@@ -238,6 +240,39 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
     </section>
   );
 }
+
+function WorkerHealthBanner({ health }: { health: WorkerHealth | undefined }) {
+  const { t } = useTranslation();
+  if (!health) return null;
+  const status = health.status;
+  const activeJobs = health.active_job_count ?? 0;
+  // Show only if processing is in flight AND worker is unhealthy. Idle
+  // workers with no active jobs is the steady-state and not noteworthy.
+  if (status !== "stale" && status !== "offline") return null;
+  if (activeJobs === 0) return null;
+  const i18nKey =
+    status === "stale" ? "review.worker_health.stale" : "review.worker_health.offline";
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex items-start gap-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-2"
+    >
+      <span aria-hidden className="text-[14px] leading-tight text-danger">
+        {"!"}
+      </span>
+      <div>
+        <p className="font-sans text-[12px] font-medium text-ink">
+          {t(`${i18nKey}_title`)}
+        </p>
+        <p className="font-sans text-[11px] text-muted">
+          {t(`${i18nKey}_body`, { count: activeJobs })}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 
 function ProcessingPanel({
   workspace,

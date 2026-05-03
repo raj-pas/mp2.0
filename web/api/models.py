@@ -966,9 +966,7 @@ class Feedback(models.Model):
     session_id = models.CharField(max_length=64, blank=True)
     browser_user_agent = models.CharField(max_length=512, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    status = models.CharField(
-        max_length=32, choices=Status.choices, default=Status.NEW
-    )
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.NEW)
     ops_notes = models.TextField(blank=True)
     linear_issue_url = models.URLField(blank=True)
 

@@ -531,6 +531,16 @@
       "ImproperlyConfigured": "Storage or model configuration is invalid. Contact ops.",
       "OSError": "Storage I/O error. Retry; if it repeats, contact ops."
     },
+    "worker_health": {
+      "stale_title": "Processing paused — worker recovering",
+      "stale_body_one": "{{count}} document is waiting. Auto-retry runs every minute.",
+      "stale_body_other": "{{count}} documents are waiting. Auto-retry runs every minute.",
+      "stale_body": "{{count}} documents are waiting. Auto-retry runs every minute.",
+      "offline_title": "Processing offline — no worker reachable",
+      "offline_body_one": "{{count}} document is queued. Contact ops if this persists.",
+      "offline_body_other": "{{count}} documents are queued. Contact ops if this persists.",
+      "offline_body": "{{count}} documents are queued. Contact ops if this persists."
+    },
     "conflict": {
       "heading": "Same-source disagreements",
       "summary": "{{unresolved}} unresolved of {{total}}",
@@ -551,6 +561,14 @@
       "confidence_medium": "Medium",
       "confidence_low": "Low"
     }
+  },
+  "confidence": {
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low",
+    "aria_high": "High confidence",
+    "aria_medium": "Medium confidence",
+    "aria_low": "Low confidence"
   },
   "descriptor": {
     "cautious": "Cautious",
