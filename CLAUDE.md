@@ -150,3 +150,5 @@ fails on drift.
 - `docs/agent/pilot-success-metrics.md` — quantitative pilot success metrics + weekly cadence + GA criteria + off-ramp conditions
 - `docs/agent/next-session-starter-prompt.md` — copy/paste-ready bring-up prompt for the next sub-session (pre-flight checks + locked decisions + sub-session plan)
 - `docs/agent/production-quality-bar.md` — production-grade UX-polish + comprehensive test-coverage map + production-infra requirements; load-bearing for sub-sessions #2-#7 (every per-phase ping gates on items from this doc)
+- `docs/agent/ux-spec.md` — durable UX spec (UX dimensions taxonomy A-M + design principles + canonical flows + decision log); read before any new advisor-facing surface work
+- `docs/agent/design-system.md` — design tokens + component inventory + patterns + copy conventions + ErrorBoundary architecture; read before changing component patterns or copy
