@@ -55,6 +55,8 @@ __all__ = [
     "BedrockTokenLimitError",
     "_bedrock_max_tokens",
     "bedrock_config_from_env",
+    "estimate_bedrock_cost_usd",
+    "extract_pdf_facts_with_bedrock_native",
     "extract_text_facts_with_bedrock",
     "extract_visual_facts_with_bedrock",
     "visual_content_blocks",
@@ -62,6 +64,45 @@ __all__ = [
 
 MAX_IMAGE_BLOCK_BYTES = 4_500_000
 MAX_VISUAL_REQUEST_BYTES = 18_000_000
+
+# Bedrock single-document content block soft cap. Anthropic recommends
+# keeping native PDF document blocks under ~32 MB after base64 encoding;
+# the API rejects requests above ~50 MB outright. We cap at 32 MB so a
+# malformed Croesus export doesn't blow the request budget. Documents
+# above the cap fall back to the rasterized image-block path which
+# already enforces per-page byte caps.
+MAX_NATIVE_PDF_BYTES = 32_000_000
+
+# Cost-estimate constants (USD per 1M tokens). The Bedrock pricing
+# table mirrors Anthropic public list. Fallback to Sonnet 4.6 pricing
+# for unknown models so the metadata field is always populated; the
+# spend ledger is the source of truth.
+_BEDROCK_PRICING_USD_PER_MILLION: dict[str, tuple[float, float]] = {
+    "anthropic.claude-sonnet-4-6": (3.0, 15.0),
+    "anthropic.claude-opus-4-7": (5.0, 25.0),
+    "anthropic.claude-opus-4-6": (5.0, 25.0),
+    "anthropic.claude-haiku-4-5": (1.0, 5.0),
+}
+
+
+def estimate_bedrock_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Best-effort cost estimate per call. Spend ledger is authoritative.
+
+    Matches model IDs by prefix so versioned IDs like
+    ``anthropic.claude-sonnet-4-6-20251201-v1:0`` resolve to the
+    Sonnet 4.6 price tier without an exact-string lookup table.
+    Returns Sonnet 4.6 pricing for unknown models so the metadata
+    field is always populated; the ledger is the source of truth.
+    """
+    rates = (3.0, 15.0)
+    for prefix, prefix_rates in _BEDROCK_PRICING_USD_PER_MILLION.items():
+        if model.startswith(prefix):
+            rates = prefix_rates
+            break
+    input_cost = (input_tokens / 1_000_000) * rates[0]
+    output_cost = (output_tokens / 1_000_000) * rates[1]
+    return round(input_cost + output_cost, 6)
+
 
 # Output token budget for Bedrock fact-extraction calls.
 #
@@ -239,6 +280,88 @@ def extract_visual_facts_with_bedrock(
         _facts_from_tool_use_response(response, extraction_run_id),
         overflow,
     )
+
+
+def extract_pdf_facts_with_bedrock_native(
+    *,
+    path: Path,
+    filename: str,
+    document_type: str,
+    classification: ClassificationResult,
+    extraction_run_id: str,
+    config: BedrockConfig,
+) -> tuple[list[FactCandidate], dict[str, Any]]:
+    """Extract facts from a PDF via Bedrock's native document block.
+
+    Sends the entire PDF as a ``{"type": "document"}`` content block;
+    Bedrock processes each page as both text + image (per Anthropic's
+    PDF support docs, verified 2026-05-03). This catches scanned and
+    image-only Croesus exports that the text path returned 0 facts on.
+
+    Falls back to ``RuntimeError`` for PDFs above the soft byte cap;
+    the caller (pipeline) routes to the rasterized image-block path
+    in that case.
+
+    Cost-tracking metadata is populated from ``response.usage`` and
+    written into the returned dict so audit-trail rows can preserve
+    per-call token + spend deltas.
+    """
+    pdf_bytes = path.read_bytes()
+    if len(pdf_bytes) > MAX_NATIVE_PDF_BYTES:
+        raise RuntimeError(
+            f"PDF exceeds native document block size cap ({len(pdf_bytes)} > "
+            f"{MAX_NATIVE_PDF_BYTES} bytes); fall back to image-block path."
+        )
+
+    encoded = base64.b64encode(pdf_bytes).decode()
+    builder = build_prompt_for(document_type, classification)
+    prompt = builder(
+        filename,
+        classification,
+        "Use the attached PDF document as the source. The document may "
+        "include scanned pages; extract facts from both the text layer "
+        "and any visible content in scanned regions.",
+    )
+
+    client = _bedrock_client(config)
+    response = client.messages.create(
+        model=config.model,
+        max_tokens=_bedrock_max_tokens(),
+        tools=[FACT_EXTRACTION_TOOL],
+        tool_choice={"type": "tool", "name": "fact_extraction"},
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": encoded,
+                        },
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ],
+    )
+
+    facts = _facts_from_tool_use_response(response, extraction_run_id)
+
+    usage = getattr(response, "usage", None)
+    input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+    output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+    metadata = {
+        "extraction_path": "vision_native_pdf",
+        "bedrock_input_tokens": input_tokens,
+        "bedrock_output_tokens": output_tokens,
+        "bedrock_cost_estimate_usd": estimate_bedrock_cost_usd(
+            config.model, input_tokens, output_tokens
+        ),
+        "bedrock_model": config.model,
+    }
+    return facts, metadata
 
 
 def _facts_from_tool_use_response(

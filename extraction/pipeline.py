@@ -8,9 +8,11 @@ from typing import Any
 from extraction.classification import classify_document
 from extraction.llm import (
     BedrockConfig,
+    extract_pdf_facts_with_bedrock_native,
     extract_text_facts_with_bedrock,
     extract_visual_facts_with_bedrock,
 )
+from extraction.parsers import is_likely_image_pdf
 from extraction.schemas import (
     ClassificationResult,
     Confidence,
@@ -79,6 +81,40 @@ def extract_facts_for_document(
     if data_origin == "real_derived":
         if bedrock_config is None:
             raise RuntimeError("Real-derived extraction requires Bedrock configuration.")
+        is_pdf = path.suffix.lower() == ".pdf"
+        image_likely_pdf = is_pdf and is_likely_image_pdf(parsed)
+        if image_likely_pdf:
+            try:
+                facts, native_metadata = extract_pdf_facts_with_bedrock_native(
+                    path=path,
+                    filename=filename,
+                    document_type=classification.document_type,
+                    classification=classification,
+                    extraction_run_id=extraction_run_id,
+                    config=bedrock_config,
+                )
+                return (
+                    _cap_fact_confidence(facts, classification),
+                    {**metadata, **native_metadata, "extraction_path": "vision_native_pdf"},
+                )
+            except RuntimeError:
+                facts, overflow = extract_visual_facts_with_bedrock(
+                    path=path,
+                    filename=filename,
+                    document_type=classification.document_type,
+                    classification=classification,
+                    extraction_run_id=extraction_run_id,
+                    max_pages=ocr_max_pages,
+                    config=bedrock_config,
+                )
+                return (
+                    _cap_fact_confidence(facts, classification),
+                    {
+                        **metadata,
+                        "ocr_overflow": overflow,
+                        "extraction_path": "vision_image_blocks",
+                    },
+                )
         if parsed.text.strip():
             facts = extract_text_facts_with_bedrock(
                 filename=filename,
@@ -89,7 +125,10 @@ def extract_facts_for_document(
                 max_chars=text_max_chars,
                 config=bedrock_config,
             )
-            return _cap_fact_confidence(facts, classification), metadata
+            return (
+                _cap_fact_confidence(facts, classification),
+                {**metadata, "extraction_path": "text"},
+            )
         facts, overflow = extract_visual_facts_with_bedrock(
             path=path,
             filename=filename,
@@ -101,7 +140,11 @@ def extract_facts_for_document(
         )
         return (
             _cap_fact_confidence(facts, classification),
-            {**metadata, "ocr_overflow": overflow},
+            {
+                **metadata,
+                "ocr_overflow": overflow,
+                "extraction_path": "vision_image_blocks",
+            },
         )
 
     return heuristic_facts(

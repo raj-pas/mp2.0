@@ -6,9 +6,63 @@ from typing import Any
 
 from extraction.schemas import ParsedDocument
 
+# Threshold for "image-likely" PDF detection. A PDF whose average
+# extractable-text density falls below this routes to the native
+# PDF document block path (Bedrock vision) instead of the text path.
+# Tuned 2026-05-03 against Croesus printscreen exports: a typical
+# scanned KYC carries 0-40 chars/page (header watermark only); a
+# typical text PDF carries 800-3000 chars/page.
+IMAGE_PDF_AVG_CHARS_THRESHOLD = 50
+
+# Companion threshold: ratio of pages with ANY extractable text to
+# total pages. Below this we treat the PDF as image-heavy regardless
+# of the average. Catches the Croesus 10-page printscreen with one
+# text cover page (avg might exceed 50, ratio is 0.1).
+IMAGE_PDF_TEXT_PAGE_RATIO_THRESHOLD = 0.5
+
 
 class ParserDependencyError(RuntimeError):
     pass
+
+
+def is_likely_image_pdf(parsed: ParsedDocument) -> bool:
+    """True if ``parsed`` came from a scanned / image-only / sparse PDF.
+
+    Used by ``extraction.pipeline`` to dispatch real-derived extraction
+    to the native PDF document block path (Bedrock vision) instead of
+    the text-only path. Returns False for non-PDF inputs and for
+    text-rich PDFs.
+
+    Signals:
+      1. ``method == "ocr_required"`` — pymupdf returned zero text on
+         every page (pure scan).
+      2. ``text_page_count / page_count < IMAGE_PDF_TEXT_PAGE_RATIO_THRESHOLD``
+         — fewer than half the pages have any extractable text
+         (catches Croesus printscreens with metadata-only cover page).
+      3. average chars/page < ``IMAGE_PDF_AVG_CHARS_THRESHOLD`` —
+         total extracted text is sparse relative to page count
+         (catches very low-density text like single-line headers).
+
+    The thresholds are deliberately conservative: false-positives
+    route text-rich PDFs to the more expensive vision path. False-
+    negatives leave Croesus printscreens stuck on the text path
+    where they previously returned 0 facts. Re-tune via canary if
+    sweep data shows either edge dominating.
+    """
+    if parsed.method == "ocr_required":
+        return True
+    if parsed.method != "pdf_native":
+        return False
+    metadata = parsed.metadata or {}
+    page_count = int(metadata.get("page_count") or 0)
+    if page_count <= 0:
+        return False
+    text_page_count = int(metadata.get("text_page_count") or 0)
+    if text_page_count / page_count < IMAGE_PDF_TEXT_PAGE_RATIO_THRESHOLD:
+        return True
+    total_chars = len((parsed.text or "").strip())
+    avg_chars_per_page = total_chars / page_count
+    return avg_chars_per_page < IMAGE_PDF_AVG_CHARS_THRESHOLD
 
 
 def parse_document_path(path: Path) -> ParsedDocument:
