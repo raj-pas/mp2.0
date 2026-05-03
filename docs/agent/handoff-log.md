@@ -3386,3 +3386,119 @@ addresses it.
 `docs/agent/next-session-starter-prompt.md` between BEGIN/END
 markers. The body now references production-quality-bar.md as
 load-bearing.
+
+## 2026-05-03 (sub-session #1) — Phase 5b.3 + 5b.8 shipped
+
+**Pre-flight at HEAD `59c74a1`:** all gates green — 429 pytest +
+ruff/format clean + PII grep + vocab + OpenAPI codegen all OK +
+typecheck/lint/build clean + migrations clean. Verified the 4
+doc-only commits past `d2abfa1` (`8259278`, `d8a6976`, `ed3ceb2`,
+`59c74a1`) didn't disturb the substrate.
+
+**Phase 5b.3** (commit `11dbc13`; `frontend/src/modals/ReviewScreen.tsx`,
+`frontend/src/i18n/en.json`; +34 / -10 lines):
+
+Discovery: the planned "embed retry + manual-entry buttons inline"
+work was already shipped in earlier R7-era code. `ProcessingPanel`
+already renders both CTAs per failed doc row (lines 343-364). The
+remaining 5b.3 polish was UX hardening, not a refactor:
+
+- Retry button now shows attempt counter when `job.attempts > 0`:
+  "Retry (1/3)" via new `review.retry_with_attempts` i18n key.
+  Advisors see how many retries remain at a glance.
+- Retry button shows "Retrying…" via `review.retrying` while
+  `retry.isPending` instead of staying as "Retry" + just disabled.
+- Failed-status chip gets HTML `title` attribute + `aria-label`
+  (`review.failure_chip_aria`) showing the full failure-code copy.
+  Hovering or screen-reading the chip surfaces the actionable
+  explanation; `cursor-help` styling indicates discoverability.
+- Action buttons (Retry, Mark-as-manual-entry) get
+  `aria-describedby` pointing at the inline failure-message
+  `<p id="doc-{id}-failure-msg">`. SR users hear the cause when
+  focused on the CTAs.
+- Existing e2e (`manual-entry-flow.spec.ts`) is unchanged —
+  failed-status chip selector, inline failure copy, and
+  manual-entry-button-by-name all still match. Pure-additive.
+
+**Phase 5b.8** (commit `72008eb`; new `frontend/src/lib/upload-recovery.ts`,
+`frontend/src/modals/DocDropOverlay.tsx`,
+`frontend/src/App.tsx`, `frontend/src/i18n/en.json`; +248 / -3
+lines):
+
+Detect 401 mid-upload, save draft, restore on re-login.
+
+- New `lib/upload-recovery.ts` provides
+  `saveUploadDraft({label, data_origin, files})`,
+  `consumeUploadDraft()` (one-shot read + clear),
+  `peekUploadDraft()` (read without clearing — used by
+  AuthenticatedShell for navigation decision), `clearUploadDraft()`.
+  Storage key `mp20.upload-draft.v1`; TTL 30 minutes (avoids stale
+  drafts from prior days). Stash shape `{label, data_origin,
+  files: {name,size}[], saved_at: timestamp}`.
+- **Cannot preserve File bytes**: browsers don't expose them via
+  sessionStorage. Persisting metadata only is the honest
+  production-grade trade-off; 30-min TTL + advisor re-pick is
+  cleaner than IDB-blob-store complexity (out of scope per the
+  150-250 line budget).
+- `DocDropOverlay`: on mount, `consumeUploadDraft()` restores
+  `label` + `data_origin` + sets new `pendingFileMeta` state with
+  the original file names/sizes; toasts via
+  `docdrop.draft_restored_*` keys. On 401 from `useUploadDocuments`
+  OR `useCreateWorkspace` (both can throw 401 mid-flow), the
+  handler calls `saveUploadDraft({...})` BEFORE invalidating
+  `SESSION_QUERY_KEY` — bouncing SessionGate to LoginRoute. New
+  `discardDraft` button gives an explicit escape hatch.
+- New "Resuming draft" UI section appears between dropzone and
+  picked-files list when `pendingFileMeta.length > 0 && files.length
+  === 0`. Shows file names + sizes in a list with
+  `border-accent/40` styling so the advisor knows exactly what to
+  re-pick. Disappears the moment they pick or drop new files.
+- `App.tsx` `AuthenticatedShell` gets a new `useEffect` that
+  calls `peekUploadDraft()` on mount; if a draft exists AND the
+  user is an advisor AND they're not already on `/review`,
+  navigate to `/review` (replace) so DocDropOverlay's mount
+  effect can consume it. Sequencing: peek→navigate→consume is
+  safe because consume only fires from DocDropOverlay's mount,
+  which only renders on /review.
+- i18n adds `docdrop.session_expired_title/body`,
+  `docdrop.draft_restored_title/body_one/body_other`,
+  `docdrop.draft_recovered_title/body_one/body_other`,
+  `docdrop.draft_discard`. Vocab CI clean.
+
+**Gates after sub-session #1 (HEAD `72008eb`):**
+- 429 pytest passing (no backend changes; baseline preserved)
+- ruff check + format clean
+- PII grep guard OK
+- Vocab CI OK
+- OpenAPI codegen gate OK (no schema changes)
+- Migrations clean (no model changes)
+- typecheck clean
+- lint clean (`max-warnings=0`)
+- build OK (1847 modules; ReviewRoute chunk +2KB; pre-existing
+  bundle-size warning tracked in
+  `docs/agent/production-quality-bar.md` §1.10)
+
+**What's NOT in scope for this sub-session (per plan):**
+- Live e2e + cross-browser smoke (Phase 7 sub-session #6)
+- Vitest unit tests for the new pure module
+  `lib/upload-recovery.ts` (Phase 6 sub-session #4)
+- Property tests around the TTL boundary (Phase 6 sub-session #4)
+- Backend-side: nothing — these are pure frontend changes
+
+**Open items / next sub-session:**
+- Sub-session #2 picks up Phase 5b.4 (DocDropOverlay improvements
+  — failed-file retry, size-limit copy, duplicate detection) +
+  5b.5 (DocDetailPanel slide-out) + 5b.7 ClientPicker pagination
+  + 5b.10/11 FactOverride end-to-end + 5b.12/13 bulk + defer
+  conflict UI + UX-polish pass per
+  `docs/agent/production-quality-bar.md` §1.10 + §6.
+- Phase 6 will write unit tests for `lib/upload-recovery.ts`
+  (TTL expiry, malformed JSON tolerance, missing window guard).
+- Phase 7 e2e will simulate the full 401-mid-upload → re-login →
+  resume flow once the backend test hooks are in place.
+
+**Bring-up for sub-session #2:** the starter prompt at
+`docs/agent/next-session-starter-prompt.md` is still authoritative;
+just bump the sub-session-table cursor from #1 to #2 in the
+intro. The bring-up reading list (production-quality-bar +
+recent handoffs + master plan) is unchanged.
