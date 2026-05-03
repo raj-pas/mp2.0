@@ -3502,3 +3502,104 @@ Detect 401 mid-upload, save draft, restore on re-login.
 just bump the sub-session-table cursor from #1 to #2 in the
 intro. The bring-up reading list (production-quality-bar +
 recent handoffs + master plan) is unchanged.
+
+## 2026-05-03 (sub-session #1, hardening pass) — Phase 5b.8 orphan-workspace race closed (Option D + E)
+
+**HEAD:** `4ce86ad` (5 commits past `59c74a1`).
+
+**Trigger:** user asked "Do we need any deep testing and work
+around the current completed round" and chose to fix risk #1
+(orphan-workspace race) with Option C, requesting deep
+reasoning across alternatives.
+
+**Risk re-stated:** the prior 5b.8 shape stashed the upload
+draft only inside the upload-401 onError handler. Two
+pilot-grade gaps:
+  1. If create succeeded (200) but upload 401'd, the workspace
+     was created in DB with zero documents. Re-login + re-pick
+     called `useCreateWorkspace` AGAIN, leaving the first row
+     as an orphan with no advisor-visible owner.
+  2. If create itself 401'd (auth could expire between dropzone
+     and click), no draft was stashed at all — advisor had to
+     retype label + re-pick files from scratch.
+
+**Options canvassed:**
+- A (frontend cleanup on 401): impossible — auth lost; can't
+  call DELETE.
+- A' (server-side cron): durable but ops-heavy; doesn't address
+  the second-orphan-on-resume problem.
+- B (document as known leak): violates "no cutting corners."
+- C (reuse workspace_id): user-suggested; closes orphan but
+  silently fails if workspace deleted server-side.
+- D (C + 404 fallback): self-heals on edge cases at +10 lines.
+- E (stash-before-create): captures create-401s at +5 lines;
+  complementary to D.
+- F (backend draft lifecycle + cron): most production-grade
+  but bears migration risk near pilot tag.
+- G (create-or-get by label): surprises advisors with
+  intentional label reuse.
+
+**Choice: D + E together.** Justification: closes both gaps;
+stays in budget (~70 lines); robust to server-side state
+divergence; no migration risk; sets a defensive-resilience
+pattern for similar future flows. F deferred to sub-session
+#4/#6 where the schema + test budget fits. Rejected literal
+C in favor of D because pure-C silently fails on 404
+(undetectable as a "successful" no-op for the advisor).
+
+**Implementation (commit `4ce86ad`; +170 / −76 lines):**
+- `lib/upload-recovery.ts`: `UploadDraft` gains optional
+  `workspace_id`; `saveUploadDraft` accepts it.
+- `DocDropOverlay.tsx`:
+  - New `pendingWorkspaceId` state.
+  - On mount, restore from draft alongside label + dataOrigin
+    + pendingFileMeta.
+  - `handleStart` now stashes the draft IMMEDIATELY before any
+    API call (Option E). After successful create, re-stashes
+    with `workspace_id` (Option D foundation).
+  - If `pendingWorkspaceId` is set, skip create and call
+    `executeUpload(pendingWorkspaceId, allowCreateFallback=true)`.
+    SHA256 dedup in upload endpoint makes re-upload safe even
+    if some files succeeded before the prior 401.
+  - `executeUpload`'s onError handles 3 paths: 401 → bounce;
+    404 + fallback allowed → fall through to fresh create;
+    other → toast.
+  - `executeCreateThenUpload` is the orchestrator helper used
+    both from initial flow and the 404 fallback path.
+  - `handleUploadSuccess` now clears the draft +
+    pendingWorkspaceId + pendingFileMeta on resume completion.
+  - `discardDraft` clears pendingWorkspaceId too.
+- `web/api/tests/test_review_ingestion.py`:
+  - New `test_upload_to_stale_workspace_id_returns_404` pins
+    the 404 contract that the frontend fallback depends on.
+    A future refactor that changed the 404 to a 403 (e.g., by
+    moving the `can_access_real_pii` check after the
+    `_workspace_for_user` lookup) would silently break
+    recovery; this regression catches it.
+
+**Gates (HEAD `4ce86ad`):** 430 pytest (+1 new) + ruff +
+format + PII grep + vocab + OpenAPI codegen + migrations +
+frontend typecheck/lint/build all green.
+
+**Edge case acknowledged but NOT fixed (intentional):** if an
+advisor edits the label during resume, the upload still goes
+to the existing workspace (whose stored label is the original).
+The workspace list reflects the original label. Cosmetic
+mismatch with no functional consequence. Fix would require a
+PATCH workspace endpoint (not in scope for sub-session #1).
+Captured here so sub-session #2 can decide whether to address.
+
+**Tests deferred to sub-sessions #4/#6 (per plan):**
+- Vitest unit tests for `lib/upload-recovery.ts` (TTL boundary,
+  malformed JSON, missing-window guard, workspace_id round-trip).
+- Vitest mock-based test for the 404 fallback path in
+  `DocDropOverlay`.
+- Live e2e simulating the full 401-mid-upload → re-login →
+  resume flow; assert no orphan workspace exists in DB after
+  the round-trip.
+- Hypothesis property test for upload-recovery (any sequence
+  of save/peek/consume/clear is observably idempotent).
+
+**Next sub-session:** #2 still picks up Phase 5b.4/5/7-pag/10/11/12/13
++ UX-polish pass per `docs/agent/production-quality-bar.md`
+§1.10 + §6. Bring-up reading list unchanged.
