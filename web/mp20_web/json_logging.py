@@ -25,13 +25,30 @@ sanitization layer.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
-from pythonjsonlogger.json import JsonFormatter
+# Graceful import: if python-json-logger isn't installed (e.g.,
+# the container image was built before the dep was added), fall
+# back to stdlib `logging.Formatter` so Django boots cleanly.
+# Production deploys must install python-json-logger to get
+# JSON-formatted stdout per Phase 6.9 §4.1.
+try:
+    from pythonjsonlogger.json import JsonFormatter as _BaseJsonFormatter
+
+    _HAS_JSON_LOGGER = True
+except ImportError:  # pragma: no cover — covered by deploy boot path
+    _BaseJsonFormatter = logging.Formatter  # type: ignore[assignment,misc]
+    _HAS_JSON_LOGGER = False
 
 
-class Mp20JsonFormatter(JsonFormatter):
-    """Wrap pythonjsonlogger to inject the per-request UUID."""
+class Mp20JsonFormatter(_BaseJsonFormatter):  # type: ignore[misc,valid-type]
+    """Wrap pythonjsonlogger to inject the per-request UUID.
+
+    Falls back to stdlib Formatter when python-json-logger is not
+    installed; the resulting log lines are plain-text instead of
+    JSON but the Django process still boots.
+    """
 
     def add_fields(  # type: ignore[override]
         self,
@@ -39,6 +56,8 @@ class Mp20JsonFormatter(JsonFormatter):
         record: Any,
         message_dict: dict[str, Any],
     ) -> None:
+        if not _HAS_JSON_LOGGER:
+            return  # plain-text fallback — nothing to inject
         super().add_fields(log_record, record, message_dict)
         # Lazy import to avoid circular: request_id.py is imported
         # by Django's MIDDLEWARE which itself imports this module

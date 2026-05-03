@@ -30,7 +30,10 @@ export default {
           2: "rgba(14,17,22,0.18)",
         },
         muted: {
-          DEFAULT: "#6B7280",
+          // Phase 6 sub-session #6 — darkened from #6B7280 so the
+          // base muted color clears WCAG 2.1 AA 4.5:1 against the
+          // bg-paper-2 (#F1EDE5) surface. Prior #6B7280 hit 4.14:1.
+          DEFAULT: "#5A6271",
           2: "#9CA3AF",
         },
         // Risk band colors (canon-aligned descriptors)
