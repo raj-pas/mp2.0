@@ -3826,3 +3826,179 @@ Global prefers-reduced-motion (`frontend/src/index.css`):
 #3: Phase 5c UX spec docs + Phase 6 scaffolding (factory_boy +
 Vitest + RTL + jest-dom). Bring-up unchanged: production-quality-bar
 + recent handoffs + master plan.
+
+## 2026-05-03 (sub-sessions #3 → #7) — Cumulative close-out
+
+**HEAD:** `3d16134` (12 commits past `1c4e0aa`).
+
+User authorized continuous execution of all 7 sub-sessions; this
+entry consolidates #3-#7 (sub-session #2 has its own entry above).
+
+### Commits ordered (#3 → #7)
+
+1. `d85c0bc` — Phase 5c UX spec + design-system docs + Phase 6
+   scaffolding (Vitest + RTL + jest-dom + memory pointers)
+2. `d90cd6f` — Phase 6 deep tests via 4 parallel subagents +
+   2 pilot-grade bug fixes (REDACT-2 AMEX, tour TOCTOU race)
+3. `4864759` — Phase 6.9 + monitoring: perf budget gate +
+   JSON logging + request-id middleware
+4. `3d16134` — Phase 7 e2e validation against live stack +
+   1 a11y bug fixed (text-muted contrast)
+
+### Sub-session #3 — UX docs + Phase 6 scaffolding
+
+`docs/agent/ux-spec.md` (living, ~600 lines) — UX dimensions
+taxonomy A-M with status (✓/⚠/✗/🚫) + file:line evidence + tier
+per row. Top-level design principles (vocabulary, real-PII,
+AI-numbers, source-priority, engine-is-library). Component
+taxonomy (when to use Card vs Banner vs Modal vs Slide-out vs
+Toast vs Coachmark vs Inline form). Decision log (append-only).
+
+`docs/agent/design-system.md` (living, ~400 lines) — tokens
+(colors, typography, spacing, radius, shadows, keyframes), risk
++ fund vocabulary, full component inventory, patterns, copy
+conventions, ErrorBoundary architecture, focus-management
+patterns, mutation-hook patterns.
+
+CLAUDE.md "Useful Project Memory" updated with both pointers.
+`project_ux_spec.md` auto-memory written; MEMORY.md index
+updated. Future Claude Code sessions auto-load + converge on the
+same UX canon.
+
+Phase 6 scaffolding: Vitest 2.1.8 + @testing-library/react 16.1
++ jest-dom 6.6.3 + @testing-library/user-event 14.5 + jsdom 25
+installed. New `vitest.config.ts` with @vitejs/plugin-react +
+jsdom + setup.ts that mocks react-i18next so `t(key)` returns
+the key. New scripts: `test:unit` / `test:unit:watch` /
+`test:unit:coverage`. First scaffolding test for
+`lib/upload-recovery.ts` — 8 tests passing.
+
+### Sub-session #4 — Phase 6 deep tests (subagent-parallel)
+
+Dispatched 4 parallel general-purpose agents:
+
+- **Agent 1 (Hypothesis property suites):** 3 files, 715 lines,
+  17 tests. FactOverride append-only, reconciliation source-priority,
+  conflict state-machine. Properties replayed through API endpoints.
+- **Agent 2 (Concurrency stress + auth/RBAC matrix):** 2 files,
+  778 lines, 80 tests. 100 parallel ThreadPoolExecutor calls per
+  state-changing endpoint; 4-role × 18-endpoint matrix.
+- **Agent 3 (Edge cases + PII fuzzing + factories + DB invariants):**
+  5 files, 1497 lines, 246 tests. factory_boy fixtures, empty/1000-fact/
+  no-canonical/French-Canadian edge cases, ~30-row PII corpus ×
+  6 surfaces × Hypothesis fuzz, 17 DB invariant tests.
+- **Agent 4 (Frontend Vitest):** 6 files, 781 lines, 32 tests.
+  ConfidenceChip, PilotBanner, FeedbackButton, WelcomeTour,
+  ConflictCard, DocDetailPanel.
+
+Plus migration rollback tests (main thread): 3 tests verifying
+0010 + full session round-trip + audit app round-trip.
+
+**Bugs surfaced + closed:**
+
+- **REDACT-2 (AMEX 4-6-5 PII leak):** `_CREDIT_CARD_PATTERN`
+  required strict 4-4-4 grouping; AMEX 4-6-5 (3782-822463-10005)
+  slipped through. Extended pattern to alternate Visa/MC/Discover
+  (4-4-4-1+) with AMEX (4-6-5). 193 adversarial tests now pass
+  including the prior-xfail `cc-amex-15` case.
+- **Tour TOCTOU race:** TourCompleteView's check-then-update
+  emitted up to 8 audit events under 100/20 concurrency.
+  Wrapped in `transaction.atomic()` + `select_for_update()`
+  on AdvisorProfile. Concurrency stress test now asserts
+  exactly 1 audit event per advisor across N concurrent calls.
+
+**Bugs flagged but NOT fixed (need product decision):**
+
+- Conflict resolve / bulk-resolve / defer endpoints have no
+  "already-resolved" short-circuit; concurrent writes succeed
+  with last-write-wins. Lock guarantees correctness; UX semantics
+  could be tighter (return 409 on re-resolve attempt).
+- Disclaimer/acknowledge emits audit per call (not just first
+  ack). Documented contract.
+- `current_facts_by_field` order-dependence under exact priority
+  ties (latent fragility, masked by Meta.ordering).
+- Currency-field normalization can swallow same-class
+  disagreements (intended; normalize-then-compare).
+
+### Sub-session #5 — Phase 6.9 perf gate + JSON logging
+
+`web/api/tests/test_perf_budgets.py` — 6 endpoint benchmarks via
+pytest-benchmark. Each runs 20 rounds; asserts P50 (mean) < 250ms
+/ P99 (max) < 1000ms (locked decision #18). Measured 1.5–12ms mean
+locally — ~200x headroom. autouse fixture skips perf tests under
+`--benchmark-disable` for fast feedback.
+
+`web/mp20_web/json_logging.py` + `request_id.py` — JSON formatter
+extends pythonjsonlogger to inject the per-request UUID;
+RequestIDMiddleware mints / honors UUIDs + echoes on responses.
+Both wired into Django settings. 4 middleware tests pin the
+contract. Graceful ImportError fallback for python-json-logger
+absence so dev containers boot cleanly.
+
+### Sub-session #6 — Phase 7 e2e validation (live stack)
+
+Backend Docker compose + Vite dev server live + verified.
+
+- foundation.spec.ts: 13/13 ✓ (advisor + analyst flows R2-R9)
+- pilot-features-smoke.spec.ts: 4/4 ✓ (axe + PilotBanner + Feedback)
+- real-browser-smoke.spec.ts: 1/1 ✓ (R8 methodology overlay)
+- manual-entry-flow.spec.ts: SKIPPED (fixture dep on
+  "Forced-failure UI test" workspace).
+
+**Real bug closed:** color-contrast violation on `text-muted`
+(#6B7280) over `bg-paper-2` (#F1EDE5) — measured 4.14:1, fails
+WCAG 2.1 AA 4.5:1 for normal text. Darkened to #5A6271. Now
+passes 4.5:1 on both `bg-paper` + `bg-paper-2`.
+
+**Tooling false-positive:** Radix CSS-escape-pattern IDs
+(`:r1:-content-overview`) flagged by axe-core 4.11; disabled
+`aria-valid-attr-value` rule with inline comment.
+
+**Test-state hardening:** PilotBanner test now tests BEHAVIOR
+(dismissal persists across reload) rather than boot state.
+Feedback toast selector scoped to `[data-sonner-toaster]` to
+avoid strict-mode collision.
+
+`docs/agent/phase7-validation-results-2026-05-03.md` captures
+the full procedure including the demo-advisor pre-ack Django
+shell snippet for Mon 2026-05-04 demo prep.
+
+### Final gates (HEAD `3d16134`)
+
+- 786 backend pytest passing (+329 new across sub-sessions
+  #4 + #5 + #6) + 6 perf-bench skipped under `--benchmark-disable`
+- 40 frontend Vitest passing (+32 new in #4)
+- 18 Playwright e2e against live stack (13 + 4 + 1)
+- Backend perf gate: 6/6 within budget (1.5-12ms mean vs 250ms)
+- ruff/format clean, PII grep + vocab + OpenAPI codegen +
+  migrations clean, frontend typecheck/lint/build clean
+
+### What's deferred to user supervision (not agent scope)
+
+- Full 7-folder R10 sweep against
+  `/Users/saranyaraj/Documents/MP2.0_Clients/` ($30-150 Bedrock;
+  visual PII-redaction validation needs human eye on evidence
+  quotes).
+- Cross-browser spot-check (Safari + Firefox) for the demo path.
+- Demo-state restore for Mon 2026-05-04 (procedure documented).
+- Pilot dress rehearsal walkthrough.
+
+### Tag
+
+`v0.1.0-pilot` remains at `d2abfa1`. The current HEAD includes
+post-tag sub-sessions #1-#7 work; user may choose to bump tag to
+`v0.1.1-pilot` (or similar) before the Mon push.
+
+### Bring-up for next session (post-pilot work)
+
+The pilot ships Mon 2026-05-08. Post-pilot iteration should
+read:
+- `docs/agent/phase9-fact-quality-iteration.md` — fact-quality
+  recovery without re-introducing hallucinations.
+- `docs/agent/post-pilot-ux-backlog.md` — Tier-3 UX items.
+- `docs/agent/ux-spec.md` + `design-system.md` — durable UX
+  canon for any new advisor surfaces.
+
+Production-quality-bar.md is now mostly addressed; remaining
+items are explicitly post-pilot (visual regression, mobile, full
+a11y audit, advanced collab).
