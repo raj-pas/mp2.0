@@ -3311,3 +3311,78 @@ session's first message.
 **Pointer for next sub-session:** read
 `docs/agent/next-session-starter-prompt.md` between BEGIN/END
 markers. It is the bring-up brief.
+
+---
+
+## 2026-05-03 (later) — production-quality-bar + revised sub-session plan
+
+After the Phase 8 commit + initial starter prompt, user flagged
+that the starter prompt undersold Phase 7 (the original
+end-to-end validation gate) and trimmed UX-polish + test-depth
+items that matter for an advisor-grade product.
+
+**HEAD `<sha>` production-quality-bar +
+revised starter prompt** —
+* New `docs/agent/production-quality-bar.md` (~480 lines, 9
+  numbered sections):
+  - §1 per-surface UX polish checklist (TopBar, ClientPicker,
+    Treemap, Account/Goal route, Review screen, Conflict
+    resolution, Doc-drop, Wizard, Realignment) with explicit
+    `[gap]` flags for items missing today.
+  - §2 UX inspirations (Linear keyboard-first; Notion
+    slide-outs; Stripe data tables; GitHub PR review;
+    Asana multi-select; macOS HIG modal/sheet/popover
+    discipline).
+  - §3 end-to-end test coverage map (unit + hook + integration
+    + Hypothesis + concurrency stress + edge cases + migration
+    rollback + PII adversarial fuzzing (NEW) + auth/RBAC matrix
+    (NEW) + DB invariants + perf budgets + real-browser smoke
+    + axe-core full-route + cross-browser spot-check (NEW) +
+    visual regression (NEW; optional) + demo dress rehearsal
+    (NEW)).
+  - §4 production infrastructure (JSON logging + monitoring +
+    audit retention + PII data classification + secrets
+    rotation + disaster recovery).
+  - §5 production-grade anti-patterns (8 items beyond the
+    master plan's anti-patterns).
+  - §6 sub-session #2 UX-polish-pass scope expansion.
+  - §7 sub-session #6 — Phase 7 full validation procedure.
+  - §8 sub-session #7 — Monday push prep.
+  - §9 quality bar at every per-phase ping (5 explicit
+    questions every ping must answer).
+* Revised starter prompt
+  (`docs/agent/next-session-starter-prompt.md`):
+  - Sub-session table extended from 5 to 7 (added Phase 7 full
+    validation as discrete #6; final push prep as #7).
+  - Sub-session #2 expanded with UX-polish pass.
+  - Sub-session #4 expanded with auth/RBAC matrix + PII
+    adversarial fuzzing + audit-invariant property suite +
+    per-component Vitest + DB-invariant expansion.
+  - Sub-session #5 expanded with JSON logging + monitoring
+    hooks.
+  - §1 reading list adds production-quality-bar.md as
+    LOAD-BEARING (every sub-session from #2 gates on its items).
+* CLAUDE.md "Useful Project Memory" extended with the new
+  production-quality-bar pointer.
+
+**What this session FAILED to deliver in scope (now captured
+explicitly in production-quality-bar.md):**
+- Phase 7 full e2e validation including 7-folder R10 sweep +
+  Niesner DEMO DRESS REHEARSAL + real-browser cross-browser
+  smoke (Phase 7.4 was NOT optional per original plan; trimmed
+  in mid-session pivot).
+- UX polish pass (loading skeletons, empty states, error
+  recovery, focus mgmt, kbd nav, prefers-reduced-motion).
+- Auth/RBAC matrix coverage.
+- PII adversarial fuzzing.
+- JSON logging + monitoring.
+- PII data classification matrix.
+
+These are now first-class items in sub-sessions #2, #4, #5, #6.
+The user pushed back on the omission and the revised plan
+addresses it.
+
+**Bring-up for next sub-session unchanged:** read
+`docs/agent/next-session-starter-prompt.md` between BEGIN/END
+markers. The body now references production-quality-bar.md as
+load-bearing.

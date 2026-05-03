@@ -69,23 +69,34 @@ prompt conflicts with them, **the plan + handoff win**.
    the master plan. 50+ user-locked decisions. Phase 5b sub-phases
    are documented in detail under "Phase 5b — UX Hardening for
    Limited-Beta Pilot".
-2. `docs/agent/handoff-log.md` — read the last 3 entries (in
-   reverse chronological order: `2026-05-02 (later, Phase 7 R10
-   sweep)`, `2026-05-02 (later, Phase 5 wave)`, then the older
-   ones). They capture exact session-by-session deltas + diagnoses
-   + Bedrock cost.
-3. `docs/agent/session-state.md` — current state line + phase line.
-4. `docs/agent/r10-sweep-results-2026-05-02.md` — the per-doc
+2. **`docs/agent/production-quality-bar.md` — LOAD-BEARING.**
+   Per-surface UX polish checklist + UX inspiration sources (Linear,
+   Notion, Stripe, GitHub, Asana) + comprehensive end-to-end test
+   coverage map (unit + hook + integration + property-based +
+   concurrency stress + edge cases + migration rollback + PII
+   adversarial fuzzing + auth/RBAC matrix + DB invariants + perf
+   budgets + real-browser smoke + axe-core full-route +
+   cross-browser + visual regression + demo dress rehearsal) +
+   production infrastructure (logging, monitoring, audit retention,
+   PII data classification, secrets rotation, disaster recovery) +
+   sub-session #2 + #6 + #7 detailed scope. **Every sub-session
+   from #2 onward gates on items from this doc.**
+3. `docs/agent/handoff-log.md` — read the last 3 entries (in
+   reverse chronological order: `2026-05-03`,
+   `2026-05-02 (later, Phase 7 R10 sweep)`, `2026-05-02 (later,
+   Phase 5 wave)`). They capture exact session-by-session deltas +
+   diagnoses + Bedrock cost.
+4. `docs/agent/session-state.md` — current state line + phase line.
+5. `docs/agent/r10-sweep-results-2026-05-02.md` — per-doc
    structural diff that surfaced the −41% recall trade-off; read
    for context on the canon §9.4.5 quality wins + the Phase 9
    recovery plan.
-5. `docs/agent/phase9-fact-quality-iteration.md` — post-pilot
-   fact-quality iteration plan (10 alternatives canvassed +
-   recommended layered approach + stop conditions). Don't execute
-   Phase 9 in this sub-session; it's post-pilot scope.
-6. `docs/agent/pilot-rollback.md` + `docs/agent/pilot-success-metrics.md`
-   — Phase 8 outputs; you'll reference these when adjusting
-   downstream behavior or when coordinating with ops.
+6. `docs/agent/phase9-fact-quality-iteration.md` — post-pilot
+   fact-quality iteration plan (10 alternatives canvassed). Don't
+   execute Phase 9 in this sub-session; it's post-pilot scope.
+7. `docs/agent/pilot-rollback.md` + `docs/agent/pilot-success-metrics.md`
+   — Phase 8 outputs; reference these when adjusting downstream
+   behavior or coordinating with ops.
 
 Skim only — these docs are dense. The Phase 5b sub-phase mappings
 (below) tell you which doc-section is relevant for each commit.
@@ -94,15 +105,20 @@ Skim only — these docs are dense. The Phase 5b sub-phase mappings
 
 This is a deliberate multi-sub-session effort. Each sub-session
 ends with a commit + per-phase ping + suggested `/compact` before
-the next sub-session. The plan order:
+the next sub-session. **The plan order (revised 2026-05-03)
+to put Phase 7 back as a first-class validation gate + add UX
+polish + auth/RBAC matrix + PII adversarial fuzzing + cross-browser
++ axe-core full route coverage + demo dress rehearsal:**
 
-| Sub-session | Phase scope | Estimated commits | Estimated lines |
+| Sub-session | Phase scope | Est commits | Est lines |
 |---|---|---|---|
 | **#1 (this one — START HERE)** | 5b.3 + 5b.8 | 2-3 | 200-400 |
-| #2 | 5b.4 + 5b.5 + 5b.7-pag + 5b.10/11 + 5b.12/13 | 4-6 | 1500-2200 |
-| #3 | 5c (UX spec + design system) + Phase 6 scaffolding (factory_boy + Vitest) | 2-3 | 800-1200 |
-| #4 | Phase 6 deep tests (Hypothesis + concurrency stress + edge cases + migration rollback) | 4-6 | 1500-2500 |
-| #5 | Phase 6.9 perf budget + final gates + Monday push prep | 2-3 | 400-800 |
+| #2 | 5b.4 + 5b.5 + 5b.7-pag + 5b.10/11 + 5b.12/13 **+ UX-polish pass** (loading skeletons, empty states, error recovery, focus mgmt, kbd nav, prefers-reduced-motion, number/date formatting audit, toast dedup, hover delay) per `production-quality-bar.md` §1.10 + §6 | 5-7 | 1700-2600 |
+| #3 | 5c (UX spec + design system docs) + Phase 6 scaffolding (factory_boy + Vitest + RTL + jest-dom) | 2-3 | 800-1200 |
+| #4 | Phase 6 deep tests (subagent-parallel) — Hypothesis + concurrency stress + edge cases + migration rollback **+ auth/RBAC matrix (`test_auth_rbac_matrix.py`) + PII adversarial fuzzing (`test_pii_adversarial.py`) + audit-invariant property suite + per-component Vitest unit tests + DB-invariant expansion** per `production-quality-bar.md` §3.1–§3.10 | 5-7 | 2000-3000 |
+| #5 | Phase 6.9 perf budget gate + JSON logging + monitoring hooks per `production-quality-bar.md` §4.1–§4.2 | 2-3 | 500-900 |
+| **#6 (NEW)** | **Phase 7 — full end-to-end validation.** Real-browser smoke + cross-browser spot-check (Safari + Firefox) + 7-folder R10 sweep (re-upload missing folders OR documented partial) + Niesner DEMO DRESS REHEARSAL + axe-core every route + PII adversarial fuzzing live + visual regression spot checks + demo state restore. Per `production-quality-bar.md` §3.12–§3.16 + §7.1–§7.7 | 3-5 | 600-1200 |
+| **#7 (NEW)** | Final gates + push readiness check + cumulative ping + tag verification + Monday push staged. Per `production-quality-bar.md` §8 | 1-2 | 200-400 |
 
 **This sub-session executes #1 only.** Stop after Phase 5b.3 +
 5b.8 commit + per-phase ping. Suggest `/compact` to the user before
@@ -388,22 +404,37 @@ phase. Then suggest `/compact` to the user.
 ## 9. After this sub-session
 
 The next sub-session (#2) continues the polish remainder:
-5b.4 + 5b.5 + 5b.7-pagination + 5b.10/11 + 5b.12/13. The
-`docs/agent/handoff-log.md` entries this session generates
+5b.4 + 5b.5 + 5b.7-pagination + 5b.10/11 + 5b.12/13 **+ the
+UX-polish pass per `production-quality-bar.md` §1.10 + §6**.
+The `docs/agent/handoff-log.md` entries this session generates
 will be the bring-up context for #2.
 
-The deferred sub-sessions:
+The deferred sub-sessions (per the table in §2):
+
 - **#3:** Phase 5c UX spec + design-system docs (parallelize:
   one subagent writes design-system.md while you write
   ux-spec.md). Phase 6 scaffolding: factory_boy fixtures + Vitest
   + RTL + jest-dom setup.
-- **#4:** Phase 6 deep tests — **subagent-parallel**: 3 agents
-  writing the 3 Hypothesis property suites concurrently while
-  you orchestrate. Plus concurrency stress + edge cases +
-  migration rollback.
-- **#5:** Phase 6.9 perf budget gate via pytest-benchmark
-  (P50<250ms / P99<1000ms). Final gates. Monday push prep
-  (verify CI workflow has all the new gates wired).
+- **#4:** Phase 6 deep tests — **subagent-parallel** (3 agents
+  writing 3 Hypothesis property suites concurrently). Plus
+  concurrency stress + edge cases + migration rollback **+
+  auth/RBAC matrix + PII adversarial fuzzing + audit-invariant
+  properties + per-component Vitest unit tests + DB-invariant
+  expansion** per `production-quality-bar.md` §3.
+- **#5:** Phase 6.9 perf budget gate (pytest-benchmark; P50<250ms
+  / P99<1000ms) **+ JSON logging + monitoring hooks** per
+  `production-quality-bar.md` §4.1–§4.2.
+- **#6 (Phase 7 — full e2e validation):** real-browser smoke +
+  cross-browser (Safari + Firefox spot-check) + 7-folder R10
+  sweep (re-upload missing folders if available, OR documented
+  partial) + Niesner DEMO DRESS REHEARSAL + axe-core every route
+  + every modal + every slide-out + PII adversarial fuzzing live
+  + optional visual regression + demo state restore for Monday.
+  Per `production-quality-bar.md` §3.12–§3.16 + §7.1–§7.7.
+- **#7 (Monday push prep):** cumulative ping summarizing entire
+  pilot release; final CI gate verification; tag intact;
+  push staged but NOT executed (user pushes Monday morning). Per
+  `production-quality-bar.md` §8.
 
 ## 10. Communication style
 

@@ -149,3 +149,4 @@ fails on drift.
 - `docs/agent/pilot-rollback.md` — Sev-1 rollback procedure for the limited-beta pilot (kill-switch, code revert, DB recovery, on-call list)
 - `docs/agent/pilot-success-metrics.md` — quantitative pilot success metrics + weekly cadence + GA criteria + off-ramp conditions
 - `docs/agent/next-session-starter-prompt.md` — copy/paste-ready bring-up prompt for the next sub-session (pre-flight checks + locked decisions + sub-session plan)
+- `docs/agent/production-quality-bar.md` — production-grade UX-polish + comprehensive test-coverage map + production-infra requirements; load-bearing for sub-sessions #2-#7 (every per-phase ping gates on items from this doc)
