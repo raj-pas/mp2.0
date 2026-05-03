@@ -34,6 +34,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
+    # Request ID first so every later middleware + view can correlate
+    # log lines via thread-local state (Phase 6.9 — sub-session #5).
+    "web.mp20_web.request_id.RequestIDMiddleware",
     "django.middleware.security.SecurityMiddleware",
     # CSP middleware applies after security (locked decision #22c).
     "csp.middleware.CSPMiddleware",
@@ -187,3 +190,51 @@ CONTENT_SECURITY_POLICY = {
 # AWS turns OTEL_SDK_DISABLED=false and points OTEL_EXPORTER_OTLP_ENDPOINT
 # at Elastic APM. Instrumentation is wired in web/mp20_web/otel.py.
 MP20_OTEL_ENABLED = os.getenv("MP20_OTEL_ENABLED", "0") == "1"
+
+# Phase 6.9 (sub-session #5): JSON logging to stdout. Docker logs +
+# journalctl + (post-pilot) CloudWatch / Elastic can parse fields
+# without regex. Uses python-json-logger; Mp20JsonFormatter injects
+# the per-request UUID from RequestIDMiddleware.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "json": {
+            "()": "web.mp20_web.json_logging.Mp20JsonFormatter",
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        },
+    },
+    "handlers": {
+        "stdout_json": {
+            "class": "logging.StreamHandler",
+            "formatter": "json",
+        },
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["stdout_json"],
+            "level": os.getenv("MP20_LOG_LEVEL", "INFO"),
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["stdout_json"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "web": {
+            "handlers": ["stdout_json"],
+            "level": os.getenv("MP20_LOG_LEVEL", "INFO"),
+            "propagate": False,
+        },
+        "extraction": {
+            "handlers": ["stdout_json"],
+            "level": os.getenv("MP20_LOG_LEVEL", "INFO"),
+            "propagate": False,
+        },
+        "engine": {
+            "handlers": ["stdout_json"],
+            "level": os.getenv("MP20_LOG_LEVEL", "INFO"),
+            "propagate": False,
+        },
+    },
+}
