@@ -815,6 +815,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/review-workspaces/{workspace_id}/documents/{document_id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Phase 5b.5: GET per-doc detail with contributed facts.
+         *
+         *     Returns the standard ReviewDocument shape plus a
+         *     `contributed_facts` array — the subset of workspace facts where
+         *     THIS document is the canonical source. Drives the slide-out
+         *     DocDetailPanel so advisors see "this DOB came from KYC.pdf,
+         *     this current_value came from TFSA-statement.pdf" without
+         *     inferring from conflict cards.
+         */
+        get: operations["review_workspaces_documents_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/review-workspaces/{workspace_id}/documents/{document_id}/manual-entry/": {
         parameters: {
             query?: never;
@@ -2282,6 +2308,27 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    review_workspaces_documents_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: number;
                 workspace_id: string;
             };
             cookie?: never;

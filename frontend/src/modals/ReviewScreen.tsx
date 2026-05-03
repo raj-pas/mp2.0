@@ -26,6 +26,7 @@
  * card layout is a focused first-cut, with R10 polish layering in
  * evidence quote tooltips and per-conflict reason capture.
  */
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
@@ -45,6 +46,7 @@ import {
   useRetryDocument,
 } from "../lib/review";
 import { ConflictPanel } from "./ConflictPanel";
+import { DocDetailPanel } from "./DocDetailPanel";
 import { normalizeApiError } from "../lib/api-error";
 import { toastError, toastSuccess } from "../lib/toast";
 import { cn } from "../lib/cn";
@@ -57,6 +59,7 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [, setRememberedId] = useRememberedClientId();
+  const [openDocId, setOpenDocId] = useState<number | null>(null);
 
   const workspaceQuery = useReviewWorkspace(workspaceId, { polling: true });
   const stateQuery = useReviewedState(workspaceId);
@@ -204,6 +207,7 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
                 },
               )
             }
+            onOpenDetail={(documentId) => setOpenDocId(documentId)}
             retrying={retry.isPending}
             markingManualEntry={manualEntry.isPending}
           />
@@ -237,6 +241,11 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
           <StatePeekPanel state={stateQuery.data?.state} />
         </aside>
       </div>
+      <DocDetailPanel
+        workspaceId={workspaceId}
+        documentId={openDocId}
+        onClose={() => setOpenDocId(null)}
+      />
     </section>
   );
 }
@@ -278,12 +287,14 @@ function ProcessingPanel({
   workspace,
   onRetry,
   onMarkManualEntry,
+  onOpenDetail,
   retrying,
   markingManualEntry,
 }: {
   workspace: ReviewWorkspace;
   onRetry: (documentId: number) => void;
   onMarkManualEntry: (documentId: number) => void;
+  onOpenDetail: (documentId: number) => void;
   retrying: boolean;
   markingManualEntry: boolean;
 }) {
@@ -336,13 +347,20 @@ function ProcessingPanel({
             return (
               <li key={doc.id} className="flex flex-col gap-2 py-2">
                 <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3">
-                  <div className="flex flex-col">
-                    <span className="font-sans text-[12px] text-ink">{doc.original_filename}</span>
+                  <button
+                    type="button"
+                    onClick={() => onOpenDetail(doc.id)}
+                    className="flex flex-col text-left transition-colors hover:bg-paper-2 focus:bg-paper-2 focus:outline-none"
+                    aria-label={t("review.open_doc_detail", { name: doc.original_filename })}
+                  >
+                    <span className="font-sans text-[12px] text-ink underline-offset-2 hover:underline">
+                      {doc.original_filename}
+                    </span>
                     <span className="font-mono text-[10px] text-muted">
                       {doc.document_type ?? doc.extension} ·{" "}
                       {(doc.file_size / 1024).toFixed(1)} KB
                     </span>
-                  </div>
+                  </button>
                   <span
                     {...(failureMessage ? { title: failureMessage } : {})}
                     aria-label={

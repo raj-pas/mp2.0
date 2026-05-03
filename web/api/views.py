@@ -51,6 +51,7 @@ from web.api.review_security import (
 )
 from web.api.review_serializers import (
     ExtractedFactSerializer,
+    ReviewDocumentSerializer,
     ReviewWorkspaceListSerializer,
     ReviewWorkspaceSerializer,
 )
@@ -64,6 +65,7 @@ from web.api.review_state import (
     readiness_for_state,
     reviewed_state_from_workspace,
     section_blockers,
+    serialize_doc_contributed_facts,
     validate_review_state_contract,
 )
 from web.api.serializers import (
@@ -1256,6 +1258,29 @@ class ReviewWorkspaceUploadView(APIView):
             },
         )
         return Response({"uploaded": uploaded, "duplicates": duplicates, "ignored": ignored})
+
+
+class ReviewDocumentDetailView(APIView):
+    """Phase 5b.5: GET per-doc detail with contributed facts.
+
+    Returns the standard ReviewDocument shape plus a
+    `contributed_facts` array — the subset of workspace facts where
+    THIS document is the canonical source. Drives the slide-out
+    DocDetailPanel so advisors see "this DOB came from KYC.pdf,
+    this current_value came from TFSA-statement.pdf" without
+    inferring from conflict cards.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, workspace_id: str, document_id: int):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        workspace = _workspace_for_user(workspace_id, request.user)
+        document = get_object_or_404(workspace.documents, pk=document_id)
+        payload = ReviewDocumentSerializer(document).data
+        payload["contributed_facts"] = serialize_doc_contributed_facts(workspace, document)
+        return Response(payload)
 
 
 class ReviewDocumentRetryView(APIView):

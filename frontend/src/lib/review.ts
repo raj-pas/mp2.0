@@ -289,6 +289,49 @@ export function useUploadDocuments() {
   );
 }
 
+// --------------------------------------------------------------------
+// Per-doc detail (Phase 5b.5 — DocDetailPanel slide-out)
+// --------------------------------------------------------------------
+
+export type ContributedFact = {
+  fact_id: number;
+  field: string;
+  label: string;
+  section: string;
+  value: unknown;
+  confidence: "high" | "medium" | "low";
+  derivation_method: "extracted" | "inferred" | "defaulted";
+  source_location: string;
+  source_page: number | null;
+  redacted_evidence_quote: string;
+  asserted_at: string | null;
+};
+
+export type ReviewDocumentDetail = ReviewDocument & {
+  contributed_facts: ContributedFact[];
+};
+
+export const reviewDocumentKey = (workspaceId: string, documentId: number) =>
+  ["review-workspace", workspaceId, "document", documentId] as const;
+
+export function useReviewDocument(workspaceId: string | null, documentId: number | null) {
+  return useQuery<ReviewDocumentDetail>({
+    queryKey:
+      workspaceId !== null && documentId !== null
+        ? reviewDocumentKey(workspaceId, documentId)
+        : ["review-workspace", "_none", "document", -1],
+    queryFn: () => {
+      if (workspaceId === null || documentId === null) {
+        return Promise.reject(new Error("workspace+document required"));
+      }
+      return apiFetch<ReviewDocumentDetail>(
+        `/api/review-workspaces/${encodeURIComponent(workspaceId)}/documents/${documentId}/`,
+      );
+    },
+    enabled: workspaceId !== null && documentId !== null,
+  });
+}
+
 export function useRetryDocument(workspaceId: string | null) {
   const qc = useQueryClient();
   return useMutation<unknown, Error, { documentId: number }>({

@@ -85,7 +85,22 @@ export default {
         sm: "0 1px 2px rgba(14,17,22,0.04)",
         DEFAULT: "0 4px 12px rgba(14,17,22,0.06)",
         lg: "0 16px 48px rgba(14,17,22,0.08)",
+        xl: "0 24px 64px rgba(14,17,22,0.12)",
         soft: "0 12px 36px rgba(23, 33, 31, 0.08)", // legacy alias
+      },
+      keyframes: {
+        slideInFromRight: {
+          from: { transform: "translateX(100%)" },
+          to: { transform: "translateX(0)" },
+        },
+        slideInFromLeft: {
+          from: { transform: "translateX(-100%)" },
+          to: { transform: "translateX(0)" },
+        },
+        fadeIn: {
+          from: { opacity: "0" },
+          to: { opacity: "1" },
+        },
       },
     },
   },

@@ -533,6 +533,7 @@
     "retry_with_attempts": "Retry ({{attempt}}/{{max}})",
     "retrying": "Retrying…",
     "failure_chip_aria": "Failed. {{message}}",
+    "open_doc_detail": "Open detail panel for {{name}}",
     "commit": "Commit household",
     "committing": "Committing…",
     "commit_success_title": "Household committed",
@@ -594,6 +595,20 @@
     "aria_high": "High confidence",
     "aria_medium": "Medium confidence",
     "aria_low": "Low confidence"
+  },
+  "doc_detail": {
+    "loading": "Loading document…",
+    "load_error": "Could not load document detail.",
+    "close": "Close",
+    "no_contributed": "This document didn't contribute any current facts.",
+    "source_page": "Page {{page}}",
+    "section": {
+      "people": "People",
+      "household": "Household",
+      "accounts": "Accounts",
+      "goals": "Goals",
+      "risk": "Risk"
+    }
   },
   "descriptor": {
     "cautious": "Cautious",

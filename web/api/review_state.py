@@ -746,6 +746,46 @@ def _field_sources(
     }
 
 
+def serialize_doc_contributed_facts(
+    workspace: models.ReviewWorkspace,
+    document: models.ReviewDocument,
+) -> list[dict[str, Any]]:
+    """Phase 5b.5: list facts a single document contributed to the
+    reconciled state.
+
+    Used by the per-doc detail panel to show "this DOB came from
+    KYC.pdf, this current_value came from TFSA-statement.pdf" without
+    forcing the advisor to infer from the conflict cards. Returns
+    only facts where THIS document is the current canonical source
+    (per source-priority hierarchy + classifier confidence + assertion
+    date), so the panel reflects what's actually in `reviewed_state`
+    rather than every fact the doc ever produced.
+    """
+    facts = list(workspace.extracted_facts.select_related("document").all())
+    current = current_facts_by_field(facts)
+    contributed: list[dict[str, Any]] = []
+    for field, fact in current.items():
+        if fact.document_id != document.id:
+            continue
+        contributed.append(
+            {
+                "fact_id": fact.id,
+                "field": field,
+                "label": advisor_label(field),
+                "section": field_section(field),
+                "value": fact.value,
+                "confidence": fact.confidence,
+                "derivation_method": fact.derivation_method,
+                "source_location": fact.source_location,
+                "source_page": fact.source_page,
+                "redacted_evidence_quote": redact_evidence_quote(fact.evidence_quote or ""),
+                "asserted_at": fact.asserted_at.isoformat() if fact.asserted_at else None,
+            }
+        )
+    contributed.sort(key=lambda row: (row["section"], row["label"]))
+    return contributed
+
+
 def _missing(section: str, label: str) -> dict[str, str]:
     return {"section": section, "label": label}
 
