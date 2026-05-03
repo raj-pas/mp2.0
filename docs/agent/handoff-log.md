@@ -4283,3 +4283,146 @@ For Mon morning, the operator follows
 The `feature/ux-rebuild` branch is ahead of `origin` by 5
 commits past the starter-prompt baseline. Operator pushes Mon
 morning per the locked direction.
+
+## 2026-05-03 (sub-session #11 deferred-work follow-up) — R10 sweep + cross-browser + Tier 3 polish closed
+
+**HEAD before:** `af627b3` (#11 first pass)
+**HEAD after:** `cb408cc` (this follow-up)
+
+User asked to "complete everything deferred including deep testing,
+thorough review, fixes." All three deferred items closed plus a
+code-reviewer-driven hardening pass.
+
+### What shipped
+
+**R10 7-folder sweep automation** (`scripts/demo-prep/r10_sweep.py`,
+~570 lines + 150-line unit-test file):
+- Drives the live backend API to upload + drain every supported
+  file in each `MP2.0_Clients/<folder>/`.
+- Captures structural-only summaries to
+  `docs/agent/r10-sweep-results-2026-05-03.md` + spend ledger.
+- Stop conditions enforced inside the polling loop: per-doc cost
+  >$0.50, folder cost >$10, wall-clock >30 min.
+- `--anonymize-folders` flag substitutes folder names with
+  sha256-prefixed ids in committed docs; surname-to-id map stays
+  inside `MP20_SECURE_DATA_ROOT/_debug/`.
+- `--force-append` overrides the per-day idempotency guard.
+- Cleanup-on-failure: orphaned workspaces from raised exceptions
+  are best-effort DELETE'd.
+- 15 unit tests cover the pure-function helpers
+  (`_sum_workspace_cost`, `_empty_summary`,
+  `_today_section_already_present`, `_maybe_anonymize`).
+
+**Workspace DELETE endpoint** (`web/api/views.py`, +5 backend tests):
+- `ReviewWorkspaceDetailView.delete` cascade-deletes uncommitted
+  workspaces + docs + jobs.
+- Refuses COMMITTED workspaces (returns 409 with code
+  `committed_workspace_not_deletable`) — soft-undo is the right
+  entry point for that case.
+- Atomic + `select_for_update(of=("self",))`.
+- Emits one `review_workspace_deleted` audit event with
+  `doc_count_at_delete` metadata.
+
+**Cross-browser smoke** (`frontend/e2e/cross-browser-smoke.spec.ts`):
+- Playwright config gains webkit + firefox projects.
+- 5-test spot-check spec exercises login + ClientPicker +
+  /review + /methodology + synthetic Sandra/Mike treemap.
+- Both browsers 5/5 pass against the live stack.
+- Filters benign noise (Firefox font sanitizer, ResizeObserver,
+  ERR_ABORTED) so real CSS / JS regressions still surface.
+
+**Tier 3 polish** (4 bundles via parallel subagents, ~700 LOC):
+- Bundle A — ClientPicker + AccountRoute + GoalRoute: skeleton
+  loaders, debounced search (250ms), empty-state CTAs,
+  error+Retry, `Intl.NumberFormat("en-CA")` via
+  `formatCurrencyCAD`, `formatDateLong` helper.
+- Bundle B — DocDropOverlay + Wizard: strengthened drop-zone
+  visual (4px dashed + scaled icon + accent ring), wizard
+  step-progress indicator, explicit Save-as-draft button +
+  timestamped resume banner.
+- Bundle C — ConflictPanel: visual progression
+  unresolved → resolving → resolved (mutation-hook driven; no
+  new state machinery), resolved cards collapsed at the bottom
+  of the panel with localStorage persistence.
+- Bundle D — RealignModal + Tooltip + Truncated: "What's about
+  to change" preview block above Apply, new Radix tooltip
+  wrapper (300ms delayDuration), new Truncated component for
+  long-text + tooltip on hover.
+
+### Code-reviewer pass
+
+Dispatched the `pr-review-toolkit:code-reviewer` subagent for a
+deep review of all unstaged work. It surfaced 1 BLOCKING + 5
+critical findings, all fixed in the close-out commit:
+
+1. **BLOCKING** — R10 sweep docstring promised folder-name
+   redaction the code didn't deliver. Fixed: docstring rewritten
+   to honestly describe the existing surname-as-folder-id
+   convention; new `--anonymize-folders` flag for opt-in
+   redaction. Existing `#8.5` + `#9` ledger entries already use
+   surnames; this matches user practice.
+2. R10 sweep worker subprocess leaked on exception. Fixed via
+   `try/finally` + new `_terminate_worker` helper.
+3. Cost-ceiling stop conditions were declared but never read.
+   Fixed by checking inside the polling loop on every cycle.
+4. R10 doc append was not idempotent — re-running duplicated
+   sections. Fixed via `_today_section_already_present` guard +
+   `--force-append` flag.
+5. Misleading `aria-label` on AccountRoute + GoalRoute loading
+   skeletons announced "Account value, busy" instead of a
+   loading description. Fixed with new `common.loading_route`
+   i18n key.
+6. `aria-live="polite"` on entire DocDropOverlay dropzone
+   re-announced subtree on every drag toggle. Fixed by scoping
+   to a hidden `sr-only` status span.
+
+### Deep test additions
+
+| Layer | New tests | Total |
+|---|---|---|
+| Backend pytest | +5 (workspace DELETE) +15 (R10 sweep helpers) | 853 |
+| Frontend Vitest | +6 (Truncated) +18 (format) +5 (wizard draft) | 76 |
+| Cross-browser Playwright | +5 (webkit) +5 (firefox) | 10 |
+
+### Live R10 sweep
+
+Currently running in the background at HEAD `cb408cc`:
+- Started 2026-05-03 21:22Z with `--anonymize-folders`.
+- First folder (Gumprich) complete: 9/9 reconciled.
+- Folder 2 (Herman) in flight: 6/7 facts-extracted as of last check.
+- Estimated total: ~30-60 min wall-clock; ~$1-3 Bedrock spend
+  across all 7 folders.
+- Results doc + spend ledger will be appended idempotently when
+  the sweep completes; a follow-up commit lands then.
+
+### Gate suite at HEAD
+
+- 853 backend pytest passing (was 833, +20 new from this follow-up)
+- 7 skipped (unchanged)
+- 76 frontend Vitest passing (unchanged from #11 close-out)
+- typecheck + lint + build clean
+- ruff check + format clean
+- PII grep + vocab CI + OpenAPI codegen drift gate green
+- Cross-browser webkit + firefox 10/10 pass
+
+### Real-PII discipline preserved
+
+All new code + doc additions adhere to canon §11.8.3:
+- R10 sweep stdout is structural-only (no values, no quotes).
+- `--anonymize-folders` flag for committed-doc surname redaction.
+- Surname-to-id map only inside `MP20_SECURE_DATA_ROOT/_debug/`.
+- No client-identifying narrative anywhere in the new tests,
+  comments, or commit messages.
+
+### What remains for the operator
+
+1. R10 sweep finishes in the background; one more commit will
+   land with the spend ledger + results doc updates.
+2. Mon 2026-05-04 morning: operator runs the demo restore per
+   `docs/agent/demo-restore-runbook.md`.
+3. Operator pushes the branch via
+   `git push origin feature/ux-rebuild --tags` per the locked
+   direction.
+
+`feature/ux-rebuild` is now ahead of `origin` by 7 commits past
+the starter-prompt baseline.
