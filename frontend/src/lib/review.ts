@@ -477,6 +477,12 @@ export type ReviewConflict = {
   evidence_ack?: boolean;
   resolved_at?: string;
   resolved_by?: string;
+  // Phase 5b.13: deferral state.
+  deferred?: boolean;
+  deferred_at?: string | null;
+  deferred_by?: string | null;
+  deferred_rationale?: string | null;
+  re_surfaced_at?: string | null;
 };
 
 export type ResolveConflictPayload = {
@@ -582,6 +588,31 @@ export function useBulkResolveConflicts(workspaceId: string | null) {
       }
       return apiFetch<BulkResolveConflictsResponse>(
         `/api/review-workspaces/${encodeURIComponent(workspaceId)}/conflicts/bulk-resolve/`,
+        { method: "POST", body: payload },
+      );
+    },
+    onSuccess: () => {
+      if (workspaceId === null) return;
+      qc.invalidateQueries({ queryKey: reviewWorkspaceStateKey(workspaceId) });
+      qc.invalidateQueries({ queryKey: reviewWorkspaceKey(workspaceId) });
+    },
+  });
+}
+
+export type DeferConflictPayload = {
+  field: string;
+  rationale: string;
+};
+
+export function useDeferConflict(workspaceId: string | null) {
+  const qc = useQueryClient();
+  return useMutation<ResolveConflictResponse, Error, DeferConflictPayload>({
+    mutationFn: (payload) => {
+      if (workspaceId === null) {
+        return Promise.reject(new Error("workspace id required"));
+      }
+      return apiFetch<ResolveConflictResponse>(
+        `/api/review-workspaces/${encodeURIComponent(workspaceId)}/conflicts/defer/`,
         { method: "POST", body: payload },
       );
     },

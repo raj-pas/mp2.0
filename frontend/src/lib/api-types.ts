@@ -822,6 +822,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/review-workspaces/{workspace_id}/conflicts/defer/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST /api/review-workspaces/<wsid>/conflicts/defer/ — Phase 5b.13.
+         *
+         *     Body: {field, rationale}. Marks the named conflict as deferred so
+         *     section approvals can proceed without blocking on it. Atomic +
+         *     select_for_update on workspace. Auto-resurface logic in
+         *     `reviewed_state_from_workspace` removes the deferred flag the
+         *     moment a NEW extracted fact appears for the same field path —
+         *     the workspace then sees the conflict in the active list with
+         *     advisory metadata indicating prior deferral.
+         *
+         *     PII discipline (canon §11.8.3): rationale TEXT persists on the
+         *     reviewed_state row but NEVER appears in audit metadata; metadata
+         *     records only `rationale_len`.
+         *
+         *     Section approval semantics:
+         *     - Active conflicts in required sections block commits.
+         *     - Deferred conflicts surface as advisory (visible to advisor in
+         *       a separate "deferred" tab) but DON'T block section approval.
+         *     - Resurfaced conflicts (new evidence post-defer) re-block until
+         *       resolved.
+         */
+        post: operations["review_workspaces_conflicts_defer_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/review-workspaces/{workspace_id}/conflicts/resolve/": {
         parameters: {
             query?: never;
@@ -2385,6 +2423,26 @@ export interface operations {
         };
     };
     review_workspaces_conflicts_bulk_resolve_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    review_workspaces_conflicts_defer_create: {
         parameters: {
             query?: never;
             header?: never;

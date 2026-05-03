@@ -599,7 +599,20 @@
       "bulk_submit_pending": "Resolving…",
       "bulk_resolved_title": "Conflicts resolved",
       "bulk_resolved_body_one": "{{count}} conflict resolved.",
-      "bulk_resolved_body_other": "{{count}} conflicts resolved."
+      "bulk_resolved_body_other": "{{count}} conflicts resolved.",
+      "defer_action": "Decide later",
+      "defer_title": "Defer this conflict",
+      "defer_body": "Section approval will proceed without resolving this. The conflict will auto-resurface if new evidence arrives.",
+      "defer_rationale_placeholder": "Why defer? (advisor only)",
+      "defer_cancel": "Cancel",
+      "defer_save": "Defer",
+      "defer_saving": "Saving…",
+      "defer_error": "Could not defer conflict.",
+      "deferred_state": "Deferred",
+      "deferred_toast_title": "Conflict deferred",
+      "deferred_toast_body": "{{label}} marked deferred. Re-surfaces if new evidence arrives.",
+      "resurfaced_state": "New evidence",
+      "resurfaced_body": "New evidence arrived since this was deferred — please reconsider."
     }
   },
   "confidence": {

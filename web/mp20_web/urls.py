@@ -155,6 +155,11 @@ urlpatterns = [
         name="review-workspace-conflict-bulk-resolve",
     ),
     path(
+        "api/review-workspaces/<str:workspace_id>/conflicts/defer/",
+        views.ReviewWorkspaceConflictDeferView.as_view(),
+        name="review-workspace-conflict-defer",
+    ),
+    path(
         "api/review-workspaces/<str:workspace_id>/facts/override/",
         views.ReviewWorkspaceFactOverrideView.as_view(),
         name="review-workspace-fact-override",

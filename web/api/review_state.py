@@ -169,6 +169,12 @@ def section_blockers(state: dict[str, Any], section: str) -> list[dict[str, str]
     for conflict in state.get("conflicts") or []:
         if conflict.get("resolved") or conflict.get("resolution"):
             continue
+        # Phase 5b.13: deferred conflicts are advisory — they don't
+        # block section approval. They re-block automatically if a
+        # NEW fact arrives for the same field (auto-resurface in
+        # reviewed_state composer).
+        if conflict.get("deferred") and not conflict.get("re_surfaced_at"):
+            continue
         field = str(conflict.get("field", ""))
         if _field_belongs_to_section(field, section):
             blockers.append(
@@ -742,10 +748,25 @@ def _conflicts(workspace: models.ReviewWorkspace) -> list[dict[str, Any]]:
     extracted_facts. The candidates entry preserves the existing
     `fact_ids` array shape; consumers that only need the IDs ignore
     the new field.
+
+    Phase 5b.13 (2026-05-03): preserves per-conflict deferral markers
+    + auto-resurfaces deferred conflicts when NEW evidence arrives.
+    Reads `workspace.reviewed_state.conflicts` for prior deferral
+    state and replays it onto the freshly-computed conflict list.
+    A new candidate `fact_id` for a deferred conflict triggers
+    `re_surfaced_at` (the conflict re-blocks section approval until
+    the advisor resolves it).
     """
     facts = list(workspace.extracted_facts.select_related("document"))
     raw_conflicts = conflicts_for_facts(facts)
     facts_by_id = {fact.id: fact for fact in facts}
+    prior_state = workspace.reviewed_state or {}
+    prior_by_field = {
+        c["field"]: c
+        for c in (prior_state.get("conflicts") or [])
+        if isinstance(c, dict) and "field" in c
+    }
+    now_iso = timezone.now().isoformat()
     enriched: list[dict[str, Any]] = []
     for conflict in raw_conflicts:
         candidates: list[dict[str, Any]] = []
@@ -769,7 +790,42 @@ def _conflicts(workspace: models.ReviewWorkspace) -> list[dict[str, Any]]:
                     "asserted_at": fact.asserted_at.isoformat() if fact.asserted_at else None,
                 }
             )
-        enriched.append({**conflict, "candidates": candidates})
+        merged = {**conflict, "candidates": candidates}
+        prior = prior_by_field.get(conflict.get("field"))
+        if prior is not None:
+            # Preserve resolution state across reconcile.
+            if prior.get("resolved"):
+                merged.update(
+                    {
+                        "resolved": True,
+                        "chosen_fact_id": prior.get("chosen_fact_id"),
+                        "resolution": prior.get("resolution"),
+                        "rationale": prior.get("rationale"),
+                        "evidence_ack": prior.get("evidence_ack"),
+                        "resolved_at": prior.get("resolved_at"),
+                        "resolved_by": prior.get("resolved_by"),
+                    }
+                )
+            elif prior.get("deferred"):
+                prior_fact_ids = set(prior.get("fact_ids") or [])
+                fresh_fact_ids = set(conflict.get("fact_ids") or [])
+                new_evidence = bool(fresh_fact_ids - prior_fact_ids)
+                merged.update(
+                    {
+                        "deferred": True,
+                        "deferred_at": prior.get("deferred_at"),
+                        "deferred_by": prior.get("deferred_by"),
+                        "deferred_rationale": prior.get("deferred_rationale"),
+                    }
+                )
+                if new_evidence:
+                    merged["re_surfaced_at"] = now_iso
+                else:
+                    # Preserve any prior re_surfaced_at marker — once
+                    # resurfaced, the conflict stays surfaced until the
+                    # advisor resolves it.
+                    merged["re_surfaced_at"] = prior.get("re_surfaced_at")
+        enriched.append(merged)
     return enriched
 
 

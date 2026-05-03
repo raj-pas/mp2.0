@@ -28,6 +28,7 @@ import {
   type ResolveConflictPayload,
   type ReviewConflict,
   useBulkResolveConflicts,
+  useDeferConflict,
   useResolveConflict,
 } from "../lib/review";
 import { normalizeApiError } from "../lib/api-error";
@@ -252,6 +253,7 @@ export function ConflictCard({
 }: ConflictCardProps) {
   const { t } = useTranslation();
   const resolve = useResolveConflict(workspaceId);
+  const defer = useDeferConflict(workspaceId);
   const [chosenFactId, setChosenFactId] = useState<number | null>(
     conflict.chosen_fact_id ?? null,
   );
@@ -259,6 +261,8 @@ export function ConflictCard({
   const [evidenceAck, setEvidenceAck] = useState<boolean>(
     conflict.evidence_ack ?? false,
   );
+  const [showDeferForm, setShowDeferForm] = useState(false);
+  const [deferRationale, setDeferRationale] = useState("");
 
   const candidates = conflict.candidates ?? [];
   const submittable =
@@ -267,6 +271,29 @@ export function ConflictCard({
     rationale.trim().length >= 4 &&
     evidenceAck;
   const inBulk = bulkSelectedFactId !== null;
+  const isDeferred = Boolean(conflict.deferred) && !conflict.re_surfaced_at;
+  const isResurfaced = Boolean(conflict.deferred) && Boolean(conflict.re_surfaced_at);
+
+  function handleDefer() {
+    if (deferRationale.trim().length < 4) return;
+    defer.mutate(
+      { field: conflict.field, rationale: deferRationale.trim() },
+      {
+        onSuccess: () => {
+          toastSuccess(
+            t("review.conflict.deferred_toast_title"),
+            t("review.conflict.deferred_toast_body", { label: conflict.label }),
+          );
+          setShowDeferForm(false);
+          setDeferRationale("");
+        },
+        onError: (err) => {
+          const e = normalizeApiError(err, t("review.conflict.defer_error"));
+          toastError(t("review.conflict.defer_error"), { description: e.message });
+        },
+      },
+    );
+  }
 
   const handleSubmit = () => {
     if (!submittable || chosenFactId === null) return;
@@ -321,8 +348,29 @@ export function ConflictCard({
               {t("review.conflict.resolved_state")}
             </span>
           )}
+          {isDeferred && (
+            <span className="rounded-sm bg-info/15 px-1 py-0.5 font-sans text-[9px] uppercase tracking-wider text-info">
+              {t("review.conflict.deferred_state")}
+            </span>
+          )}
+          {isResurfaced && (
+            <span className="rounded-sm bg-danger/15 px-1 py-0.5 font-sans text-[9px] uppercase tracking-wider text-danger">
+              {t("review.conflict.resurfaced_state")}
+            </span>
+          )}
         </div>
       </header>
+      {isDeferred && conflict.deferred_rationale && (
+        <p className="mb-2 font-sans text-[10px] italic text-muted">
+          &ldquo;{conflict.deferred_rationale}&rdquo;
+          {conflict.deferred_by ? ` — ${conflict.deferred_by}` : null}
+        </p>
+      )}
+      {isResurfaced && (
+        <p className="mb-2 font-sans text-[10px] italic text-danger">
+          {t("review.conflict.resurfaced_body")}
+        </p>
+      )}
 
       {conflict.resolved ? (
         <ResolvedConflictBody conflict={conflict} />
@@ -387,18 +435,72 @@ export function ConflictCard({
                 </span>
               </label>
 
-              <div className="flex items-center justify-end">
+              <div className="flex items-center justify-between gap-2">
+                {!isDeferred && !showDeferForm && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowDeferForm(true)}
+                    disabled={resolve.isPending || defer.isPending}
+                  >
+                    {t("review.conflict.defer_action")}
+                  </Button>
+                )}
                 <Button
                   variant="default"
                   size="sm"
                   disabled={!submittable || resolve.isPending}
                   onClick={handleSubmit}
+                  className="ml-auto"
                 >
                   {resolve.isPending
                     ? t("review.conflict.submit_pending")
                     : t("review.conflict.submit")}
                 </Button>
               </div>
+              {showDeferForm && (
+                <div className="flex flex-col gap-2 border border-info/40 bg-paper-2 p-2">
+                  <h4 className="font-mono text-[9px] uppercase tracking-widest text-info">
+                    {t("review.conflict.defer_title")}
+                  </h4>
+                  <p className="font-sans text-[10px] text-muted">
+                    {t("review.conflict.defer_body")}
+                  </p>
+                  <textarea
+                    value={deferRationale}
+                    onChange={(e) => setDeferRationale(e.target.value)}
+                    disabled={defer.isPending}
+                    rows={2}
+                    placeholder={t("review.conflict.defer_rationale_placeholder")}
+                    className="border border-hairline-2 bg-paper px-2 py-1 font-sans text-[11px] text-ink focus:border-accent focus:outline-none"
+                  />
+                  <div className="flex items-center justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setShowDeferForm(false);
+                        setDeferRationale("");
+                      }}
+                      disabled={defer.isPending}
+                    >
+                      {t("review.conflict.defer_cancel")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleDefer}
+                      disabled={defer.isPending || deferRationale.trim().length < 4}
+                    >
+                      {defer.isPending
+                        ? t("review.conflict.defer_saving")
+                        : t("review.conflict.defer_save")}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </fieldset>

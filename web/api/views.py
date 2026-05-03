@@ -1923,6 +1923,136 @@ class ReviewWorkspaceConflictBulkResolveView(APIView):
         )
 
 
+class ReviewWorkspaceConflictDeferView(APIView):
+    """POST /api/review-workspaces/<wsid>/conflicts/defer/ — Phase 5b.13.
+
+    Body: {field, rationale}. Marks the named conflict as deferred so
+    section approvals can proceed without blocking on it. Atomic +
+    select_for_update on workspace. Auto-resurface logic in
+    `reviewed_state_from_workspace` removes the deferred flag the
+    moment a NEW extracted fact appears for the same field path —
+    the workspace then sees the conflict in the active list with
+    advisory metadata indicating prior deferral.
+
+    PII discipline (canon §11.8.3): rationale TEXT persists on the
+    reviewed_state row but NEVER appears in audit metadata; metadata
+    records only `rationale_len`.
+
+    Section approval semantics:
+    - Active conflicts in required sections block commits.
+    - Deferred conflicts surface as advisory (visible to advisor in
+      a separate "deferred" tab) but DON'T block section approval.
+    - Resurfaced conflicts (new evidence post-defer) re-block until
+      resolved.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, workspace_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        workspace = _workspace_for_user(workspace_id, request.user)
+        field = (request.data.get("field") or "").strip()
+        rationale = (request.data.get("rationale") or "").strip()
+        if not field:
+            return Response(
+                {"detail": "Field is required.", "code": "field_required"},
+                status=400,
+            )
+        if len(rationale) < 4:
+            return Response(
+                {
+                    "detail": "Rationale is required (>= 4 characters).",
+                    "code": "rationale_required",
+                },
+                status=400,
+            )
+
+        invalidated_sections: list[str] = []
+        target_section: str | None = None
+        with transaction.atomic():
+            locked_workspace = models.ReviewWorkspace.objects.select_for_update().get(
+                pk=workspace.pk
+            )
+            previous_state = locked_workspace.reviewed_state or reviewed_state_from_workspace(
+                locked_workspace
+            )
+            conflicts = list(previous_state.get("conflicts") or [])
+            target_index: int | None = None
+            for index, conflict in enumerate(conflicts):
+                if conflict.get("field") == field:
+                    target_index = index
+                    target_section = conflict.get("section")
+                    break
+            if target_index is None:
+                return Response(
+                    {"detail": "Conflict not found.", "code": "conflict_not_found"},
+                    status=404,
+                )
+            actor_label = (
+                getattr(request.user, "email", None)
+                or getattr(request.user, "username", None)
+                or "unknown"
+            )
+            now_iso = timezone.now().isoformat()
+            existing_conflict = conflicts[target_index]
+            conflicts[target_index] = {
+                **existing_conflict,
+                "deferred": True,
+                "deferred_at": now_iso,
+                "deferred_by": actor_label,
+                "deferred_rationale": rationale,
+                # Drop any prior re_surfaced_at marker (a deferral
+                # supersedes a previous re-surfacing).
+                "re_surfaced_at": None,
+            }
+            new_state = dict(previous_state)
+            new_state["conflicts"] = conflicts
+            try:
+                validate_review_state_contract(new_state)
+            except ValueError as exc:
+                return Response(safe_response_payload(exc), status=400)
+            version = create_state_version(locked_workspace, user=request.user, state=new_state)
+            # Re-evaluate section blockers — a deferred conflict no
+            # longer blocks, so a previously-blocked section may now
+            # become approvable. Don't auto-flip back to APPROVED;
+            # advisors must explicitly approve. But we DO clear
+            # NEEDS_ATTENTION → not_ready_for_recommendation if the
+            # only blocker was this conflict. (Conservative: leave
+            # advisor-tracked statuses alone.)
+            approvals = locked_workspace.section_approvals.filter(
+                status=models.SectionApproval.Status.APPROVED
+            )
+            for approval in approvals:
+                if section_blockers(new_state, approval.section):
+                    approval.status = models.SectionApproval.Status.NEEDS_ATTENTION
+                    approval.save(update_fields=["status", "updated_at"])
+                    invalidated_sections.append(approval.section)
+
+        record_event(
+            action="review_conflict_deferred",
+            entity_type="review_workspace",
+            entity_id=workspace.external_id,
+            actor=_actor(request),
+            metadata={
+                "version": version.version,
+                "workspace_id": workspace.external_id,
+                "field": field,
+                "section": target_section,
+                "rationale_len": len(rationale),
+                "invalidated_approvals": invalidated_sections,
+            },
+        )
+
+        return Response(
+            {
+                "state": version.state,
+                "readiness": version.readiness,
+                "invalidated_approvals": invalidated_sections,
+            }
+        )
+
+
 class ReviewWorkspaceFactOverrideView(APIView):
     """POST /api/review-workspaces/<wsid>/facts/override/ — Phase 5b.10/11.
 
