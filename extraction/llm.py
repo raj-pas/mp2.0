@@ -189,7 +189,7 @@ def extract_text_facts_with_bedrock(
     config: BedrockConfig,
 ) -> list[FactCandidate]:
     client = _bedrock_client(config)
-    builder = build_prompt_for(document_type)
+    builder = build_prompt_for(document_type, classification)
     prompt = builder(filename, classification, text[:max_chars])
     response = client.messages.create(
         model=config.model,
@@ -217,7 +217,7 @@ def extract_visual_facts_with_bedrock(
         raise ValueError(
             "Document requires OCR, but no supported visual payload could be prepared."
         )
-    builder = build_prompt_for(document_type)
+    builder = build_prompt_for(document_type, classification)
     prompt = builder(
         filename,
         classification,

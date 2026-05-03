@@ -59,8 +59,31 @@ PROMPT_VERSION_BY_TYPE: dict[str, str] = {
 }
 
 
-def build_prompt_for(document_type: str) -> PromptBuilder:
-    """Return the per-doc-type prompt builder; defaults to generic."""
+def build_prompt_for(
+    document_type: str,
+    classification: ClassificationResult | None = None,
+) -> PromptBuilder:
+    """Return the per-doc-type prompt builder.
+
+    Phase 4 (refined 2026-05-02 after Seltzer KYC canary): when the
+    classifier signals `route == "multi_schema_sweep"` it means the
+    classifier saw signals from multiple doc types and isn't sure
+    which one dominates. In that case the per-type body is too
+    narrow — it produces an extraction laser-focused on one doc class
+    while the source actually carries fields from many. We dispatch
+    to the generic sweep builder which traverses every canonical
+    schema. This addresses the canary's "missing goals + household
+    + goal_account_links sections" regression where a multi-schema
+    KYC routed to kyc.build_prompt and Bedrock followed the narrow
+    KYC body, dropping fields it would have extracted under the
+    pre-Phase-4 unified prompt.
+
+    For a clear single-class doc (route != "multi_schema_sweep"),
+    the per-doc-type builder is preferred — the type-specific
+    extraction body is more accurate than the broad sweep.
+    """
+    if classification is not None and classification.route == "multi_schema_sweep":
+        return generic.build_prompt
     return _BUILDERS.get(document_type, generic.build_prompt)
 
 

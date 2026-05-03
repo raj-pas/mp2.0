@@ -26,22 +26,35 @@ _CONFIDENCE_BY_RANK: dict[int, Confidence] = {1: "low", 2: "medium", 3: "high"}
 def _cap_fact_confidence(
     facts: list[FactCandidate], classification: ClassificationResult
 ) -> list[FactCandidate]:
-    """Cap each fact's confidence by the classification confidence.
+    """Cap each fact's confidence by the classification confidence + 1 tier.
 
     Phase 4 (PROMPT-5): a low-confidence classification cannot produce
-    high-confidence facts. Tied to source class so downstream
-    reconciliation (canon §11.4 source-priority hierarchy) does not
-    over-weight facts from a sweep that wasn't even sure about the doc
-    type. Idempotent: running this twice is a no-op.
+    HIGH-confidence facts — but it CAN still produce medium-confidence
+    facts. The cap is "facts cannot be more than 1 tier above the
+    classification confidence":
+      * HIGH classification    -> cap=high   (no cap; pass-through)
+      * MEDIUM classification  -> cap=high   (no cap; pass-through)
+      * LOW classification     -> cap=medium (HIGH floors to MEDIUM,
+                                              MEDIUM stays MEDIUM,
+                                              LOW stays LOW)
+
+    Refined 2026-05-02 after the Seltzer KYC canary regressed 74 -> 32
+    facts (with all 32 dropped to LOW because the doc was classified as
+    low-confidence multi_schema_sweep). The original cap-at-rank-N
+    semantics over-floored medium to low and erased meaningful signal;
+    cap-at-rank-N+1 preserves the "low classification can't produce
+    HIGH" guard without collapsing everything into the bottom tier.
+    Idempotent: running this twice is a no-op.
     """
-    classification_rank = _CONFIDENCE_RANK.get(classification.confidence, 2)
+    cls_rank = _CONFIDENCE_RANK.get(classification.confidence, 2)
+    cap_rank = min(cls_rank + 1, 3)
     capped: list[FactCandidate] = []
     for fact in facts:
         fact_rank = _CONFIDENCE_RANK.get(fact.confidence, 2)
-        if fact_rank <= classification_rank:
+        if fact_rank <= cap_rank:
             capped.append(fact)
             continue
-        capped.append(replace(fact, confidence=_CONFIDENCE_BY_RANK[classification_rank]))
+        capped.append(replace(fact, confidence=_CONFIDENCE_BY_RANK[cap_rank]))
     return capped
 
 

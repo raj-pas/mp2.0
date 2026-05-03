@@ -278,12 +278,13 @@ def test_facts_from_tool_use_response_raises_schema_mismatch_on_validator_failur
 # ---------------------------------------------------------------------------
 
 
-def test_classification_confidence_caps_fact_confidence() -> None:
-    """A low-confidence classification floors all facts to low confidence.
-
-    Source-priority hierarchy (canon §11.4) treats classification as the
-    upper bound: if we weren't sure about the doc type, we can't have
-    been sure about the facts derived from it.
+def test_classification_confidence_caps_high_to_medium_under_low_classification() -> None:
+    """Refined 2026-05-02 after Seltzer canary: a low-confidence
+    classification floors HIGH facts to MEDIUM (not LOW). Medium and
+    low facts pass through. Preserves the PROMPT-5 "low classification
+    can't produce HIGH" guard without collapsing everything to the
+    bottom tier (which erased the goals + household + links signal in
+    the canary).
     """
     facts = [
         FactCandidate(
@@ -301,7 +302,9 @@ def test_classification_confidence_caps_fact_confidence() -> None:
     ]
     classification = _classification(confidence="low")
     capped = _cap_fact_confidence(facts, classification)
-    assert all(f.confidence == "low" for f in capped)
+    assert capped[0].confidence == "medium", "high caps to medium under low classification"
+    assert capped[1].confidence == "medium", "medium passes through under low classification"
+    assert capped[2].confidence == "low", "low passes through unchanged"
 
 
 def test_classification_confidence_does_not_lift_low_facts_to_high() -> None:
@@ -325,8 +328,11 @@ def test_classification_confidence_does_not_lift_low_facts_to_high() -> None:
     assert capped[0].confidence == "low"
 
 
-def test_classification_medium_confidence_caps_high_to_medium() -> None:
-    """Medium classification confidence floors high facts to medium."""
+def test_classification_medium_confidence_passes_high_through() -> None:
+    """Refined 2026-05-02: medium classification confidence does NOT
+    cap high facts (cap is "1 tier above classification"). Only LOW
+    classification floors HIGH to MEDIUM.
+    """
     fact = FactCandidate(
         field="f0",
         value=0,
@@ -340,7 +346,31 @@ def test_classification_medium_confidence_caps_high_to_medium() -> None:
     )
     classification = _classification(confidence="medium")
     capped = _cap_fact_confidence([fact], classification)
-    assert capped[0].confidence == "medium"
+    assert capped[0].confidence == "high"
+
+
+def test_build_prompt_for_routes_multi_schema_sweep_to_generic() -> None:
+    """Refined 2026-05-02 after Seltzer canary: multi_schema_sweep
+    classification route forces dispatch to generic.build_prompt
+    regardless of document_type, so Bedrock sees the comprehensive
+    sweep guidance instead of a per-type body that could narrow
+    extraction.
+    """
+    classification = _classification(
+        document_type="kyc", route="multi_schema_sweep", confidence="low"
+    )
+    builder = build_prompt_for("kyc", classification)
+    assert builder is generic.build_prompt
+
+
+def test_build_prompt_for_uses_per_type_body_when_classifier_confident() -> None:
+    """When route != multi_schema_sweep the per-doc-type builder is
+    preferred — type-specific extraction is more accurate than the
+    broad sweep when the classifier is confident.
+    """
+    classification = _classification(document_type="kyc", route="adaptive", confidence="high")
+    builder = build_prompt_for("kyc", classification)
+    assert builder is kyc.build_prompt
 
 
 # ---------------------------------------------------------------------------
