@@ -32,9 +32,24 @@ import {
   type UploadFileMeta,
 } from "../lib/upload-recovery";
 
+/**
+ * Per-file upload size cap. Real-PII PDFs cap at ~20MB in practice;
+ * 50MB gives headroom for scan-quality statements without blowing
+ * the gunicorn worker timeout. Larger files are rejected client-
+ * side with a clear toast + per-file ignored entry, mirroring the
+ * server's per-file partial-failure pattern.
+ */
+const MAX_FILE_BYTES = 50 * 1024 * 1024;
+
 interface DocDropOverlayProps {
   /** Called with the new workspace external_id once create + upload succeed. */
   onWorkspaceReady: (workspaceId: string) => void;
+}
+
+interface IgnoredPickEntry {
+  filename: string;
+  reason: "too_large" | "duplicate";
+  size: number;
 }
 
 export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
@@ -45,6 +60,11 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
   const [files, setFiles] = useState<File[]>([]);
   const [pendingFileMeta, setPendingFileMeta] = useState<UploadFileMeta[]>([]);
   const [pendingWorkspaceId, setPendingWorkspaceId] = useState<string | null>(null);
+  // Files that the server reported as upload_failed in the prior
+  // attempt — retained so the advisor can retry just the failed
+  // subset without re-picking everything.
+  const [retryableFiles, setRetryableFiles] = useState<File[]>([]);
+  const [retryWorkspaceId, setRetryWorkspaceId] = useState<string | null>(null);
   const [isDragOver, setDragOver] = useState(false);
 
   const createWorkspace = useCreateWorkspace();
@@ -77,6 +97,54 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
     );
   }, [t]);
 
+  function admitFiles(incoming: File[]) {
+    if (incoming.length === 0) return;
+    const ignored: IgnoredPickEntry[] = [];
+    const accepted: File[] = [];
+    setFiles((prev) => {
+      // Dup detection: filename + size pair against the picker's
+      // current set. Avoids the "double-drop the same file" mistake
+      // before any server round-trip.
+      const seen = new Set(prev.map((f) => `${f.name}::${f.size}`));
+      for (const file of incoming) {
+        const key = `${file.name}::${file.size}`;
+        if (seen.has(key)) {
+          ignored.push({ filename: file.name, reason: "duplicate", size: file.size });
+          continue;
+        }
+        if (file.size > MAX_FILE_BYTES) {
+          ignored.push({ filename: file.name, reason: "too_large", size: file.size });
+          continue;
+        }
+        seen.add(key);
+        accepted.push(file);
+      }
+      return [...prev, ...accepted];
+    });
+    if (ignored.length > 0) {
+      const tooLarge = ignored.filter((e) => e.reason === "too_large");
+      const duplicates = ignored.filter((e) => e.reason === "duplicate");
+      if (tooLarge.length > 0) {
+        toastError(t("docdrop.too_large_title"), {
+          description: t("docdrop.too_large_body", {
+            count: tooLarge.length,
+            names: tooLarge.map((e) => e.filename).join(", "),
+            limit_mb: Math.round(MAX_FILE_BYTES / (1024 * 1024)),
+          }),
+        });
+      }
+      if (duplicates.length > 0) {
+        toastSuccess(
+          t("docdrop.duplicate_title"),
+          t("docdrop.duplicate_body", {
+            count: duplicates.length,
+            names: duplicates.map((e) => e.filename).join(", "),
+          }),
+        );
+      }
+    }
+  }
+
   function handleFilesPicked(event: ChangeEvent<HTMLInputElement>) {
     // FileList from `event.target.files` is a LIVE reference: clearing
     // `event.target.value` empties it, which races against React's
@@ -86,7 +154,7 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
     if (picked === null || picked.length === 0) return;
     const snapshot = Array.from(picked);
     event.target.value = "";
-    setFiles((prev) => [...prev, ...snapshot]);
+    admitFiles(snapshot);
     // The advisor is re-picking files; the recovered metadata list
     // is no longer needed as a hint.
     if (pendingFileMeta.length > 0) setPendingFileMeta([]);
@@ -99,7 +167,7 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
     if (dropped.length === 0) return;
     // Same snapshot discipline — DataTransfer.files is also live.
     const snapshot = Array.from(dropped);
-    setFiles((prev) => [...prev, ...snapshot]);
+    admitFiles(snapshot);
     if (pendingFileMeta.length > 0) setPendingFileMeta([]);
   }
 
@@ -112,6 +180,8 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
     setDataOrigin("synthetic");
     setPendingFileMeta([]);
     setPendingWorkspaceId(null);
+    setRetryableFiles([]);
+    setRetryWorkspaceId(null);
     clearUploadDraft();
   }
 
@@ -124,6 +194,7 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
 
   function handleUploadSuccess(
     workspaceId: string,
+    sourceFiles: File[],
     response: { uploaded: { document_id: number }[]; ignored: { reason: string; filename: string }[] },
   ) {
     // Resume succeeded — clear the draft so a future re-mount of
@@ -132,27 +203,46 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
     setPendingWorkspaceId(null);
     setPendingFileMeta([]);
 
-    const failedFiles = response.ignored
-      .filter((row) => row.reason === "upload_failed")
-      .map((row) => row.filename);
+    const failedFilenames = new Set(
+      response.ignored
+        .filter((row) => row.reason === "upload_failed")
+        .map((row) => row.filename),
+    );
+    // Retain the actual File objects for failed uploads so the
+    // advisor can retry the failed subset without re-picking. Match
+    // by filename — the server doesn't echo size in `ignored`, but
+    // filename is unique within a single upload batch (the SHA256
+    // dedup runs server-side).
+    const retryable = sourceFiles.filter((f) => failedFilenames.has(f.name));
+
     if (response.uploaded.length === 0) {
+      // Total failure — keep files in the picker so advisor can
+      // adjust + try again. Don't navigate away.
+      setRetryableFiles(retryable);
+      setRetryWorkspaceId(workspaceId);
       toastError(t("docdrop.upload_error"), {
         description: t("docdrop.upload_all_failed", {
-          count: failedFiles.length,
+          count: failedFilenames.size,
         }),
       });
       return;
     }
-    if (failedFiles.length > 0) {
+    if (failedFilenames.size > 0) {
+      // Partial — surface the retry-failed CTA + navigate to the
+      // workspace so advisor can monitor the docs that DID land.
+      setRetryableFiles(retryable);
+      setRetryWorkspaceId(workspaceId);
       toastSuccess(
         t("docdrop.upload_partial_title"),
         t("docdrop.upload_partial_body", {
           uploaded: response.uploaded.length,
-          failed: failedFiles.length,
-          names: failedFiles.join(", "),
+          failed: failedFilenames.size,
+          names: Array.from(failedFilenames).join(", "),
         }),
       );
     } else {
+      setRetryableFiles([]);
+      setRetryWorkspaceId(null);
       toastSuccess(t("docdrop.upload_success_title"), t("docdrop.upload_success_body"));
     }
     onWorkspaceReady(workspaceId);
@@ -160,11 +250,40 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
     setFiles([]);
   }
 
-  function executeUpload(workspaceId: string, allowCreateFallback: boolean) {
+  function retryFailedFiles() {
+    if (retryableFiles.length === 0 || retryWorkspaceId === null) return;
+    const target = retryWorkspaceId;
+    const filesToRetry = retryableFiles;
     upload.mutate(
-      { workspaceId, files },
+      { workspaceId: target, files: filesToRetry },
       {
-        onSuccess: (response) => handleUploadSuccess(workspaceId, response),
+        onSuccess: (response) => handleUploadSuccess(target, filesToRetry, response),
+        onError: (err) => {
+          const e = normalizeApiError(err, t("docdrop.upload_error"));
+          if (isAuthError(e)) {
+            // Stash the failed-files context as if it were a draft
+            // recovery scenario. Mirrors handleStart's E timing.
+            saveUploadDraft({
+              label: label.trim() || "Retry failed",
+              data_origin: dataOrigin,
+              files: filesToRetry,
+              workspace_id: target,
+            });
+            bounceToLogin();
+            return;
+          }
+          toastError(t("docdrop.upload_error"), { description: e.message });
+        },
+      },
+    );
+  }
+
+  function executeUpload(workspaceId: string, allowCreateFallback: boolean) {
+    const filesSnapshot = files;
+    upload.mutate(
+      { workspaceId, files: filesSnapshot },
+      {
+        onSuccess: (response) => handleUploadSuccess(workspaceId, filesSnapshot, response),
         onError: (err) => {
           const e = normalizeApiError(err, t("docdrop.upload_error"));
           if (isAuthError(e)) {
@@ -310,6 +429,11 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
         <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
           {t("docdrop.dropzone_secondary")}
         </p>
+        <p className="font-mono text-[9px] uppercase tracking-widest text-muted">
+          {t("docdrop.size_limit_hint", {
+            limit_mb: Math.round(MAX_FILE_BYTES / (1024 * 1024)),
+          })}
+        </p>
         <input
           id="docdrop-file-input"
           type="file"
@@ -357,6 +481,47 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
               >
                 <span className="font-sans text-[12px] text-ink">{meta.name}</span>
                 <span className="font-mono text-[10px] text-muted">{formatBytes(meta.size)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {retryableFiles.length > 0 && retryWorkspaceId !== null && (
+        <section
+          aria-labelledby="docdrop-retry-title"
+          className="flex flex-col gap-2 border border-danger/40 bg-paper-2 p-3"
+        >
+          <div className="flex items-baseline justify-between">
+            <h3
+              id="docdrop-retry-title"
+              className="font-mono text-[10px] uppercase tracking-widest text-danger"
+            >
+              {t("docdrop.retry_failed_title")}
+            </h3>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={retryFailedFiles}
+              disabled={isSubmitting}
+            >
+              {isSubmitting
+                ? t("docdrop.retry_failed_pending")
+                : t("docdrop.retry_failed_action", { count: retryableFiles.length })}
+            </Button>
+          </div>
+          <p className="font-sans text-[12px] text-muted">
+            {t("docdrop.retry_failed_body", { count: retryableFiles.length })}
+          </p>
+          <ul className="flex flex-col divide-y divide-hairline border border-hairline-2 bg-paper">
+            {retryableFiles.map((file, index) => (
+              <li
+                key={`retry-${file.name}-${index}`}
+                className="flex items-center justify-between px-3 py-2"
+              >
+                <span className="font-sans text-[12px] text-ink">{file.name}</span>
+                <span className="font-mono text-[10px] text-muted">{formatBytes(file.size)}</span>
               </li>
             ))}
           </ul>

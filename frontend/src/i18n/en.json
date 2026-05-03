@@ -498,7 +498,20 @@
     "draft_recovered_title": "Resuming draft",
     "draft_recovered_body_one": "Pick {{count}} file with the same name to continue.",
     "draft_recovered_body_other": "Pick {{count}} files with the same names to continue.",
-    "draft_discard": "Discard draft"
+    "draft_discard": "Discard draft",
+    "size_limit_hint": "Max {{limit_mb}}MB per file",
+    "too_large_title": "File exceeds size limit",
+    "too_large_body_one": "{{count}} file is over {{limit_mb}}MB and was skipped: {{names}}",
+    "too_large_body_other": "{{count}} files are over {{limit_mb}}MB and were skipped: {{names}}",
+    "duplicate_title": "Duplicate file skipped",
+    "duplicate_body_one": "{{count}} file was already in your list: {{names}}",
+    "duplicate_body_other": "{{count}} files were already in your list: {{names}}",
+    "retry_failed_title": "Some files failed to upload",
+    "retry_failed_body_one": "{{count}} file didn't make it. Retry just this one without re-picking.",
+    "retry_failed_body_other": "{{count}} files didn't make it. Retry just these without re-picking.",
+    "retry_failed_action_one": "Retry {{count}} file",
+    "retry_failed_action_other": "Retry {{count}} files",
+    "retry_failed_pending": "Retrying…"
   },
   "review": {
     "subtitle": "Status: {{status}} · Origin: {{origin}}",
