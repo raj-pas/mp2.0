@@ -15,14 +15,22 @@
  * synthetic).
  */
 import { Upload, X } from "lucide-react";
-import { type ChangeEvent, type DragEvent, useState } from "react";
+import { type ChangeEvent, type DragEvent, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "../components/ui/button";
 import { useCreateWorkspace, useUploadDocuments } from "../lib/review";
-import { normalizeApiError } from "../lib/api-error";
+import { isAuthError, normalizeApiError } from "../lib/api-error";
+import { SESSION_QUERY_KEY } from "../lib/auth";
 import { toastError, toastSuccess } from "../lib/toast";
 import { cn } from "../lib/cn";
+import {
+  clearUploadDraft,
+  consumeUploadDraft,
+  saveUploadDraft,
+  type UploadFileMeta,
+} from "../lib/upload-recovery";
 
 interface DocDropOverlayProps {
   /** Called with the new workspace external_id once create + upload succeed. */
@@ -31,13 +39,36 @@ interface DocDropOverlayProps {
 
 export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [label, setLabel] = useState("");
   const [dataOrigin, setDataOrigin] = useState<"real_derived" | "synthetic">("synthetic");
   const [files, setFiles] = useState<File[]>([]);
+  const [pendingFileMeta, setPendingFileMeta] = useState<UploadFileMeta[]>([]);
   const [isDragOver, setDragOver] = useState(false);
 
   const createWorkspace = useCreateWorkspace();
   const upload = useUploadDocuments();
+
+  // Phase 5b.8: restore an upload draft if a prior attempt was
+  // interrupted by a 401. We can preserve label + data_origin +
+  // file metadata, but not the File bytes (browsers don't expose
+  // them across sessionStorage). The pendingFileMeta state shows
+  // the advisor which files they originally dropped so they can
+  // re-pick the same set.
+  useEffect(() => {
+    const draft = consumeUploadDraft();
+    if (draft === null) return;
+    setLabel(draft.label);
+    setDataOrigin(draft.data_origin);
+    setPendingFileMeta(draft.files);
+    toastSuccess(
+      t("docdrop.draft_restored_title"),
+      t("docdrop.draft_restored_body", {
+        count: draft.files.length,
+        label: draft.label,
+      }),
+    );
+  }, [t]);
 
   function handleFilesPicked(event: ChangeEvent<HTMLInputElement>) {
     // FileList from `event.target.files` is a LIVE reference: clearing
@@ -49,6 +80,9 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
     const snapshot = Array.from(picked);
     event.target.value = "";
     setFiles((prev) => [...prev, ...snapshot]);
+    // The advisor is re-picking files; the recovered metadata list
+    // is no longer needed as a hint.
+    if (pendingFileMeta.length > 0) setPendingFileMeta([]);
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
@@ -59,10 +93,18 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
     // Same snapshot discipline — DataTransfer.files is also live.
     const snapshot = Array.from(dropped);
     setFiles((prev) => [...prev, ...snapshot]);
+    if (pendingFileMeta.length > 0) setPendingFileMeta([]);
   }
 
   function removeFile(index: number) {
     setFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function discardDraft() {
+    setLabel("");
+    setDataOrigin("synthetic");
+    setPendingFileMeta([]);
+    clearUploadDraft();
   }
 
   function handleStart() {
@@ -112,6 +154,22 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
               },
               onError: (err) => {
                 const e = normalizeApiError(err, t("docdrop.upload_error"));
+                if (isAuthError(e)) {
+                  // Session expired mid-upload. Save metadata so the
+                  // advisor doesn't have to retype the workspace label
+                  // or guess which files were attempted; invalidating
+                  // the session query bounces SessionGate to LoginRoute.
+                  saveUploadDraft({
+                    label: label.trim(),
+                    data_origin: dataOrigin,
+                    files,
+                  });
+                  toastError(t("docdrop.session_expired_title"), {
+                    description: t("docdrop.session_expired_body"),
+                  });
+                  queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
+                  return;
+                }
                 toastError(t("docdrop.upload_error"), { description: e.message });
               },
             },
@@ -119,6 +177,18 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
         },
         onError: (err) => {
           const e = normalizeApiError(err, t("docdrop.create_error"));
+          if (isAuthError(e)) {
+            saveUploadDraft({
+              label: label.trim(),
+              data_origin: dataOrigin,
+              files,
+            });
+            toastError(t("docdrop.session_expired_title"), {
+              description: t("docdrop.session_expired_body"),
+            });
+            queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
+            return;
+          }
           toastError(t("docdrop.create_error"), { description: e.message });
         },
       },
@@ -205,6 +275,39 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
           {t("docdrop.pick_files")}
         </Button>
       </div>
+
+      {pendingFileMeta.length > 0 && files.length === 0 && (
+        <section
+          aria-labelledby="docdrop-recovered-title"
+          className="flex flex-col gap-2 border border-accent/40 bg-paper-2 p-3"
+        >
+          <div className="flex items-baseline justify-between">
+            <h3
+              id="docdrop-recovered-title"
+              className="font-mono text-[10px] uppercase tracking-widest text-accent"
+            >
+              {t("docdrop.draft_recovered_title")}
+            </h3>
+            <Button type="button" variant="ghost" size="sm" onClick={discardDraft}>
+              {t("docdrop.draft_discard")}
+            </Button>
+          </div>
+          <p className="font-sans text-[12px] text-muted">
+            {t("docdrop.draft_recovered_body", { count: pendingFileMeta.length })}
+          </p>
+          <ul className="flex flex-col divide-y divide-hairline border border-hairline-2 bg-paper">
+            {pendingFileMeta.map((meta, index) => (
+              <li
+                key={`pending-${meta.name}-${index}`}
+                className="flex items-center justify-between px-3 py-2"
+              >
+                <span className="font-sans text-[12px] text-ink">{meta.name}</span>
+                <span className="font-mono text-[10px] text-muted">{formatBytes(meta.size)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {files.length > 0 && (
         <ul className="flex flex-col divide-y divide-hairline border border-hairline">

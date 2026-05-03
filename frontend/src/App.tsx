@@ -19,6 +19,7 @@ import { useRememberedClientId } from "./chrome/ClientPicker";
 import { type GroupByMode } from "./chrome/ModeToggle";
 import { useLocalStorage } from "./lib/local-storage";
 import { isAdvisorRole, isAnalystRole, useSession, type SessionUser } from "./lib/auth";
+import { peekUploadDraft } from "./lib/upload-recovery";
 import { AccountRoute } from "./routes/AccountRoute";
 import { GoalRoute } from "./routes/GoalRoute";
 import { HouseholdRoute } from "./routes/HouseholdRoute";
@@ -120,6 +121,21 @@ function AuthenticatedShell({
     if (role === "financial_analyst" && location.pathname === "/") {
       navigate("/cma", { replace: true });
     }
+  }, [role, location.pathname, navigate]);
+
+  // Phase 5b.8: post-401 recovery. If the prior session expired during
+  // an upload, we stashed the workspace label + file metadata in
+  // sessionStorage. On re-login the advisor lands on `/` by default —
+  // bounce them to /review so DocDropOverlay can consume the draft and
+  // surface the "re-pick to resume" affordance.
+  useEffect(() => {
+    if (role !== "advisor") return;
+    if (location.pathname === "/review") return;
+    if (peekUploadDraft() === null) return;
+    navigate("/review", { replace: true });
+    // Only on first paint after re-login. The draft consumer
+    // (DocDropOverlay's mount effect) clears sessionStorage so this
+    // won't fire again.
   }, [role, location.pathname, navigate]);
 
   const showClientControls = role === "advisor";

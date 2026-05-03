@@ -489,7 +489,16 @@
     "upload_partial_title": "Documents partially uploaded",
     "upload_partial_body": "{{uploaded}} uploaded · {{failed}} failed: {{names}}",
     "upload_all_failed_one": "All {{count}} file failed to upload.",
-    "upload_all_failed_other": "All {{count}} files failed to upload."
+    "upload_all_failed_other": "All {{count}} files failed to upload.",
+    "session_expired_title": "Session expired during upload",
+    "session_expired_body": "Sign in again — we kept your workspace label and file list so you can re-pick the documents and resume.",
+    "draft_restored_title": "Draft restored",
+    "draft_restored_body_one": "Re-pick the {{count}} file you dropped before for \"{{label}}\" to continue.",
+    "draft_restored_body_other": "Re-pick the {{count}} files you dropped before for \"{{label}}\" to continue.",
+    "draft_recovered_title": "Resuming draft",
+    "draft_recovered_body_one": "Pick {{count}} file with the same name to continue.",
+    "draft_recovered_body_other": "Pick {{count}} files with the same names to continue.",
+    "draft_discard": "Discard draft"
   },
   "review": {
     "subtitle": "Status: {{status}} · Origin: {{origin}}",
