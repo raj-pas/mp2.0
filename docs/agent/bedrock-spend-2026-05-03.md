@@ -151,3 +151,57 @@ Stop-condition checks:
 - [ ] No anomalous structure (e.g., 0 facts unexpectedly)
 - [ ] Real-PII discipline maintained (no values in metadata)
 ```
+
+---
+
+## Automated R10 7-folder sweep (2026-05-03 22:37 UTC) — Sub-session #11 deferred
+
+**Phase:** sub-session #11 deferred-work follow-up; full 7-folder
+real-PII sweep against the live demo stack via
+``scripts/demo-prep/r10_sweep.py --anonymize-folders``.
+**Duration:** ~63 min wall-clock for 56 docs across 7 folders.
+**Calls:** 56 (1 Bedrock call per doc; mix of text + vision_native_pdf).
+**Total input tokens:** 151,342
+**Total output tokens:** 27,325
+**Estimated cost:** $0.8639
+
+Per-folder structural breakdown (folder names anonymized as
+``client_<sha256-prefix>``; surname-to-id map only inside
+``MP20_SECURE_DATA_ROOT/_debug/``):
+
+| Folder (anon) | Docs | Input tok | Output tok | Cost | DB facts | Path mix |
+|---|---|---|---|---|---|---|
+| client_95acac6d | 9 | 25,233 | 4,823 | $0.1480 | 109 | text=4, vision=5 |
+| client_48bb4b33 | 7 | 20,179 | 3,460 | $0.1124 | 114 | text=3, vision=4 |
+| client_4a6ecae4 | 7 | 25,230 | 4,850 | $0.1484 | 126 | vision=5, text=2 |
+| client_3c5f07a1 | 13 | 25,233 | 3,804 | $0.1328 | 382 | text=8, vision=5 |
+| client_e8f7e5fa | 10 | 25,232 | 4,772 | $0.1473 | 223 | text=5, vision=5 |
+| client_2076f34d | 5 | 15,116 | 2,968 | $0.0899 | 89 | vision=3, text=2 |
+| client_10edfe80 | 5 | 15,119 | 2,648 | $0.0851 | 79 | vision=3, text=2 |
+
+**Sweep total:** $0.8639
+**Sweep input tokens:** 151,342
+**Sweep output tokens:** 27,325
+**Cumulative across sub-session #11 follow-up:** $0.8639
+**Cumulative all sub-sessions:** ~$4.22 ($3.36 prior + $0.86 sweep)
+
+Stop-condition checks (all clean):
+- [x] Per-doc cost under $0.50 — max single-doc cost ~$0.04 ✓
+- [x] Per-folder cost under $10 — max folder cost $0.1484 ✓
+- [x] Per-folder wall-clock under 30 min — max ~14 min (Niesner) ✓
+- [x] No anomalous structure — every folder 100% reconciled ✓
+- [x] Real-PII discipline maintained — anonymized labels;
+  structural counts only; no values, no quotes ✓
+- [x] Zero evidence-quote drops across all 56 docs (Phase 9.3
+  validator clean)
+
+### Note on the recompute
+
+The first append from the sweep script reported $0.0000 in every
+row due to a key-path bug (`processing_metadata.bedrock_cost_*`
+instead of the nested `processing_metadata.extraction.bedrock_cost_*`).
+The values above were recomputed from the stored metadata after
+the bug was fixed (`_doc_extraction_meta` helper +
+`scripts/demo-prep/test_r10_sweep.py` regression coverage). The
+DB workspaces remain in `review_ready` so the recompute is
+non-destructive.

@@ -195,3 +195,69 @@ remains insufficient on real pilot data.
 
 Soft escalation triggers ($200/sub-session, $500 cumulative)
 remain comfortably distant.
+
+---
+
+## Automated R10 7-folder sweep — 2026-05-03 22:37 UTC
+
+Real-PII discipline (canon §11.8.3): structural counts only;
+no values, no quotes. Folder names anonymized as
+``client_<sha256-prefix>`` per the ``--anonymize-folders`` flag;
+the surname-to-id map is stored only inside
+``MP20_SECURE_DATA_ROOT/_debug/`` (not committed). Workspaces
+left in ``review_ready`` (NOT auto-committed) to preserve demo state.
+
+| Folder (anon) | Docs | Recon. | Failed | DB facts | State sections | Conflicts | Cost | Drops | Halted |
+|---|---|---|---|---|---|---|---|---|---|
+| client_95acac6d | 9 | 9 | 0 | 109 | 10 | 16 | $0.1480 | 0 | — |
+| client_48bb4b33 | 7 | 7 | 0 | 114 | 11 | 14 | $0.1124 | 0 | — |
+| client_4a6ecae4 | 7 | 7 | 0 | 126 | 14 | 20 | $0.1484 | 0 | — |
+| client_3c5f07a1 | 13 | 13 | 0 | 382 | 16 | 34 | $0.1328 | 0 | — |
+| client_e8f7e5fa | 10 | 10 | 0 | 223 | 14 | 17 | $0.1473 | 0 | — |
+| client_2076f34d | 5 | 5 | 0 | 89 | 8 | 10 | $0.0899 | 0 | — |
+| client_10edfe80 | 5 | 5 | 0 | 79 | 5 | 6 | $0.0851 | 0 | — |
+
+**Totals:**
+- 56 docs across 7 folders, 56/56 reconciled (100%); 0 failed
+- 1,122 ExtractedFact rows persisted in DB
+- 78 reviewed-state section entries (people + accounts + goals + goal_account_links)
+- 117 conflicts surfaced for advisor review (typical multi-source agreement)
+- Bedrock spend: **$0.8639** total — 151,342 input tokens / 27,325 output tokens
+- Zero evidence-quote drops (Phase 9 evidence-validator clean across all 56 docs)
+- Zero halted folders; all stop-conditions clean
+
+### Notes on the cost field
+
+The first append from the sweep script reported `$0.0000` for
+every folder — caused by a key-path bug that read
+`processing_metadata.bedrock_cost_estimate_usd` instead of the
+nested `processing_metadata.extraction.bedrock_cost_estimate_usd`.
+Fixed in `_doc_extraction_meta` helper; the table above reflects
+the recomputed values from the actual stored metadata. The script
+gate enforces the corrected key path going forward, and the
+unit-test suite (`scripts/demo-prep/test_r10_sweep.py`) covers
+the helper.
+
+### Path mix
+
+`text` path: 27 docs (text-rich PDFs / DOCX / XLSX from financial
+plans + meeting notes + KYC). `vision_native_pdf` path: 29 docs
+(Croesus printscreens — image-only KYC / DOB / Address / Profile
+scans). The detection helper from sub-session #8 routed each doc
+correctly without manual override.
+
+### Forward implications
+
+- Demo readiness: Sandra/Mike + Seltzer + Weryha workspaces are
+  in `review_ready` state (not committed). Mon morning the
+  operator either runs the full demo restore via
+  `docs/agent/demo-restore-runbook.md` or demos from the existing
+  intact state.
+- Pilot-week-1 spend forecast: at $0.86 for 56 docs, the
+  per-advisor weekly Bedrock spend (≈ 5 advisors × 3 clients/wk
+  × ~10 docs/client) ≈ ~$0.55/advisor/week, well under the
+  $25/advisor/week target in `docs/agent/pilot-success-metrics.md`.
+- Phase 9 recall recovery on real-PII docs: still flat vs Phase 4
+  baseline (consistent with the earlier Seltzer/Niesner spot-check
+  in `r10-sweep-results-2026-05-03.md` Phase 9 canary section).
+  Phase 9.4 multi-tool architecture remains post-pilot work.

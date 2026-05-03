@@ -66,9 +66,10 @@ class TestEmptySummary:
 
 class TestTodaySectionAlreadyPresent:
     def test_returns_false_for_missing_file(self, tmp_path: Path) -> None:
-        assert r10_sweep._today_section_already_present(
-            tmp_path / "does-not-exist.md", "## Header"
-        ) is False
+        assert (
+            r10_sweep._today_section_already_present(tmp_path / "does-not-exist.md", "## Header")
+            is False
+        )
 
     def test_detects_today_dated_header(self, tmp_path: Path) -> None:
         from datetime import UTC, datetime

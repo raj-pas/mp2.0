@@ -112,6 +112,22 @@ def _empty_summary(folder_name: str, skipped_reason: str | None = None) -> dict:
     }
 
 
+def _doc_extraction_meta(doc: dict) -> dict:
+    """Return the per-doc extraction metadata sub-dict.
+
+    The pipeline stores token counts + cost + extraction_path under
+    ``processing_metadata.extraction``, NOT at the top level — so a
+    plain ``meta.get("bedrock_cost_estimate_usd")`` returns 0 for
+    every doc. This helper centralizes the key-path so the polling
+    loop, summary builder, and post-loop totals all agree.
+    """
+    pmeta = doc.get("processing_metadata") or {}
+    inner = pmeta.get("extraction")
+    if isinstance(inner, dict):
+        return inner
+    return pmeta  # fall back if pipeline ever stops nesting
+
+
 def _sum_workspace_cost(workspace_payload: dict) -> float:
     """Sum the per-doc bedrock cost estimate across the workspace.
 
@@ -121,7 +137,7 @@ def _sum_workspace_cost(workspace_payload: dict) -> float:
     """
     total = 0.0
     for doc in workspace_payload.get("documents", []):
-        meta = doc.get("processing_metadata") or {}
+        meta = _doc_extraction_meta(doc)
         try:
             total += float(meta.get("bedrock_cost_estimate_usd") or 0)
         except (TypeError, ValueError):
@@ -262,7 +278,7 @@ def sweep_folder(folder_name: str, session: requests.Session) -> dict:
             # spent > $0.50 (sub-session-11-plan.md §11). Catches a
             # runaway prompt before it eats the whole folder budget.
             for doc in d.get("documents", []):
-                meta = doc.get("processing_metadata") or {}
+                meta = _doc_extraction_meta(doc)
                 try:
                     cost = float(meta.get("bedrock_cost_estimate_usd") or 0)
                 except (TypeError, ValueError):
@@ -307,7 +323,7 @@ def sweep_folder(folder_name: str, session: requests.Session) -> dict:
     cost_usd = 0.0
     evidence_drops = 0
     for doc in docs:
-        meta = doc.get("processing_metadata") or {}
+        meta = _doc_extraction_meta(doc)
         path = meta.get("extraction_path") or "unknown"
         extraction_paths[path] = extraction_paths.get(path, 0) + 1
         input_tokens += int(meta.get("bedrock_input_tokens") or 0)
