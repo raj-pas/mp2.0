@@ -144,3 +144,5 @@ fails on drift.
 - `docs/agent/handoff-log.md` — append-only dated handoffs
 - `docs/agent/decisions.md` — implementation decisions distilled from the canon
 - `docs/agent/open-questions.md` — tracked unresolved decisions
+- `docs/agent/r10-sweep-results-2026-05-02.md` — Phase 4 tool-use migration R10 sweep (per-doc structural diff; canon §9.4.5 quality wins + −41% recall regression)
+- `docs/agent/phase9-fact-quality-iteration.md` — post-pilot fact-quality iteration plan; recovers legitimate recall in the new tool-use path without re-introducing hallucinations

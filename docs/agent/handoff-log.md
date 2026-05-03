@@ -3139,3 +3139,110 @@ bash scripts/check-openapi-codegen.sh  # expect "OK" (regenerate via npm run cod
 Then re-read `~/.claude/plans/you-are-continuing-a-playful-hammock.md`
 Phase 5b sub-phases for remaining work, then proceed sub-phase by
 sub-phase with per-commit gate green.
+
+---
+
+## 2026-05-02 (later, Phase 7 R10 sweep) — Phase 4 canary fixes + R10 partial sweep + Phase 9 designed
+
+After the 5b partial wave halt, user pivoted to Phase 7 R10 canary
+to validate Phase 4 tool-use migration against real-PII before
+adding more UI surface.
+
+**HEAD `6b0ea9b` Phase 4 hardening** — Two canary regressions
+fixed:
+* Fix #1 (`extraction/pipeline.py:_cap_fact_confidence`):
+  cap_rank now `min(cls_rank + 1, 3)` so LOW classification
+  caps HIGH→MEDIUM but doesn't collapse medium→low. Original
+  semantics were over-aggressive (Seltzer KYC dropped all 32
+  facts to LOW under low classification).
+* Fix #2 (`extraction/prompts/__init__.py:build_prompt_for`):
+  when `classification.route == "multi_schema_sweep"`, dispatch
+  to `generic.build_prompt` regardless of `document_type`. Per-
+  type bodies are too narrow when the classifier saw signals
+  from multiple doc types and isn't sure which dominates.
+
+Tests: 422 (+2 new for the dispatcher routing). Gates green.
+
+**Phase 7 R10 partial sweep** — 12 real-PII docs (Seltzer 5,
+Weryha 5, Wurya 2) re-extracted under fixed tool-use path.
+
+Per-workspace totals (pre → post):
+* Seltzer: 168 → 94 (−44%)
+* Weryha: 157 → 81 (−48%)
+* Wurya: 0 → 40 (NET WIN — was failing pre-Phase-4)
+* **Aggregate: 365 → 215 (−41% recall)**
+
+Quality wins (canon §9.4.5 + §11.4):
+* ~40 hallucinated section paths eliminated
+  (`identification.*`, `next_steps.*`, `promotions.*`,
+  `real_estate.*`, etc.).
+* 2 `defaulted` facts gone (canon §9.4.5 prohibits).
+* Inferred-fact count cut from ~52 to ~16 (canon-correct
+  reduction of borderline-hallucination facts).
+* Confidence calibration honest (no high-confidence inferred
+  facts).
+
+Quality losses:
+* AW Address.pdf 12 → 2 (−83%) — too aggressive on narrow docs.
+* CS DOB.pdf 23 → 5 (−78%) — lost legitimate spread.
+* Meeting notes −46% to −51% — needs richer behavioral_notes
+  capture.
+
+Per-doc breakdown captured in
+`docs/agent/r10-sweep-results-2026-05-02.md`.
+
+Original 7-folder R10 set (Gumprich/Herman/McPhalen/Niesner/
+Schlotfeldt/Seltzer/Weryha) is partial — only 2 + Wurya in DB.
+Re-uploading the other 4 needs raw files which weren't in scope
+of this session.
+
+**Phase 9 design** — `docs/agent/phase9-fact-quality-iteration.md`
+written. Post-pilot iteration to recover legitimate recall in
+the −41% without re-introducing hallucinations. 10 alternatives
+canvassed (A through J + Option H empirical measurement);
+recommended layered approach:
+* 9.1: Empirical baseline (Week 1 of pilot — measure advisor
+  productivity).
+* 9.2: Permissive base + strict per-type (NO_FABRICATION_BLOCK
+  softened with "STRONG signal" carve-out).
+* 9.3: Inferred-with-evidence-quote validation (drop facts
+  whose evidence_quote doesn't substring-match parsed doc).
+* 9.4: Multi-tool architecture exploration (one tool per
+  canonical section; Bedrock self-orchestrates) if 9.2+9.3
+  insufficient.
+* 9.5: End-to-end advisor-productivity validation per
+  iteration (commit rate, manual-entry rate, conflict-
+  resolve time, time-to-portfolio).
+
+Stop conditions: Phase 9 halts + AskUserQuestion if any
+iteration regresses advisor commit rate >5% OR introduces a
+new hallucination class OR exceeds $50/iteration budget.
+
+Success criteria: per-folder fact counts within ±10% of pre-
+Phase-4 baseline + 0 inferred on KYC/identity/statement +
+hallucinated section paths remain at 0 + advisor productivity
+matches or exceeds pre-Phase-4.
+
+**Session totals through this commit:** 8 commits past
+`448b281` (Phase 4, 4.5, 5a, 5b.1+5b.6, 5b.2+5b.7+5b.9+5b.14+smoke,
+session-state-handoff, Phase 4 hardening, Phase 7 sweep + Phase 9
+design). Tests: 362 baseline → 422 (+60 net). Bedrock spend
+~$3 across 12 real-PII doc retries.
+
+**Pointer for fresh session continuing 5b remainder + Phase 5c
++ 6 + 6.9 + 8 + Phase 9 (post-pilot):**
+
+```bash
+cd /Users/saranyaraj/Projects/github-repo/mp2.0
+git status --short --branch  # confirm feature/ux-rebuild
+git log --oneline -10  # confirm session commits
+DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 \
+  uv run python -m pytest engine/tests/ web/api/tests/ web/audit/tests/ \
+  -q  # expect 422 passing
+bash scripts/check-pii-leaks.sh  # expect "PII grep guard: OK"
+bash scripts/check-openapi-codegen.sh  # expect "OK"
+```
+
+Then re-read `~/.claude/plans/you-are-continuing-a-playful-hammock.md`
++ `docs/agent/phase9-fact-quality-iteration.md` for the next
+session's scope.
