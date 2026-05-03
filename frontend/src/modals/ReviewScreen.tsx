@@ -40,6 +40,7 @@ import {
   type WorkerHealth,
   useApproveSection,
   useCommitWorkspace,
+  useUncommitWorkspace,
   useMarkManualEntry,
   useReviewWorkspace,
   useReviewedState,
@@ -65,6 +66,7 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
   const stateQuery = useReviewedState(workspaceId);
   const approve = useApproveSection(workspaceId);
   const commit = useCommitWorkspace(workspaceId);
+  const uncommit = useUncommitWorkspace(workspaceId);
   const retry = useRetryDocument(workspaceId);
   const manualEntry = useMarkManualEntry(workspaceId);
 
@@ -159,15 +161,40 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
         </div>
         <div className="flex items-center gap-2">
           <div className="flex flex-col items-end gap-1">
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleCommit}
-              disabled={commitDisabled}
-            >
-              {commit.isPending ? t("review.committing") : t("review.commit")}
-            </Button>
-            {!commitDisabled || commit.isPending ? null : (
+            {workspace.status === "committed" ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  uncommit.mutate(undefined, {
+                    onSuccess: () => {
+                      toastSuccess(
+                        t("review.uncommit_success_title"),
+                        t("review.uncommit_success_body"),
+                      );
+                    },
+                    onError: (err) => {
+                      const e = normalizeApiError(err, t("review.uncommit_error"));
+                      toastError(t("review.uncommit_error"), { description: e.message });
+                    },
+                  });
+                }}
+                disabled={uncommit.isPending}
+              >
+                {uncommit.isPending ? t("review.uncommitting") : t("review.uncommit")}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleCommit}
+                disabled={commitDisabled}
+              >
+                {commit.isPending ? t("review.committing") : t("review.commit")}
+              </Button>
+            )}
+            {workspace.status !== "committed" && (!commitDisabled || commit.isPending ? null : (
               <p className="font-mono text-[9px] uppercase tracking-widest text-muted">
                 {!engineReady
                   ? t("review.commit_blocked_engine")
@@ -177,7 +204,7 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
                         sections: missingApprovals.join(", "),
                       })}
               </p>
-            )}
+            ))}
           </div>
         </div>
       </header>
@@ -300,6 +327,11 @@ function ProcessingPanel({
 }) {
   const { t } = useTranslation();
   const docs = workspace.documents;
+  const counts = countByStatus(docs);
+  const inFlight = counts.in_flight;
+  const total = docs.length;
+  const completed = counts.completed;
+  const etaSeconds = inFlight > 0 ? estimateEtaSeconds(inFlight) : null;
   return (
     <section className="border border-hairline-2 bg-paper-2 p-4">
       <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted">
@@ -310,6 +342,27 @@ function ProcessingPanel({
           {t("review.no_documents")}
         </p>
       ) : (
+        <>
+          {inFlight > 0 && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mb-3 flex items-baseline justify-between border-l-4 border-accent bg-paper px-3 py-2"
+            >
+              <p className="font-sans text-[12px] text-ink">
+                {t("review.progress_in_flight", {
+                  completed,
+                  total,
+                  in_flight: inFlight,
+                })}
+              </p>
+              {etaSeconds !== null && (
+                <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
+                  {t("review.progress_eta", { seconds: etaSeconds })}
+                </span>
+              )}
+            </div>
+          )}
         <ul className="flex flex-col divide-y divide-hairline">
           {docs.map((doc) => {
             const job = workspace.processing_jobs.find((j) => j.document_id === doc.id);
@@ -415,9 +468,49 @@ function ProcessingPanel({
             );
           })}
         </ul>
+        </>
       )}
     </section>
   );
+}
+
+// Doc statuses that mean "extraction work still in flight" — see
+// frontend/src/lib/review.ts DocumentStatus union for the canonical
+// list. Anything not in this set is treated as terminal-ish (either
+// extracted, reconciled, failed, manual_entry, unsupported, skipped).
+const IN_FLIGHT_DOC_STATUSES = new Set<ReviewWorkspace["documents"][number]["status"]>([
+  "uploaded",
+  "classified",
+  "text_extracted",
+  "ocr_required",
+  "facts_extracted",
+]);
+
+function countByStatus(docs: ReviewWorkspace["documents"]): {
+  in_flight: number;
+  completed: number;
+} {
+  let inFlight = 0;
+  let completed = 0;
+  for (const doc of docs) {
+    if (IN_FLIGHT_DOC_STATUSES.has(doc.status)) {
+      inFlight += 1;
+    } else {
+      completed += 1;
+    }
+  }
+  return { in_flight: inFlight, completed };
+}
+
+// Heuristic ETA per doc, derived from sub-session #8.5 + #9 canary
+// timings: text path ~8-12s/doc, vision_native_pdf path ~6-14s/doc.
+// We bias toward the upper bound so the advisor's expectation is
+// realistic instead of optimistic. Worker concurrency is 1 (single
+// worker dyno) so total ETA = N × per-doc-seconds.
+const PER_DOC_ETA_SECONDS = 15;
+
+function estimateEtaSeconds(inFlight: number): number {
+  return inFlight * PER_DOC_ETA_SECONDS;
 }
 
 function ReadinessPanel({ workspace }: { workspace: ReviewWorkspace }) {
@@ -555,14 +648,94 @@ function SectionApprovalPanel({
 function StatePeekPanel({ state }: { state: Record<string, unknown> | undefined }) {
   const { t } = useTranslation();
   if (state === undefined) return null;
+
+  // Phase 10.4: replace the raw JSON dump with a structured "About to
+  // commit" summary. The advisor sees per-section counts (people /
+  // accounts / goals / risk) so the commit moment is intelligible
+  // without reading nested JSON. Falls back to the JSON view inside a
+  // <details> for the technical case where the advisor wants the raw
+  // shape.
+  const summary = summarizeReviewedState(state);
   return (
     <section className="border border-hairline-2 bg-paper-2 p-4">
       <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted">
         {t("review.state_peek_title")}
       </h3>
-      <pre className="max-h-48 overflow-auto bg-paper p-2 font-mono text-[10px] text-ink-2">
-        {JSON.stringify(state, null, 2).slice(0, 1200)}
-      </pre>
+      <dl className="grid grid-cols-2 gap-3 font-sans text-[12px]">
+        <CommitPreviewRow label={t("review.commit_preview.people")} value={summary.people_count} />
+        <CommitPreviewRow
+          label={t("review.commit_preview.accounts")}
+          value={summary.accounts_count}
+        />
+        <CommitPreviewRow label={t("review.commit_preview.goals")} value={summary.goals_count} />
+        <CommitPreviewRow
+          label={t("review.commit_preview.goal_account_links")}
+          value={summary.goal_account_links_count}
+        />
+        <CommitPreviewRow
+          label={t("review.commit_preview.risk")}
+          value={summary.risk_household_score ?? t("review.commit_preview.unset")}
+        />
+        <CommitPreviewRow
+          label={t("review.commit_preview.household")}
+          value={summary.household_label || t("review.commit_preview.unset")}
+        />
+      </dl>
+      <details className="mt-3">
+        <summary className="font-mono text-[10px] uppercase tracking-widest text-muted">
+          {t("review.commit_preview.show_raw")}
+        </summary>
+        <pre className="mt-2 max-h-48 overflow-auto bg-paper p-2 font-mono text-[10px] text-ink-2">
+          {JSON.stringify(state, null, 2).slice(0, 1200)}
+        </pre>
+      </details>
     </section>
   );
+}
+
+function CommitPreviewRow({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="flex items-baseline justify-between border-b border-hairline pb-1">
+      <dt className="font-mono text-[10px] uppercase tracking-widest text-muted">{label}</dt>
+      <dd className="font-sans text-[14px] text-ink">{value}</dd>
+    </div>
+  );
+}
+
+function summarizeReviewedState(state: Record<string, unknown>): {
+  people_count: number;
+  accounts_count: number;
+  goals_count: number;
+  goal_account_links_count: number;
+  risk_household_score: number | null;
+  household_label: string;
+} {
+  const people = Array.isArray(state.people) ? state.people : [];
+  const accounts = Array.isArray(state.accounts) ? state.accounts : [];
+  const goals = Array.isArray(state.goals) ? state.goals : [];
+  const goalAccountLinks = Array.isArray(state.goal_account_links)
+    ? state.goal_account_links
+    : [];
+  const risk = isObjectLike(state.risk) ? state.risk : null;
+  const household = isObjectLike(state.household) ? state.household : null;
+
+  const householdScoreRaw = risk?.household_score;
+  const householdScore =
+    typeof householdScoreRaw === "number" ? householdScoreRaw : null;
+  const householdLabelRaw = household?.display_name;
+  const householdLabel =
+    typeof householdLabelRaw === "string" ? householdLabelRaw : "";
+
+  return {
+    people_count: people.length,
+    accounts_count: accounts.length,
+    goals_count: goals.length,
+    goal_account_links_count: goalAccountLinks.length,
+    risk_household_score: householdScore,
+    household_label: householdLabel,
+  };
+}
+
+function isObjectLike(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

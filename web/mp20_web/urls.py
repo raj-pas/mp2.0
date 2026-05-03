@@ -184,6 +184,11 @@ urlpatterns = [
         views.ReviewWorkspaceCommitView.as_view(),
         name="review-workspace-commit",
     ),
+    path(
+        "api/review-workspaces/<str:workspace_id>/uncommit/",
+        views.ReviewWorkspaceUncommitView.as_view(),
+        name="review-workspace-uncommit",
+    ),
     # ---- Phase R1 preview endpoints (read-only engine wrappers) ----
     path(
         "api/preview/risk-profile/",

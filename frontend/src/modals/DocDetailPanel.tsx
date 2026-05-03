@@ -29,6 +29,11 @@ import {
   useReviewDocument,
 } from "../lib/review";
 import { normalizeApiError } from "../lib/api-error";
+import {
+  CANONICAL_FIELD_AUTOCOMPLETE,
+  type CanonicalFieldShape,
+  getCanonicalFieldShape,
+} from "../lib/canonical-fields";
 import { toastError, toastSuccess } from "../lib/toast";
 import { cn } from "../lib/cn";
 
@@ -37,17 +42,6 @@ interface DocDetailPanelProps {
   documentId: number | null;
   onClose: () => void;
 }
-
-const ADDABLE_SECTIONS: Array<{ section: string; sample_field: string }> = [
-  // Phase 5b.11 — drives the "Add fact" picker. The sample_field is
-  // pre-filled into the form input so advisors see the canonical
-  // path shape and can edit it (e.g. people[1].date_of_birth).
-  { section: "people", sample_field: "people[0].date_of_birth" },
-  { section: "accounts", sample_field: "accounts[0].current_value" },
-  { section: "goals", sample_field: "goals[0].name" },
-  { section: "risk", sample_field: "risk.household_score" },
-  { section: "household", sample_field: "household.display_name" },
-];
 
 export function DocDetailPanel({ workspaceId, documentId, onClose }: DocDetailPanelProps) {
   const { t } = useTranslation();
@@ -297,6 +291,7 @@ function FactRow({
       )}
       {editing && (
         <FactEditForm
+          fieldPath={fact.field}
           initialValue={formatFactValue(fact.value)}
           onCancel={onCancelEdit}
           onSubmit={onSubmit}
@@ -308,30 +303,56 @@ function FactRow({
 }
 
 function FactEditForm({
+  fieldPath,
   initialValue,
   onCancel,
   onSubmit,
   submitting,
 }: {
+  fieldPath: string;
   initialValue: string;
   onCancel: () => void;
   onSubmit: (value: string, rationale: string) => void;
   submitting: boolean;
 }) {
   const { t } = useTranslation();
-  const [value, setValue] = useState(initialValue);
+  const shape = useMemo(() => getCanonicalFieldShape(fieldPath), [fieldPath]);
+  const [value, setValue] = useState(() => normalizeInitialValue(initialValue, shape));
   const [rationale, setRationale] = useState("");
-  const valueInputRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const selectRef = useRef<HTMLSelectElement | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
-  // jsx-a11y/no-autofocus rules out the `autoFocus` attr; do it
-  // imperatively on mount so the editing surface is keyboard-ready.
   useEffect(() => {
-    valueInputRef.current?.focus();
-  }, []);
+    if (shape.kind === "enum") {
+      selectRef.current?.focus();
+    } else {
+      inputRef.current?.focus();
+    }
+  }, [shape.kind]);
+
+  function validate(next: string): string | null {
+    if (next.trim().length === 0) return t("doc_detail.value_required");
+    if (shape.kind === "number") {
+      const parsed = Number(next);
+      if (Number.isNaN(parsed)) return t("doc_detail.value_must_be_number");
+      if (shape.min !== undefined && parsed < shape.min) {
+        return t("doc_detail.value_below_min", { min: shape.min });
+      }
+      if (shape.max !== undefined && parsed > shape.max) {
+        return t("doc_detail.value_above_max", { max: shape.max });
+      }
+    }
+    return null;
+  }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (value.trim().length === 0 || rationale.trim().length < 4) return;
+    const error = validate(value);
+    if (error || rationale.trim().length < 4) {
+      setValidationError(error);
+      return;
+    }
     onSubmit(value.trim(), rationale.trim());
   }
 
@@ -341,14 +362,47 @@ function FactEditForm({
         <span className="font-mono text-[9px] uppercase tracking-widest text-muted">
           {t("doc_detail.edit_value_label")}
         </span>
-        <input
-          ref={valueInputRef}
-          type="text"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          disabled={submitting}
-          className="border border-hairline-2 bg-paper px-2 py-1 font-mono text-[12px] text-ink focus:border-accent focus:outline-none"
-        />
+        {shape.kind === "enum" ? (
+          <select
+            ref={selectRef}
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setValidationError(null);
+            }}
+            disabled={submitting}
+            className="border border-hairline-2 bg-paper px-2 py-1 font-mono text-[12px] text-ink focus:border-accent focus:outline-none"
+          >
+            <option value="" disabled>
+              {t("doc_detail.value_select_placeholder")}
+            </option>
+            {shape.enum_options?.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            ref={inputRef}
+            type={shape.kind === "date" ? "date" : shape.kind === "number" ? "number" : "text"}
+            value={value}
+            min={shape.min}
+            max={shape.max}
+            step={shape.step}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setValidationError(null);
+            }}
+            disabled={submitting}
+            className="border border-hairline-2 bg-paper px-2 py-1 font-mono text-[12px] text-ink focus:border-accent focus:outline-none"
+          />
+        )}
+        {validationError && (
+          <span role="alert" className="font-mono text-[10px] text-danger">
+            {validationError}
+          </span>
+        )}
       </label>
       <label className="flex flex-col gap-1">
         <span className="font-mono text-[9px] uppercase tracking-widest text-muted">
@@ -370,13 +424,38 @@ function FactEditForm({
         <Button
           type="submit"
           size="sm"
-          disabled={submitting || value.trim().length === 0 || rationale.trim().length < 4}
+          disabled={
+            submitting ||
+            value.trim().length === 0 ||
+            rationale.trim().length < 4 ||
+            validationError !== null
+          }
         >
           {submitting ? t("doc_detail.edit_saving") : t("doc_detail.edit_save")}
         </Button>
       </div>
     </form>
   );
+}
+
+function normalizeInitialValue(raw: string, shape: CanonicalFieldShape): string {
+  if (shape.kind === "date") {
+    // Try to coerce ISO-prefixed strings; the backend stores
+    // YYYY-MM-DD on date facts but the wire shape may include
+    // time + zone for asserted_at. Strip time portion if present.
+    const isoPrefixMatch = raw.match(/^\d{4}-\d{2}-\d{2}/);
+    return isoPrefixMatch ? isoPrefixMatch[0] : "";
+  }
+  if (shape.kind === "number") {
+    const parsed = Number(raw);
+    return Number.isNaN(parsed) ? "" : String(parsed);
+  }
+  if (shape.kind === "enum" && shape.enum_options) {
+    const lower = raw.trim().toLowerCase();
+    const match = shape.enum_options.find((option) => option.value === lower);
+    return match ? match.value : "";
+  }
+  return raw;
 }
 
 function AddFactSection({
@@ -433,14 +512,17 @@ function AddFactSection({
           list="doc-detail-add-field-suggestions"
           type="text"
           value={field}
-          onChange={(e) => setField(e.target.value)}
+          onChange={(e) => {
+            setField(e.target.value);
+            setValue("");
+          }}
           disabled={submitting}
           placeholder={t("doc_detail.add_field_placeholder")}
           className="border border-hairline-2 bg-paper px-2 py-1 font-mono text-[12px] text-ink focus:border-accent focus:outline-none"
         />
         <datalist id="doc-detail-add-field-suggestions">
-          {ADDABLE_SECTIONS.map((row) => (
-            <option key={row.section} value={row.sample_field} />
+          {CANONICAL_FIELD_AUTOCOMPLETE.map((path) => (
+            <option key={path} value={path} />
           ))}
         </datalist>
       </label>
@@ -448,13 +530,46 @@ function AddFactSection({
         <span className="font-mono text-[9px] uppercase tracking-widest text-muted">
           {t("doc_detail.edit_value_label")}
         </span>
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          disabled={submitting}
-          className="border border-hairline-2 bg-paper px-2 py-1 font-mono text-[12px] text-ink focus:border-accent focus:outline-none"
-        />
+        {(() => {
+          const shape = field.length > 0 ? getCanonicalFieldShape(field) : { kind: "text" as const };
+          if (shape.kind === "enum") {
+            return (
+              <select
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                disabled={submitting || field.length === 0}
+                className="border border-hairline-2 bg-paper px-2 py-1 font-mono text-[12px] text-ink focus:border-accent focus:outline-none"
+              >
+                <option value="" disabled>
+                  {t("doc_detail.value_select_placeholder")}
+                </option>
+                {shape.enum_options?.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            );
+          }
+          return (
+            <input
+              type={
+                shape.kind === "date"
+                  ? "date"
+                  : shape.kind === "number"
+                    ? "number"
+                    : "text"
+              }
+              value={value}
+              min={shape.min}
+              max={shape.max}
+              step={shape.step}
+              onChange={(e) => setValue(e.target.value)}
+              disabled={submitting}
+              className="border border-hairline-2 bg-paper px-2 py-1 font-mono text-[12px] text-ink focus:border-accent focus:outline-none"
+            />
+          );
+        })()}
       </label>
       <label className="flex flex-col gap-1">
         <span className="font-mono text-[9px] uppercase tracking-widest text-muted">

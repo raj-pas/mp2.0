@@ -116,12 +116,13 @@ describe("DocDetailPanel", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /doc_detail.edit_aria/ }),
     );
-    // Edit value (input is pre-filled with formatted current value).
-    // Two textboxes inside the edit form: value (input) + rationale (textarea).
-    const [valueInput, rationaleInput] = screen.getAllByRole("textbox");
-    if (!valueInput || !rationaleInput) {
-      throw new Error("expected value + rationale textboxes in the edit form");
-    }
+    // Phase 10.1 schema-driven inputs: people[0].date_of_birth renders
+    // as <input type="date"> (no textbox role). Rationale stays as a
+    // textbox (textarea). Query by label-text for the value input.
+    const valueInput = screen.getByLabelText("doc_detail.edit_value_label");
+    const rationaleInput = screen.getByRole("textbox", {
+      name: "doc_detail.edit_rationale_label",
+    });
     fireEvent.change(valueInput, { target: { value: "1972-03-15" } });
     fireEvent.change(rationaleInput, {
       target: { value: "Corrected per signed KYC" },

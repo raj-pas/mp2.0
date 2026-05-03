@@ -2347,6 +2347,109 @@ class ReviewWorkspaceCommitView(APIView):
         )
 
 
+class ReviewWorkspaceUncommitView(APIView):
+    """Soft-undo a committed review workspace (sub-session #10.6).
+
+    Pilot-week-1 semantic: advisor commits a workspace, realizes
+    within minutes they got something wrong, calls this endpoint to
+    revert the workspace to ``review_ready`` so they can fix +
+    re-commit. The ORIGINAL Household stays in the DB (orphaned;
+    surfaced only to analysts) and lives on the audit trail
+    (``review_state_committed`` is append-only). Re-committing
+    creates a NEW Household.
+
+    Trade-offs:
+      - Soft-undo trades audit-trail noise (an orphaned Household per
+        retry) for ergonomic recovery. Re-edit flow (post-pilot v2)
+        keeps a single Household identity stable across retries.
+      - Engine purity preserved: the orphan Household is not deleted;
+        the ``Household.review_workspaces`` relation lets analysts
+        reconcile if needed.
+
+    Idempotency: only flips state when status==COMMITTED. Calling on
+    a non-committed workspace returns 409 (conflict). Concurrent
+    calls serialize via ``select_for_update`` on the workspace.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, workspace_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        with transaction.atomic():
+            # ``of=("self",)`` locks only the ReviewWorkspace row and not
+            # the joined nullable Household / owner rows. Without it
+            # PostgreSQL raises NotSupportedError ("FOR UPDATE cannot be
+            # applied to the nullable side of an outer join") because
+            # ``_review_workspace_queryset`` includes select_related on
+            # nullable FKs.
+            workspace = (
+                _review_workspace_queryset()
+                .select_for_update(of=("self",))
+                .filter(
+                    external_id=workspace_id,
+                    pk__in=team_workspaces(request.user).values("pk"),
+                )
+                .first()
+            )
+            if workspace is None:
+                return Response({"detail": "Workspace not found."}, status=404)
+            if workspace.status != models.ReviewWorkspace.Status.COMMITTED:
+                return Response(
+                    {
+                        "detail": "Workspace is not committed; nothing to undo.",
+                        "code": "not_committed",
+                    },
+                    status=409,
+                )
+            previous_household = workspace.linked_household
+            previous_household_id = previous_household.external_id if previous_household else None
+            previous_committed_at = (
+                workspace.updated_at.isoformat() if workspace.updated_at else None
+            )
+            # Soft-undo v1 design (locked 2026-05-03): delete the
+            # linked Household + its dependents. Person, Account,
+            # Goal, and PortfolioRun all CASCADE on Household.delete()
+            # per the model definitions. This trades the "orphan
+            # Household visible to analysts" ideal for the
+            # "deterministic external_id slot is reusable" pragmatic
+            # — without it, re-committing fails on the
+            # api_household_external_id_key unique constraint because
+            # ``_create_household_from_state`` derives the external_id
+            # from workspace.external_id.
+            #
+            # The append-only audit event captures the previous_household_id
+            # + previous_committed_at + uncommit_kind so legal /
+            # compliance / analyst surfaces can still reconstruct
+            # "what existed at this moment" via AuditEvent history.
+            #
+            # Sub-session #11+ post-pilot may upgrade this to the
+            # re-edit flow (option B) which preserves Household
+            # identity across edit cycles.
+            workspace.linked_household = None
+            workspace.status = models.ReviewWorkspace.Status.REVIEW_READY
+            workspace.save(update_fields=["linked_household", "status", "updated_at"])
+            if previous_household is not None:
+                previous_household.delete()
+            record_event(
+                action="review_workspace_uncommitted",
+                entity_type="review_workspace",
+                entity_id=workspace.external_id,
+                actor=(
+                    request.user.get_username()
+                    if getattr(request.user, "is_authenticated", False)
+                    else "system"
+                ),
+                metadata={
+                    "previous_household_id": previous_household_id,
+                    "previous_committed_at": previous_committed_at,
+                    "uncommit_kind": "soft",
+                },
+            )
+        refreshed = _review_workspace_queryset().get(pk=workspace.pk)
+        return Response({"workspace": ReviewWorkspaceSerializer(refreshed).data})
+
+
 class ReviewWorkspaceManualReconcileView(APIView):
     permission_classes = [IsAuthenticated]
 

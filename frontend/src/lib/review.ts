@@ -686,3 +686,42 @@ export function useCommitWorkspace(workspaceId: string | null) {
     },
   });
 }
+
+export type UncommitWorkspaceResponse = {
+  workspace: ReviewWorkspace;
+};
+
+/**
+ * Sub-session #10.6 — soft-undo a recently-committed workspace.
+ * Returns the workspace flipped back to ``review_ready`` status. The
+ * previously linked Household is deleted server-side (cascading
+ * Person/Account/Goal/PortfolioRun rows). Re-committing creates a
+ * fresh Household at the same deterministic external_id slot.
+ *
+ * Surface (intended): a toast with "Undo" link rendered immediately
+ * after a successful commit (within 5 minutes), AND an explicit
+ * "Undo commit" button on the committed-workspace footer for
+ * advisors who navigate away and come back.
+ */
+export function useUncommitWorkspace(workspaceId: string | null) {
+  const qc = useQueryClient();
+  return useMutation<UncommitWorkspaceResponse, Error, undefined>({
+    mutationFn: () => {
+      if (workspaceId === null) {
+        return Promise.reject(new Error("workspace id required"));
+      }
+      return apiFetch<UncommitWorkspaceResponse>(
+        `/api/review-workspaces/${encodeURIComponent(workspaceId)}/uncommit/`,
+        { method: "POST", body: {} },
+      );
+    },
+    onSuccess: () => {
+      if (workspaceId === null) return;
+      qc.invalidateQueries({ queryKey: reviewWorkspaceKey(workspaceId) });
+      qc.invalidateQueries({ queryKey: REVIEW_WORKSPACES_KEY });
+      // The household + portfolio runs are deleted; refresh client
+      // picker so the orphaned Sandra/Mike or whoever drops out.
+      qc.invalidateQueries({ queryKey: ["clients"] });
+    },
+  });
+}

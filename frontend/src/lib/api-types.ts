@@ -1082,6 +1082,45 @@ export interface paths {
         patch: operations["review_workspaces_state_partial_update"];
         trace?: never;
     };
+    "/api/review-workspaces/{workspace_id}/uncommit/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Soft-undo a committed review workspace (sub-session #10.6).
+         *
+         *     Pilot-week-1 semantic: advisor commits a workspace, realizes
+         *     within minutes they got something wrong, calls this endpoint to
+         *     revert the workspace to ``review_ready`` so they can fix +
+         *     re-commit. The ORIGINAL Household stays in the DB (orphaned;
+         *     surfaced only to analysts) and lives on the audit trail
+         *     (``review_state_committed`` is append-only). Re-committing
+         *     creates a NEW Household.
+         *
+         *     Trade-offs:
+         *       - Soft-undo trades audit-trail noise (an orphaned Household per
+         *         retry) for ergonomic recovery. Re-edit flow (post-pilot v2)
+         *         keeps a single Household identity stable across retries.
+         *       - Engine purity preserved: the orphan Household is not deleted;
+         *         the ``Household.review_workspaces`` relation lets analysts
+         *         reconcile if needed.
+         *
+         *     Idempotency: only flips state when status==COMMITTED. Calling on
+         *     a non-committed workspace returns 409 (conflict). Concurrent
+         *     calls serialize via ``select_for_update`` on the workspace.
+         */
+        post: operations["review_workspaces_uncommit_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/review-workspaces/{workspace_id}/upload/": {
         parameters: {
             query?: never;
@@ -2676,6 +2715,26 @@ export interface operations {
         };
     };
     review_workspaces_state_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    review_workspaces_uncommit_create: {
         parameters: {
             query?: never;
             header?: never;
