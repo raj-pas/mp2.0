@@ -97,3 +97,26 @@
       radial-gradient(circle at 100% 100%, rgba(46, 93, 58, 0.03), transparent 50%);
   }
 }
+
+/*
+ * Phase 5b UX-polish pass: respect prefers-reduced-motion.
+ *
+ * Animations + transitions degrade to instant for users who set
+ * the OS-level "reduce motion" preference. The Tailwind utility
+ * `motion-safe:` already gates the slide-out animation; this
+ * global rule covers the long tail of `transition-*` utilities
+ * + the `animate-pulse` skeleton + any third-party Radix-driven
+ * animations. Sets `transition-duration` and `animation-duration`
+ * to a near-zero (1ms) value so the visual end-state still
+ * applies but no easing is perceived.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
