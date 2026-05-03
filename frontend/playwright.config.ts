@@ -17,5 +17,19 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
+    // Cross-browser spot-check (production-quality-bar §3.14). Run
+    // targeted smoke specs against Safari + Firefox to catch CSS /
+    // layout regressions Chrome doesn't surface. Full e2e coverage
+    // on Chrome remains the primary gate. Examples:
+    //   npx playwright test --project=webkit e2e/cross-browser-smoke.spec.ts
+    //   npx playwright test --project=firefox e2e/cross-browser-smoke.spec.ts
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
   ],
 });

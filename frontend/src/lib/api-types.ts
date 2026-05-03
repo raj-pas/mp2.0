@@ -743,7 +743,21 @@ export interface paths {
         get: operations["review_workspaces_retrieve_2"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * @description Cascade-delete an uncommitted workspace + its docs + jobs.
+         *
+         *     Used by the R10 sweep automation script's cleanup-on-failure
+         *     path so abandoned sweeps don't leave orphan workspaces +
+         *     raw bytes accumulating in the DB. Refuses to delete a
+         *     committed workspace (use the soft-undo endpoint first).
+         *
+         *     Auth: same RBAC as the GET handler (real-PII access role).
+         *     Atomic: cascades through ProcessingJob + ReviewDocument
+         *     tables via the existing CASCADE on_delete relations. Emits
+         *     a single ``review_workspace_deleted`` audit event so the
+         *     delete is traceable.
+         */
+        delete: operations["review_workspaces_destroy"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2451,6 +2465,26 @@ export interface operations {
         responses: {
             /** @description No response body */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    review_workspaces_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };

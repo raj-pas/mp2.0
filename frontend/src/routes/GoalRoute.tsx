@@ -26,7 +26,7 @@ import { OptimizerOutputWidget } from "../goal/OptimizerOutputWidget";
 import { isAdvisorRole, useSession } from "../lib/auth";
 import { type Goal, findGoal, useHousehold } from "../lib/household";
 import { useOverrideHistory } from "../lib/preview";
-import { formatCad } from "../lib/format";
+import { formatCurrencyCAD } from "../lib/format";
 import { descriptorFor, isCanonRisk } from "../lib/risk";
 
 export function GoalRoute() {
@@ -50,9 +50,41 @@ export function GoalRoute() {
 
   if (householdQuery.isPending) {
     return (
-      <main className="flex flex-1 flex-col gap-3 bg-paper p-5">
-        <Skeleton className="h-12 w-full" />
+      <main
+        className="flex flex-1 flex-col gap-3 bg-paper p-5"
+        aria-busy="true"
+        aria-label={t("common.loading_route")}
+      >
+        <Skeleton className="h-6 w-40" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-40 w-full" />
+        <div className="grid grid-cols-2 gap-3">
+          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-48 w-full" />
+        </div>
         <Skeleton className="h-32 w-full" />
+      </main>
+    );
+  }
+
+  if (householdQuery.isError) {
+    return (
+      <main
+        role="alert"
+        className="flex flex-1 flex-col items-center justify-center gap-3 bg-paper p-5"
+      >
+        <p className="font-sans text-[12px] font-semibold text-danger">
+          {t("polish_a.goal.load_error_title")}
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            void householdQuery.refetch();
+          }}
+          className="border border-hairline-2 bg-paper-2 px-3 py-1 font-mono text-[10px] uppercase tracking-widest text-ink transition-colors hover:bg-paper motion-safe:transition-colors"
+        >
+          {t("polish_a.goal.retry")}
+        </button>
       </main>
     );
   }
@@ -117,11 +149,11 @@ export function GoalRoute() {
       >
         <KpiTile
           label={t("routes.goal.kpi_target")}
-          value={goal.target_amount !== null ? formatCad(goal.target_amount) : "—"}
+          value={goal.target_amount !== null ? formatCurrencyCAD(goal.target_amount) : "—"}
         />
         <KpiTile
           label={t("routes.goal.kpi_funded")}
-          value={formatCad(goal.current_funded_amount)}
+          value={formatCurrencyCAD(goal.current_funded_amount)}
         />
         <KpiTile label={t("routes.goal.kpi_horizon")} value={horizonText} />
         <KpiTile
@@ -226,7 +258,7 @@ function LinkedAccounts({ goal }: { goal: Goal }) {
               {link.account_id}
             </span>
             <span className="font-mono text-[10px] text-accent-2">
-              {formatCad(Number(link.allocated_amount))}
+              {formatCurrencyCAD(Number(link.allocated_amount))}
             </span>
           </Link>
         </li>

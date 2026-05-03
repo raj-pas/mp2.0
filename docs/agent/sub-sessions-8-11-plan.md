@@ -182,8 +182,25 @@ Layered per the plan in `phase9-fact-quality-iteration.md`:
 
 ## Sub-session #11 — Tier 2 + Tier 3 + automated R10 sweep + close-out
 
-**Status:** pending
+**Status:** complete (deferred work closed in follow-up sub-session 2026-05-03 PM)
 **Estimated:** 3 days, subagent-parallel where independent
+**Actual (#11 first pass):** Tier 2 #11.1/#11.2/#11.3 shipped (audit
+timeline + synthetic badge + verified existing missing-field
+guidance). R10 sweep automation + cross-browser + Tier 3 polish
+deferred.
+**Actual (#11 follow-up):** All deferred items closed:
+- R10 7-folder Playwright sweep automation (`scripts/demo-prep/r10_sweep.py`,
+  ~570 lines) with worker-cleanup, cost-ceiling enforcement,
+  idempotency guard, anonymize-folders flag, cleanup-on-failure;
+  workspace DELETE endpoint added (5 backend tests).
+- Cross-browser smoke (`frontend/e2e/cross-browser-smoke.spec.ts`)
+  with webkit + firefox projects in playwright.config; 5/5 pass on
+  both browsers.
+- Tier 3 polish bundles A/B/C/D shipped via 4 parallel subagents;
+  20 frontend Vitest cases added (Truncated, format helpers, wizard
+  draft store).
+- Code-reviewer subagent surfaced 1 BLOCKING + 5 critical findings;
+  all fixed before sweep ran.
 
 ### Tier 2 items (~1.5 days)
 

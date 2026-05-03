@@ -420,17 +420,46 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
         className={cn(
-          "flex flex-col items-center justify-center gap-2 border-2 border-dashed bg-paper-2 p-8 transition-colors",
-          isDragOver ? "border-accent bg-paper" : "border-hairline-2",
+          // Base dropzone surface — beefier than the prior subtle hint:
+          // 4px dashed border so the affordance is visible at a glance.
+          "flex flex-col items-center justify-center gap-2 border-4 border-dashed p-8",
+          "motion-safe:transition-[background-color,border-color,transform] motion-safe:duration-150",
+          isDragOver
+            ? // Active state: accent border, deeper shaded background,
+              // and (with motion-safe) a subtle scale lift on the icon
+              // — see Upload icon className below.
+              "border-accent bg-accent/10 ring-1 ring-accent/40"
+            : "border-hairline-2 bg-paper-2",
         )}
       >
-        <Upload aria-hidden className="h-6 w-6 text-muted" />
-        <p className="font-sans text-[13px] text-ink">{t("docdrop.dropzone_primary")}</p>
+        {/* Status-only aria-live region: only announces the
+            transition into "release to drop" hint, not the entire
+            dropzone subtree. Without this scoping, screen readers
+            re-narrate the icon + 3 paragraphs on every drag toggle. */}
+        <span className="sr-only" aria-live="polite">
+          {isDragOver ? t("polish_b.docdrop.dropzone_active_hint") : ""}
+        </span>
+        <Upload
+          aria-hidden
+          className={cn(
+            "h-6 w-6",
+            "motion-safe:transition-transform motion-safe:duration-150",
+            isDragOver ? "scale-125 text-accent" : "text-muted",
+          )}
+        />
+        <p
+          className={cn(
+            "font-sans text-[13px]",
+            isDragOver ? "font-medium text-accent-2" : "text-ink",
+          )}
+        >
+          {isDragOver ? t("polish_b.docdrop.dropzone_active_hint") : t("docdrop.dropzone_primary")}
+        </p>
         <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
           {t("docdrop.dropzone_secondary")}
         </p>
         <p className="font-mono text-[9px] uppercase tracking-widest text-muted">
-          {t("docdrop.size_limit_hint", {
+          {t("polish_b.docdrop.size_limit_hint", {
             limit_mb: Math.round(MAX_FILE_BYTES / (1024 * 1024)),
           })}
         </p>

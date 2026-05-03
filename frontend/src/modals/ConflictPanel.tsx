@@ -18,6 +18,7 @@
  */
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Check, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 
 import { Button } from "../components/ui/button";
 import { ConfidenceChip } from "../components/ConfidenceChip";
@@ -34,6 +35,29 @@ import {
 import { normalizeApiError } from "../lib/api-error";
 import { toastError, toastSuccess } from "../lib/toast";
 import { cn } from "../lib/cn";
+import { useLocalStorage } from "../lib/local-storage";
+
+/**
+ * Tier 3 polish (production-quality-bar §1.6 + §1.10):
+ *
+ * - `cardState` derives a tri-state visual progression
+ *   ("unresolved" / "resolving" / "resolved") from the live mutation
+ *   hooks already in `lib/review.ts`. The card never holds its own
+ *   "saving" state — it reads `useResolveConflict().isPending` (or, for
+ *   bulk, `useBulkResolveConflicts().isPending` propagated via prop) so
+ *   the visual stays in lock-step with the wire request.
+ * - Active vs Resolved grouping. Within each group, items are sorted by
+ *   `field` (== `field_path`) ascending so related conflicts cluster.
+ *   The Resolved group is collapsible and the collapse-state is
+ *   persisted via `useLocalStorage` (key `mp20.conflict-panel.resolved-collapsed`).
+ *
+ * Reduced-motion: the spinner uses `animate-spin` which the global
+ * `prefers-reduced-motion: reduce` rule in `index.css` degrades to
+ * `animation-duration: 1ms` (effectively static).
+ */
+type CardState = "unresolved" | "resolving" | "resolved";
+
+const RESOLVED_COLLAPSED_STORAGE_KEY = "mp20.conflict-panel.resolved-collapsed";
 
 interface ConflictPanelProps {
   workspaceId: string;
@@ -122,6 +146,12 @@ export function ConflictPanel({
 
   const unresolvedCount = items.filter((c) => !c.resolved).length;
 
+  // Tier 3 §1.6: split into Active vs Resolved groups; sort each by
+  // field path so related fields (e.g. people[0].*) cluster.
+  const sorted = [...items].sort((a, b) => a.field.localeCompare(b.field));
+  const activeItems = sorted.filter((c) => !c.resolved);
+  const resolvedItems = sorted.filter((c) => c.resolved);
+
   return (
     <section
       aria-label={t("review.conflict.heading")}
@@ -154,18 +184,121 @@ export function ConflictPanel({
           }}
         />
       )}
+      {activeItems.length > 0 && (
+        <ActiveGroup
+          workspaceId={workspaceId}
+          items={activeItems}
+          bulkSelections={bulkSelections}
+          onBulkSelect={setBulkSelection}
+          bulkResolvePending={bulkResolve.isPending}
+        />
+      )}
+      {resolvedItems.length > 0 && (
+        <ResolvedGroup workspaceId={workspaceId} items={resolvedItems} />
+      )}
+    </section>
+  );
+}
+
+interface ActiveGroupProps {
+  workspaceId: string;
+  items: ReviewConflict[];
+  bulkSelections: Map<string, number>;
+  onBulkSelect: (field: string, chosenFactId: number | null) => void;
+  bulkResolvePending: boolean;
+}
+
+function ActiveGroup({
+  workspaceId,
+  items,
+  bulkSelections,
+  onBulkSelect,
+  bulkResolvePending,
+}: ActiveGroupProps) {
+  const { t } = useTranslation();
+  const headingId = "polish-c-conflict-active-heading";
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-2">
+      <header className="flex items-baseline justify-between">
+        <h3
+          id={headingId}
+          className="font-mono text-[10px] uppercase tracking-widest text-muted"
+        >
+          {t("polish_c.conflict_panel.active_heading")}
+        </h3>
+        <span className="font-sans text-[10px] text-muted">
+          {t("polish_c.conflict_panel.active_summary", { count: items.length })}
+        </span>
+      </header>
       <ul className="flex flex-col gap-3">
-        {items.map((conflict) => (
-          <li key={conflict.field}>
-            <ConflictCard
-              workspaceId={workspaceId}
-              conflict={conflict}
-              bulkSelectedFactId={bulkSelections.get(conflict.field) ?? null}
-              onBulkSelect={(chosenFactId) => setBulkSelection(conflict.field, chosenFactId)}
-            />
-          </li>
-        ))}
+        {items.map((conflict) => {
+          const bulkSelectedFactId = bulkSelections.get(conflict.field) ?? null;
+          const isInBulk = bulkSelectedFactId !== null;
+          return (
+            <li key={conflict.field}>
+              <ConflictCard
+                workspaceId={workspaceId}
+                conflict={conflict}
+                bulkSelectedFactId={bulkSelectedFactId}
+                onBulkSelect={(chosenFactId) => onBulkSelect(conflict.field, chosenFactId)}
+                bulkResolvePending={isInBulk && bulkResolvePending}
+              />
+            </li>
+          );
+        })}
       </ul>
+    </section>
+  );
+}
+
+interface ResolvedGroupProps {
+  workspaceId: string;
+  items: ReviewConflict[];
+}
+
+function ResolvedGroup({ workspaceId, items }: ResolvedGroupProps) {
+  const { t } = useTranslation();
+  const [collapsed, setCollapsed] = useLocalStorage<boolean>(
+    RESOLVED_COLLAPSED_STORAGE_KEY,
+    false,
+  );
+  const headingId = "polish-c-conflict-resolved-heading";
+  const listId = "polish-c-conflict-resolved-list";
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-2">
+      <header className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setCollapsed(!collapsed)}
+          aria-expanded={!collapsed}
+          aria-controls={listId}
+          className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest text-muted hover:text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+        >
+          {collapsed ? (
+            <ChevronRight className="h-3 w-3" aria-hidden />
+          ) : (
+            <ChevronDown className="h-3 w-3" aria-hidden />
+          )}
+          <span id={headingId}>{t("polish_c.conflict_panel.resolved_heading")}</span>
+          <span className="sr-only">
+            {collapsed
+              ? t("polish_c.conflict_panel.resolved_expand")
+              : t("polish_c.conflict_panel.resolved_collapse")}
+          </span>
+        </button>
+        <span className="font-sans text-[10px] text-muted">
+          {t("polish_c.conflict_panel.resolved_summary", { count: items.length })}
+        </span>
+      </header>
+      {!collapsed && (
+        <ul id={listId} className="flex flex-col gap-3">
+          {items.map((conflict) => (
+            <li key={conflict.field}>
+              <ConflictCard workspaceId={workspaceId} conflict={conflict} />
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -243,6 +376,13 @@ interface ConflictCardProps {
   bulkSelectedFactId?: number | null;
   /** Phase 5b.12: toggles the panel-level bulk selection map. */
   onBulkSelect?: (chosenFactId: number | null) => void;
+  /**
+   * Tier 3 §1.6: when this card is part of a pending bulk-resolve
+   * mutation, the panel forwards `useBulkResolveConflicts().isPending`
+   * here so the card can enter the "resolving" visual state. The card
+   * never owns this flag — the live mutation hook is the source of truth.
+   */
+  bulkResolvePending?: boolean;
 }
 
 export function ConflictCard({
@@ -250,6 +390,7 @@ export function ConflictCard({
   conflict,
   bulkSelectedFactId = null,
   onBulkSelect,
+  bulkResolvePending = false,
 }: ConflictCardProps) {
   const { t } = useTranslation();
   const resolve = useResolveConflict(workspaceId);
@@ -319,17 +460,38 @@ export function ConflictCard({
     });
   };
 
+  // Tier 3 §1.6: derive a tri-state visual progression from the live
+  // mutation hooks. `resolve.isPending` flips on at the moment we POST
+  // /conflicts/resolve/ and flips off on success/error; same for
+  // `defer.isPending` and (forwarded by the panel) `bulkResolvePending`.
+  // No new state machinery — the mutation hook IS the state machine.
+  const isMutating = resolve.isPending || defer.isPending || bulkResolvePending;
+  const cardState: CardState = conflict.resolved
+    ? "resolved"
+    : isMutating
+      ? "resolving"
+      : "unresolved";
+  const cardStateLabel =
+    cardState === "resolving"
+      ? t("polish_c.conflict_panel.state_resolving")
+      : cardState === "resolved"
+        ? t("polish_c.conflict_panel.state_resolved")
+        : t("polish_c.conflict_panel.state_unresolved");
+
   return (
     <article
+      aria-busy={cardState === "resolving"}
       className={cn(
-        "rounded-md border bg-paper-2 p-3",
-        conflict.resolved
-          ? "border-accent/40"
-          : conflict.required
-            ? "border-danger/30"
-            : "border-hairline-2",
+        "rounded-md border bg-paper-2 p-3 transition-opacity",
+        cardState === "resolved" && "border-accent/40",
+        cardState === "resolving" && "border-muted/40 opacity-70",
+        cardState === "unresolved" &&
+          (conflict.required ? "border-danger/30" : "border-hairline-2"),
       )}
     >
+      <span className="sr-only">
+        {t("polish_c.conflict_panel.card_state_aria", { state: cardStateLabel })}
+      </span>
       <header className="mb-2 flex items-baseline justify-between gap-2">
         <h3 className="font-serif text-[12px] font-medium text-ink">
           {conflict.label}
@@ -343,8 +505,21 @@ export function ConflictCard({
               {t("review.conflict.required")}
             </span>
           )}
-          {conflict.resolved && (
-            <span className="rounded-sm bg-accent/15 px-1 py-0.5 font-sans text-[9px] uppercase tracking-wider text-accent-2">
+          {cardState === "resolving" && (
+            <span
+              className="flex items-center gap-1 rounded-sm bg-muted/15 px-1 py-0.5 font-sans text-[9px] uppercase tracking-wider text-muted"
+              aria-label={t("polish_c.conflict_panel.resolving_label")}
+            >
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+              {t("polish_c.conflict_panel.state_resolving")}
+            </span>
+          )}
+          {cardState === "resolved" && (
+            <span className="flex items-center gap-1 rounded-sm bg-accent/15 px-1 py-0.5 font-sans text-[9px] uppercase tracking-wider text-accent-2">
+              <Check
+                className="h-3 w-3"
+                aria-label={t("polish_c.conflict_panel.resolved_check_aria")}
+              />
               {t("review.conflict.resolved_state")}
             </span>
           )}

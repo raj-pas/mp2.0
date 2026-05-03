@@ -413,7 +413,9 @@
     "delete": "Delete",
     "back": "Back",
     "next": "Next",
-    "close": "Close"
+    "close": "Close",
+    "loading": "Loading…",
+    "loading_route": "Loading content"
   },
   "realign": {
     "cta": "Re-goal across accounts",
@@ -781,6 +783,21 @@
     "audit_actor_system": "system",
     "audit_actor_meta": "{{actor}} · {{note}}"
   },
+  "polish_a": {
+    "client_picker": {
+      "empty_title": "No clients yet.",
+      "empty_body": "Create one via the wizard.",
+      "empty_cta": "Open the wizard"
+    },
+    "account": {
+      "load_error_title": "Could not load this account.",
+      "retry": "Retry"
+    },
+    "goal": {
+      "load_error_title": "Could not load this goal.",
+      "retry": "Retry"
+    }
+  },
   "methodology": {
     "heading": "Methodology",
     "intro": "Every score, projection, and recommendation in MP2.0 traces back to one of the formulas below. Each section names the inputs, the formula, the variables, and a worked example. Use this page to ramp up advisors, support compliance reviews, and explain individual recommendations to clients.",
@@ -884,6 +901,58 @@
       "trigger_restore": "restore",
       "trigger_restore_desc": "Advisor restored from a prior snapshot (creates a new snapshot tagged restore; does not rewind state)",
       "footnote": "Snapshots are append-only via Django model `save()` guards plus a Postgres BEFORE UPDATE/DELETE trigger. There is no admin path to mutate or delete a snapshot; the only “undo” is to take a new restore action."
+    }
+  },
+  "polish_c": {
+    "conflict_panel": {
+      "active_heading": "Active",
+      "active_aria": "Active conflicts",
+      "active_summary_one": "{{count}} item",
+      "active_summary_other": "{{count}} items",
+      "resolved_heading": "Resolved",
+      "resolved_aria": "Resolved conflicts",
+      "resolved_summary_one": "{{count}} item",
+      "resolved_summary_other": "{{count}} items",
+      "resolved_collapse": "Collapse resolved",
+      "resolved_expand": "Expand resolved",
+      "card_state_aria": "Status: {{state}}",
+      "state_unresolved": "Unresolved",
+      "state_resolving": "Saving",
+      "state_resolved": "Resolved",
+      "resolving_label": "Saving resolution",
+      "resolved_check_aria": "Resolved"
+    }
+  },
+  "polish_d": {
+    "realign_preview": {
+      "section_label": "Projected re-goal preview",
+      "title": "What's about to change",
+      "has_changes": "Updates pending Apply",
+      "no_changes": "No changes yet",
+      "empty_body": "Adjust a leg above to see the projected per-goal and per-account-leg shifts.",
+      "per_goal_title": "By goal",
+      "per_account_title": "By account leg",
+      "no_goal_changes": "No goal-level shifts.",
+      "no_account_changes": "No account-leg shifts."
+    }
+  },
+  "polish_b": {
+    "docdrop": {
+      "size_limit_hint": "Max {{limit_mb}}MB / file; larger files may time out",
+      "dropzone_active_hint": "Release to add files"
+    },
+    "wizard": {
+      "step_indicator": "Step {{current}} of {{total}}",
+      "stepper_aria": "Wizard progress",
+      "step_circle_aria": "Step {{step}} of {{total}}: {{label}}",
+      "save_draft": "Save as draft",
+      "save_draft_aria": "Save the current wizard state as a draft",
+      "draft_saved_title": "Draft saved",
+      "draft_saved_body": "Saved at {{timestamp}}. Resume any time from this device.",
+      "recovery_title": "Resume draft?",
+      "recovery_resume": "Resume draft",
+      "recovery_dismiss_aria": "Dismiss draft prompt",
+      "recovery_saved_at": "Saved {{timestamp}}. Resume picks up where you left off; Discard clears the saved draft."
     }
   }
 }

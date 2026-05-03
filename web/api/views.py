@@ -1160,6 +1160,61 @@ class ReviewWorkspaceDetailView(APIView):
         workspace = _workspace_for_user(workspace_id, request.user)
         return Response(ReviewWorkspaceSerializer(workspace).data)
 
+    def delete(self, request, workspace_id: str):  # noqa: ANN001
+        """Cascade-delete an uncommitted workspace + its docs + jobs.
+
+        Used by the R10 sweep automation script's cleanup-on-failure
+        path so abandoned sweeps don't leave orphan workspaces +
+        raw bytes accumulating in the DB. Refuses to delete a
+        committed workspace (use the soft-undo endpoint first).
+
+        Auth: same RBAC as the GET handler (real-PII access role).
+        Atomic: cascades through ProcessingJob + ReviewDocument
+        tables via the existing CASCADE on_delete relations. Emits
+        a single ``review_workspace_deleted`` audit event so the
+        delete is traceable.
+        """
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        with transaction.atomic():
+            workspace = (
+                _review_workspace_queryset()
+                .select_for_update(of=("self",))
+                .filter(
+                    external_id=workspace_id,
+                    pk__in=team_workspaces(request.user).values("pk"),
+                )
+                .first()
+            )
+            if workspace is None:
+                return Response({"detail": "Workspace not found."}, status=404)
+            if workspace.status == models.ReviewWorkspace.Status.COMMITTED:
+                return Response(
+                    {
+                        "detail": (
+                            "Workspace is committed; uncommit it first via "
+                            "POST /uncommit/ before deletion."
+                        ),
+                        "code": "committed_workspace_not_deletable",
+                    },
+                    status=409,
+                )
+            external_id = workspace.external_id
+            doc_count = workspace.documents.count()
+            workspace.delete()
+            record_event(
+                action="review_workspace_deleted",
+                entity_type="review_workspace",
+                entity_id=external_id,
+                actor=(
+                    request.user.get_username()
+                    if getattr(request.user, "is_authenticated", False)
+                    else "system"
+                ),
+                metadata={"doc_count_at_delete": doc_count},
+            )
+        return Response(status=204)
+
 
 class ReviewWorkspaceUploadView(APIView):
     permission_classes = [IsAuthenticated]

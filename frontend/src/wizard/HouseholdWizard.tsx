@@ -15,8 +15,8 @@
  * runs the full schema check.
  */
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ChevronLeft, ChevronRight, FileText } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Check, ChevronLeft, ChevronRight, FileText, Save, X } from "lucide-react";
+import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { type FieldPath, FormProvider, useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -82,6 +82,22 @@ export function HouseholdWizard() {
     setShowRecoveryPrompt(false);
   }
 
+  function dismissRecoveryBanner() {
+    // "Clearable affordance" — close the banner without committing
+    // to either resume or discard. The localStorage draft remains
+    // intact; the form keeps whatever is currently in state.
+    setShowRecoveryPrompt(false);
+  }
+
+  function handleSaveDraft() {
+    const savedAt = draftStore.saveDraft(form.getValues());
+    const formatted = formatSavedTimestamp(savedAt);
+    toastSuccess(
+      t("polish_b.wizard.draft_saved_title"),
+      t("polish_b.wizard.draft_saved_body", { timestamp: formatted }),
+    );
+  }
+
   async function goNext() {
     const fields = STEP_FIELDS[step];
     const ok = fields.length === 0 ? true : await form.trigger(fields);
@@ -91,6 +107,15 @@ export function HouseholdWizard() {
 
   function goBack() {
     if (step > 1) setStep((step - 1) as StepNumber);
+  }
+
+  function jumpToStep(target: StepNumber) {
+    // Step circles are keyboard-navigable; we permit jumping back to
+    // any already-completed step (target < step) without re-validating
+    // since the existing step's data has already been validated. We
+    // do NOT permit forward jumps — the underlying step navigation
+    // logic still runs through goNext()'s per-step trigger().
+    if (target < step) setStep(target);
   }
 
   async function onSubmit() {
@@ -124,9 +149,16 @@ export function HouseholdWizard() {
       <main className="flex flex-1 flex-col gap-4 overflow-y-auto bg-paper p-6">
         <Banner onDocDrop={() => navigate("/review")} />
 
-        {showRecoveryPrompt && <RecoveryBanner onResume={keepDraft} onDiscard={discardDraft} />}
+        {showRecoveryPrompt && (
+          <RecoveryBanner
+            savedAt={draftStore.initialSavedAt}
+            onResume={keepDraft}
+            onDiscard={discardDraft}
+            onDismiss={dismissRecoveryBanner}
+          />
+        )}
 
-        <Stepper currentStep={step} />
+        <Stepper currentStep={step} onJumpToStep={jumpToStep} />
 
         <FormProvider {...form}>
           {step === 1 && <Step1Identity />}
@@ -136,7 +168,7 @@ export function HouseholdWizard() {
           {step === 5 && <Step5Review />}
         </FormProvider>
 
-        <nav className="flex items-center justify-between border-t border-hairline pt-4">
+        <nav className="flex items-center justify-between gap-2 border-t border-hairline pt-4">
           <Button
             type="button"
             variant="outline"
@@ -147,16 +179,29 @@ export function HouseholdWizard() {
             <ChevronLeft aria-hidden className="h-3 w-3" />
             <span>{t("wizard.nav.back")}</span>
           </Button>
-          {step < 5 ? (
-            <Button type="button" size="sm" onClick={goNext} disabled={commit.isPending}>
-              <span>{t("wizard.nav.next")}</span>
-              <ChevronRight aria-hidden className="h-3 w-3" />
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleSaveDraft}
+              disabled={commit.isPending}
+              aria-label={t("polish_b.wizard.save_draft_aria")}
+            >
+              <Save aria-hidden className="h-3 w-3" />
+              <span>{t("polish_b.wizard.save_draft")}</span>
             </Button>
-          ) : (
-            <Button type="button" size="sm" onClick={onSubmit} disabled={commit.isPending}>
-              {commit.isPending ? t("wizard.nav.committing") : t("wizard.nav.commit")}
-            </Button>
-          )}
+            {step < 5 ? (
+              <Button type="button" size="sm" onClick={goNext} disabled={commit.isPending}>
+                <span>{t("wizard.nav.next")}</span>
+                <ChevronRight aria-hidden className="h-3 w-3" />
+              </Button>
+            ) : (
+              <Button type="button" size="sm" onClick={onSubmit} disabled={commit.isPending}>
+                {commit.isPending ? t("wizard.nav.committing") : t("wizard.nav.commit")}
+              </Button>
+            )}
+          </div>
         </nav>
       </main>
     </ErrorBoundary>
@@ -180,8 +225,22 @@ function Banner({ onDocDrop }: { onDocDrop: () => void }) {
   );
 }
 
-function RecoveryBanner({ onResume, onDiscard }: { onResume: () => void; onDiscard: () => void }) {
+function RecoveryBanner({
+  savedAt,
+  onResume,
+  onDiscard,
+  onDismiss,
+}: {
+  savedAt: string | null;
+  onResume: () => void;
+  onDiscard: () => void;
+  onDismiss: () => void;
+}) {
   const { t } = useTranslation();
+  const subtitle =
+    savedAt !== null
+      ? t("polish_b.wizard.recovery_saved_at", { timestamp: formatSavedTimestamp(savedAt) })
+      : t("wizard.recovery.body");
   return (
     <aside
       role="alertdialog"
@@ -193,21 +252,38 @@ function RecoveryBanner({ onResume, onDiscard }: { onResume: () => void; onDisca
           id="wizard-recovery-title"
           className="font-mono text-[10px] uppercase tracking-widest text-ink"
         >
-          {t("wizard.recovery.title")}
+          {t("polish_b.wizard.recovery_title")}
         </p>
-        <p className="mt-0.5 text-[12px] text-muted">{t("wizard.recovery.body")}</p>
+        <p className="mt-0.5 text-[12px] text-muted">{subtitle}</p>
       </div>
       <Button type="button" variant="default" size="sm" onClick={onResume}>
-        {t("wizard.recovery.resume")}
+        {t("polish_b.wizard.recovery_resume")}
       </Button>
       <Button type="button" variant="outline" size="sm" onClick={onDiscard}>
         {t("wizard.recovery.discard")}
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={onDismiss}
+        aria-label={t("polish_b.wizard.recovery_dismiss_aria")}
+      >
+        <X aria-hidden className="h-3.5 w-3.5" />
       </Button>
     </aside>
   );
 }
 
-function Stepper({ currentStep }: { currentStep: StepNumber }) {
+const TOTAL_STEPS = 5;
+
+function Stepper({
+  currentStep,
+  onJumpToStep,
+}: {
+  currentStep: StepNumber;
+  onJumpToStep: (target: StepNumber) => void;
+}) {
   const { t } = useTranslation();
   const stepLabels = useMemo(
     () => [
@@ -219,26 +295,119 @@ function Stepper({ currentStep }: { currentStep: StepNumber }) {
     ],
     [t],
   );
+
+  // Progress fraction for the thin connector line: full at the last
+  // completed step, plus a partial fill into the current step. We use
+  // (currentStep - 1) / (TOTAL_STEPS - 1) — a simple discrete bar that
+  // fills as the advisor advances.
+  const progressPct = ((currentStep - 1) / (TOTAL_STEPS - 1)) * 100;
+
+  function onCircleKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    stepNum: StepNumber,
+    isPrior: boolean,
+  ) {
+    if (!isPrior) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onJumpToStep(stepNum);
+    }
+  }
+
   return (
-    <ol className="flex items-center gap-1 border border-hairline bg-paper-2 p-2">
-      {stepLabels.map((label, index) => {
-        const stepNum = (index + 1) as StepNumber;
-        const isCurrent = stepNum === currentStep;
-        const isDone = stepNum < currentStep;
-        return (
-          <li
-            key={label}
-            aria-current={isCurrent ? "step" : undefined}
-            className={cn(
-              "flex flex-1 items-center gap-2 px-3 py-1.5",
-              isCurrent ? "bg-ink text-paper" : isDone ? "text-ink" : "text-muted",
-            )}
-          >
-            <span className="font-mono text-[10px] uppercase tracking-widest">{stepNum}</span>
-            <span className="font-sans text-[12px]">{label}</span>
-          </li>
-        );
-      })}
-    </ol>
+    <div className="flex flex-col gap-2 border border-hairline bg-paper-2 p-3">
+      <div className="flex items-baseline justify-between">
+        <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
+          {t("polish_b.wizard.step_indicator", { current: currentStep, total: TOTAL_STEPS })}
+        </span>
+        <span className="font-mono text-[10px] uppercase tracking-widest text-ink">
+          {stepLabels[currentStep - 1]}
+        </span>
+      </div>
+      <div className="relative">
+        <div
+          aria-hidden
+          className="absolute left-3 right-3 top-3 h-px bg-hairline-2"
+        />
+        <div
+          aria-hidden
+          className="absolute left-3 top-3 h-px bg-accent motion-safe:transition-[width] motion-safe:duration-300"
+          style={{ width: `calc((100% - 24px) * ${progressPct} / 100)` }}
+        />
+        <ol
+          className="relative flex items-start justify-between"
+          aria-label={t("polish_b.wizard.stepper_aria")}
+        >
+          {stepLabels.map((label, index) => {
+            const stepNum = (index + 1) as StepNumber;
+            const isCurrent = stepNum === currentStep;
+            const isDone = stepNum < currentStep;
+            const isPrior = isDone;
+            return (
+              <li
+                key={label}
+                aria-current={isCurrent ? "step" : undefined}
+                className="flex flex-1 flex-col items-center gap-1.5"
+              >
+                <button
+                  type="button"
+                  onClick={() => isPrior && onJumpToStep(stepNum)}
+                  onKeyDown={(e) => onCircleKeyDown(e, stepNum, isPrior)}
+                  disabled={!isPrior}
+                  aria-label={t("polish_b.wizard.step_circle_aria", {
+                    step: stepNum,
+                    total: TOTAL_STEPS,
+                    label,
+                  })}
+                  className={cn(
+                    "flex h-6 w-6 items-center justify-center border font-mono text-[10px]",
+                    "motion-safe:transition-colors motion-safe:duration-200",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-paper-2",
+                    isCurrent
+                      ? "border-accent bg-accent text-ink"
+                      : isDone
+                        ? "border-accent bg-paper text-accent hover:bg-accent/10"
+                        : "border-hairline-2 bg-paper text-muted",
+                    !isPrior && "cursor-default",
+                  )}
+                >
+                  {isDone ? (
+                    <Check aria-hidden className="h-3 w-3" />
+                  ) : (
+                    <span>{stepNum}</span>
+                  )}
+                </button>
+                <span
+                  className={cn(
+                    "font-sans text-[11px]",
+                    isCurrent ? "text-ink" : isDone ? "text-ink" : "text-muted",
+                  )}
+                >
+                  {label}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+    </div>
   );
+}
+
+function formatSavedTimestamp(iso: string): string {
+  // Locale-aware short time/date for the toast + recovery banner.
+  // Falls back to the raw ISO string if Date parsing fails (defensive
+  // — localStorage payloads can be tampered with).
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return iso;
+  }
 }

@@ -29,6 +29,31 @@ import { normalizeApiError } from "../lib/api-error";
 import { toastError } from "../lib/toast";
 import { cn } from "../lib/cn";
 
+/**
+ * Tier-3 polish (§1.9): pre-Apply diff preview.
+ *
+ * Single CAD formatter for signed deltas. We use the canon
+ * `formatCad` for absolute values + manual sign prefix for
+ * deltas (keeps "+$1,200" / "-$800" / "—" idiomatic).
+ */
+const SIGNED_PCT_FORMATTER = new Intl.NumberFormat("en-CA", {
+  style: "decimal",
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+  signDisplay: "always",
+});
+
+function formatSignedCad(value: number): string {
+  if (Math.abs(value) < 0.5) return "—";
+  const sign = value > 0 ? "+" : "-";
+  return `${sign}${formatCad(Math.abs(value))}`;
+}
+
+function formatSignedPct(value: number): string {
+  if (Math.abs(value) < 0.05) return "—";
+  return `${SIGNED_PCT_FORMATTER.format(value)}%`;
+}
+
 interface RealignModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -59,6 +84,17 @@ export function RealignModal({ open, onOpenChange, household, onApplied }: Reali
       }),
     [accountSums, household.accounts],
   );
+
+  // Tier-3 polish (§1.9): "What's about to change" preview.
+  //
+  // Recomputes when the draft (or the seed household) changes, so the
+  // diff is reactive as the advisor adjusts leg-shift inputs.
+  const baseline = useMemo(() => initialDraft(household), [household]);
+  const diff = useMemo(
+    () => computeDiff(household, baseline, draft),
+    [household, baseline, draft],
+  );
+  const hasChanges = diff.accountDeltas.length > 0 || diff.goalDeltas.length > 0;
 
   function setLegAmount(accountId: string, goalId: string, value: string) {
     setDraft((prev) => {
@@ -111,6 +147,8 @@ export function RealignModal({ open, onOpenChange, household, onApplied }: Reali
             />
           ))}
         </div>
+
+        <PreviewBlock diff={diff} hasChanges={hasChanges} />
 
         <footer className="mt-5 flex items-center justify-between border-t border-hairline pt-4">
           <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
@@ -229,5 +267,254 @@ function computeAccountSums(draft: DraftLegMap): Record<string, number> {
 function goalsTouchingAccount(goals: Goal[], accountId: string): Goal[] {
   return goals.filter((goal) =>
     goal.account_allocations.some((link) => link.account_id === accountId),
+  );
+}
+
+// --------------------------------------------------------------------
+// Tier-3 polish (§1.9): "What's about to change" preview.
+//
+// Surfaces the projected deltas implied by the in-flight draft BEFORE
+// the user clicks Apply. Per-account totals never move (legs always
+// sum to `current_value`); the meaningful diff is per-goal allocation
+// shifts and per-account-leg shifts (which legs of which accounts are
+// being re-labelled).
+//
+// Reads from the same `draft` state already used for Apply, so the
+// preview re-renders reactively when any leg input changes.
+// --------------------------------------------------------------------
+
+type GoalDeltaRow = {
+  goalId: string;
+  goalName: string;
+  beforeAmount: number;
+  afterAmount: number;
+  deltaAmount: number;
+  deltaPct: number;
+};
+
+type AccountLegDeltaRow = {
+  accountId: string;
+  accountType: string;
+  goalId: string;
+  goalName: string;
+  beforeAmount: number;
+  afterAmount: number;
+  deltaAmount: number;
+};
+
+type RealignmentDiff = {
+  goalDeltas: GoalDeltaRow[];
+  accountDeltas: AccountLegDeltaRow[];
+};
+
+function computeDiff(
+  household: HouseholdDetail,
+  baseline: DraftLegMap,
+  draft: DraftLegMap,
+): RealignmentDiff {
+  const goalNameById: Record<string, string> = {};
+  for (const goal of household.goals) goalNameById[goal.id] = goal.name;
+  const accountTypeById: Record<string, string> = {};
+  for (const acct of household.accounts) accountTypeById[acct.id] = acct.type;
+
+  // Per-goal: sum every account's leg for that goal in baseline vs draft.
+  const beforeByGoal: Record<string, number> = {};
+  const afterByGoal: Record<string, number> = {};
+  const collect = (
+    legs: DraftLegMap,
+    sink: Record<string, number>,
+  ): void => {
+    for (const accountLegs of Object.values(legs)) {
+      for (const [goalId, value] of Object.entries(accountLegs)) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) continue;
+        sink[goalId] = (sink[goalId] ?? 0) + n;
+      }
+    }
+  };
+  collect(baseline, beforeByGoal);
+  collect(draft, afterByGoal);
+
+  const goalIds = new Set<string>([
+    ...Object.keys(beforeByGoal),
+    ...Object.keys(afterByGoal),
+  ]);
+  const goalDeltas: GoalDeltaRow[] = [];
+  for (const goalId of goalIds) {
+    const beforeAmount = beforeByGoal[goalId] ?? 0;
+    const afterAmount = afterByGoal[goalId] ?? 0;
+    const deltaAmount = afterAmount - beforeAmount;
+    if (Math.abs(deltaAmount) < 0.5) continue;
+    const deltaPct =
+      beforeAmount > 0
+        ? (deltaAmount / beforeAmount) * 100
+        : afterAmount > 0
+          ? 100
+          : 0;
+    goalDeltas.push({
+      goalId,
+      goalName: goalNameById[goalId] ?? goalId,
+      beforeAmount,
+      afterAmount,
+      deltaAmount,
+      deltaPct,
+    });
+  }
+  goalDeltas.sort((a, b) => Math.abs(b.deltaAmount) - Math.abs(a.deltaAmount));
+
+  // Per-account-leg: which (account, goal) cells changed.
+  const accountDeltas: AccountLegDeltaRow[] = [];
+  const accountIds = new Set<string>([
+    ...Object.keys(baseline),
+    ...Object.keys(draft),
+  ]);
+  for (const accountId of accountIds) {
+    const beforeLegs = baseline[accountId] ?? {};
+    const afterLegs = draft[accountId] ?? {};
+    const goalIdsInAcct = new Set<string>([
+      ...Object.keys(beforeLegs),
+      ...Object.keys(afterLegs),
+    ]);
+    for (const goalId of goalIdsInAcct) {
+      const beforeRaw = Number(beforeLegs[goalId] ?? 0);
+      const afterRaw = Number(afterLegs[goalId] ?? 0);
+      const beforeAmount = Number.isFinite(beforeRaw) ? beforeRaw : 0;
+      const afterAmount = Number.isFinite(afterRaw) ? afterRaw : 0;
+      const deltaAmount = afterAmount - beforeAmount;
+      if (Math.abs(deltaAmount) < 0.5) continue;
+      accountDeltas.push({
+        accountId,
+        accountType: accountTypeById[accountId] ?? accountId,
+        goalId,
+        goalName: goalNameById[goalId] ?? goalId,
+        beforeAmount,
+        afterAmount,
+        deltaAmount,
+      });
+    }
+  }
+  accountDeltas.sort((a, b) => Math.abs(b.deltaAmount) - Math.abs(a.deltaAmount));
+
+  return { goalDeltas, accountDeltas };
+}
+
+function PreviewBlock({
+  diff,
+  hasChanges,
+}: {
+  diff: RealignmentDiff;
+  hasChanges: boolean;
+}) {
+  const { t } = useTranslation();
+  return (
+    <section
+      className="mt-5 border border-hairline-2 bg-paper-2 p-4"
+      aria-label={t("polish_d.realign_preview.section_label")}
+    >
+      <header className="mb-2 flex items-baseline justify-between">
+        <h3 className="font-mono text-[10px] uppercase tracking-widest text-muted">
+          {t("polish_d.realign_preview.title")}
+        </h3>
+        <span className="font-mono text-[10px] text-muted">
+          {hasChanges
+            ? t("polish_d.realign_preview.has_changes")
+            : t("polish_d.realign_preview.no_changes")}
+        </span>
+      </header>
+      {!hasChanges && (
+        <p className="font-mono text-[11px] text-muted">
+          {t("polish_d.realign_preview.empty_body")}
+        </p>
+      )}
+      {hasChanges && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <PreviewGoalList rows={diff.goalDeltas} />
+          <PreviewAccountList rows={diff.accountDeltas} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PreviewGoalList({ rows }: { rows: GoalDeltaRow[] }) {
+  const { t } = useTranslation();
+  return (
+    <div>
+      <p className="mb-1.5 font-mono text-[9px] uppercase tracking-widest text-muted">
+        {t("polish_d.realign_preview.per_goal_title")}
+      </p>
+      {rows.length === 0 ? (
+        <p className="font-mono text-[11px] text-muted">
+          {t("polish_d.realign_preview.no_goal_changes")}
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {rows.map((row) => (
+            <li
+              key={row.goalId}
+              className="grid grid-cols-[2fr_auto_auto] items-baseline gap-2 font-mono text-[11px]"
+            >
+              <span className="truncate text-ink">{row.goalName}</span>
+              <DeltaPill amount={row.deltaAmount} />
+              <span className="text-right text-muted">
+                {formatSignedPct(row.deltaPct)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function PreviewAccountList({ rows }: { rows: AccountLegDeltaRow[] }) {
+  const { t } = useTranslation();
+  return (
+    <div>
+      <p className="mb-1.5 font-mono text-[9px] uppercase tracking-widest text-muted">
+        {t("polish_d.realign_preview.per_account_title")}
+      </p>
+      {rows.length === 0 ? (
+        <p className="font-mono text-[11px] text-muted">
+          {t("polish_d.realign_preview.no_account_changes")}
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {rows.map((row) => (
+            <li
+              key={`${row.accountId}:${row.goalId}`}
+              className="grid grid-cols-[2fr_auto] items-baseline gap-2 font-mono text-[11px]"
+            >
+              <span className="truncate text-ink">
+                {row.accountType}
+                <span className="mx-1 text-muted">·</span>
+                <span className="text-muted">{row.goalName}</span>
+              </span>
+              <DeltaPill amount={row.deltaAmount} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function DeltaPill({ amount }: { amount: number }) {
+  const text = formatSignedCad(amount);
+  const positive = amount > 0.5;
+  const negative = amount < -0.5;
+  return (
+    <span
+      className={cn(
+        "border px-1.5 py-0.5 text-right font-mono text-[10px]",
+        positive
+          ? "border-success/40 text-success"
+          : negative
+            ? "border-danger/40 text-danger"
+            : "border-hairline text-muted",
+      )}
+    >
+      {text}
+    </span>
   );
 }

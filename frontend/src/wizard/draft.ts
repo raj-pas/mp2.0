@@ -17,7 +17,12 @@ import { type WizardDraft, emptyWizardDraft } from "./schema";
 
 const SESSION_KEY = "mp20_wizard_session";
 const DRAFT_KEY_PREFIX = "mp20_wizard_draft_";
+const DRAFT_META_KEY_PREFIX = "mp20_wizard_draft_meta_";
 const HEARTBEAT_MS = 30_000;
+
+interface DraftMeta {
+  saved_at: string; // ISO 8601 timestamp
+}
 
 function getOrCreateSessionId(): string {
   if (typeof window === "undefined") return "_ssr";
@@ -32,13 +37,18 @@ function draftKey(sessionId: string): string {
   return `${DRAFT_KEY_PREFIX}${sessionId}`;
 }
 
+function draftMetaKey(sessionId: string): string {
+  return `${DRAFT_META_KEY_PREFIX}${sessionId}`;
+}
+
 export type DraftStatus = "fresh" | "resumable";
 
 export interface WizardDraftStore {
   sessionId: string;
   status: DraftStatus;
   initialDraft: WizardDraft;
-  saveDraft: (draft: WizardDraft) => void;
+  initialSavedAt: string | null;
+  saveDraft: (draft: WizardDraft) => string;
   clearDraft: () => void;
 }
 
@@ -52,46 +62,63 @@ export interface WizardDraftStore {
  */
 export function useWizardDraftStore(): WizardDraftStore {
   const sessionId = useMemo(getOrCreateSessionId, []);
-  const [{ status, initialDraft }] = useState(() => loadInitial(sessionId));
+  const [{ status, initialDraft, initialSavedAt }] = useState(() => loadInitial(sessionId));
 
-  function saveDraft(draft: WizardDraft) {
-    if (typeof window === "undefined") return;
+  function saveDraft(draft: WizardDraft): string {
+    const savedAt = new Date().toISOString();
+    if (typeof window === "undefined") return savedAt;
     try {
       window.localStorage.setItem(draftKey(sessionId), JSON.stringify(draft));
+      const meta: DraftMeta = { saved_at: savedAt };
+      window.localStorage.setItem(draftMetaKey(sessionId), JSON.stringify(meta));
     } catch {
       // best-effort persistence
     }
+    return savedAt;
   }
 
   function clearDraft() {
     if (typeof window === "undefined") return;
     try {
       window.localStorage.removeItem(draftKey(sessionId));
+      window.localStorage.removeItem(draftMetaKey(sessionId));
     } catch {
       // ignore
     }
   }
 
-  return { sessionId, status, initialDraft, saveDraft, clearDraft };
+  return { sessionId, status, initialDraft, initialSavedAt, saveDraft, clearDraft };
 }
 
 function loadInitial(sessionId: string): {
   status: DraftStatus;
   initialDraft: WizardDraft;
+  initialSavedAt: string | null;
 } {
   if (typeof window === "undefined") {
-    return { status: "fresh", initialDraft: emptyWizardDraft() };
+    return { status: "fresh", initialDraft: emptyWizardDraft(), initialSavedAt: null };
   }
   try {
     const raw = window.localStorage.getItem(draftKey(sessionId));
-    if (raw === null) return { status: "fresh", initialDraft: emptyWizardDraft() };
+    if (raw === null)
+      return { status: "fresh", initialDraft: emptyWizardDraft(), initialSavedAt: null };
     const parsed = JSON.parse(raw) as WizardDraft;
     if (isMeaningfulDraft(parsed)) {
-      return { status: "resumable", initialDraft: parsed };
+      let savedAt: string | null = null;
+      try {
+        const metaRaw = window.localStorage.getItem(draftMetaKey(sessionId));
+        if (metaRaw !== null) {
+          const meta = JSON.parse(metaRaw) as DraftMeta;
+          if (typeof meta.saved_at === "string") savedAt = meta.saved_at;
+        }
+      } catch {
+        // meta is best-effort; absence is non-fatal
+      }
+      return { status: "resumable", initialDraft: parsed, initialSavedAt: savedAt };
     }
-    return { status: "fresh", initialDraft: emptyWizardDraft() };
+    return { status: "fresh", initialDraft: emptyWizardDraft(), initialSavedAt: null };
   } catch {
-    return { status: "fresh", initialDraft: emptyWizardDraft() };
+    return { status: "fresh", initialDraft: emptyWizardDraft(), initialSavedAt: null };
   }
 }
 

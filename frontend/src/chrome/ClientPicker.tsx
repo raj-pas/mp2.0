@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 
 import { Skeleton } from "../components/ui/skeleton";
 import { useClients, type ClientSummary } from "../lib/clients";
+import { useDebouncedValue } from "../lib/debounce";
 import { useLocalStorage } from "../lib/local-storage";
 import { formatCadCompact } from "../lib/format";
 import { cn } from "../lib/cn";
@@ -29,15 +30,19 @@ export function ClientPicker({ selectedId, onSelect, enabled = true }: ClientPic
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  // Debounce by 250ms so each keystroke doesn't re-run the filter on
+  // the entire roster; matches the latency budget in production-
+  // quality-bar §1.2 + locked decision #18.
+  const debouncedQuery = useDebouncedValue(query, 250);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const clients = useClients(enabled);
 
   const filtered = useMemo<ClientSummary[]>(() => {
     if (!clients.data) return [];
-    const q = query.trim().toLowerCase();
+    const q = debouncedQuery.trim().toLowerCase();
     if (q.length === 0) return clients.data;
     return clients.data.filter((c) => c.display_name.toLowerCase().includes(q));
-  }, [clients.data, query]);
+  }, [clients.data, debouncedQuery]);
 
   const sliced = useMemo<ClientSummary[]>(
     () => filtered.slice(0, visibleCount),
@@ -110,11 +115,32 @@ export function ClientPicker({ selectedId, onSelect, enabled = true }: ClientPic
                 {t("topbar.client_picker_error")}
               </p>
             )}
-            {clients.isSuccess && filtered.length === 0 && (
-              <p className="p-3 font-mono text-[10px] uppercase tracking-widest text-muted">
-                {query.length > 0 ? t("topbar.client_picker_no_match") : t("empty.no_clients")}
-              </p>
-            )}
+            {clients.isSuccess &&
+              filtered.length === 0 &&
+              (clients.data?.length === 0 ? (
+                <div className="flex flex-col gap-2 p-3">
+                  <p className="font-sans text-[12px] font-semibold text-ink">
+                    {t("polish_a.client_picker.empty_title")}
+                  </p>
+                  <p className="font-sans text-[12px] text-muted">
+                    {t("polish_a.client_picker.empty_body")}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      navigate("/wizard/new");
+                    }}
+                    className="self-start border border-hairline-2 bg-paper-2 px-3 py-1 font-mono text-[10px] uppercase tracking-widest text-ink transition-colors hover:bg-paper motion-safe:transition-colors"
+                  >
+                    {t("polish_a.client_picker.empty_cta")}
+                  </button>
+                </div>
+              ) : (
+                <p className="p-3 font-mono text-[10px] uppercase tracking-widest text-muted">
+                  {query.length > 0 ? t("topbar.client_picker_no_match") : t("empty.no_clients")}
+                </p>
+              ))}
             <button
               type="button"
               onClick={() => {

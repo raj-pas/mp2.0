@@ -8,7 +8,7 @@ import { RingChart, type RingDatum } from "../charts/RingChart";
 import { Skeleton } from "../components/ui/skeleton";
 import { fundColor } from "../lib/funds";
 import { findAccount, type Holding, useHousehold } from "../lib/household";
-import { formatCad, formatCadCompact } from "../lib/format";
+import { formatCadCompact, formatCurrencyCAD } from "../lib/format";
 
 export function AccountRoute() {
   const { t } = useTranslation();
@@ -29,9 +29,40 @@ export function AccountRoute() {
 
   if (householdQuery.isPending) {
     return (
-      <main className="flex flex-1 flex-col gap-3 bg-paper p-5">
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-64 w-full" />
+      <main
+        className="flex flex-1 flex-col gap-3 bg-paper p-5"
+        aria-busy="true"
+        aria-label={t("common.loading_route")}
+      >
+        <Skeleton className="h-6 w-40" />
+        <Skeleton className="h-20 w-full" />
+        <div className="grid grid-cols-2 gap-3">
+          <Skeleton className="h-56 w-full" />
+          <Skeleton className="h-56 w-full" />
+        </div>
+        <Skeleton className="h-32 w-full" />
+      </main>
+    );
+  }
+
+  if (householdQuery.isError) {
+    return (
+      <main
+        role="alert"
+        className="flex flex-1 flex-col items-center justify-center gap-3 bg-paper p-5"
+      >
+        <p className="font-sans text-[12px] font-semibold text-danger">
+          {t("polish_a.account.load_error_title")}
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            void householdQuery.refetch();
+          }}
+          className="border border-hairline-2 bg-paper-2 px-3 py-1 font-mono text-[10px] uppercase tracking-widest text-ink transition-colors hover:bg-paper motion-safe:transition-colors"
+        >
+          {t("polish_a.account.retry")}
+        </button>
       </main>
     );
   }
@@ -75,7 +106,10 @@ export function AccountRoute() {
         className="grid grid-cols-4 gap-3 border border-hairline-2 bg-paper-2 px-5 py-3 shadow-sm"
         aria-label={t("routes.account.kpi_value")}
       >
-        <Kpi label={t("routes.account.kpi_value")} value={formatCad(account.current_value)} />
+        <Kpi
+          label={t("routes.account.kpi_value")}
+          value={formatCurrencyCAD(account.current_value)}
+        />
         <Kpi label={t("routes.account.kpi_type")} value={account.type} />
         <Kpi label={t("routes.account.kpi_goal_count")} value={String(goalsInAccount.length)} />
         <Kpi label={t("routes.account.kpi_cash_state")} value={account.cash_state || "—"} />
@@ -140,7 +174,7 @@ export function AccountRoute() {
                   >
                     <span className="font-sans text-[12px] font-medium text-ink">{goal.name}</span>
                     <span className="font-mono text-[10px] text-accent-2">
-                      {formatCad(allocated)}
+                      {formatCurrencyCAD(allocated)}
                     </span>
                   </Link>
                 </li>
