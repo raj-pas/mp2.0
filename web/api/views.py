@@ -1715,6 +1715,214 @@ class ReviewWorkspaceConflictResolveView(APIView):
         )
 
 
+class ReviewWorkspaceConflictBulkResolveView(APIView):
+    """POST /api/review-workspaces/<wsid>/conflicts/bulk-resolve/ — Phase 5b.12.
+
+    Body: {resolutions: [{field, chosen_fact_id}, ...], rationale,
+    evidence_ack}. Applies a shared advisor judgment + rationale +
+    evidence acknowledgement to multiple conflicts in a single
+    atomic transaction. Common case: one KYC supersedes ALL other
+    sources for Person 0 — advisor selects the KYC candidate for
+    DOB, marital_status, and risk profile in one motion instead of
+    three.
+
+    Each resolved conflict gets its own `review_conflict_resolved`
+    audit event (locked #37 — one event per state-changing action),
+    sharing the same rationale_len + invalidated_approvals shape.
+    Section approval re-evaluation runs ONCE at the end so we don't
+    flap a section approval through N intermediate states.
+
+    Atomic: if ANY resolution validation fails (chosen_fact_id not
+    in candidates, conflict not found, fact not in workspace), the
+    whole batch rolls back. Partial application would leave the
+    workspace in a half-resolved state advisors couldn't easily
+    undo.
+
+    PII discipline: rationale TEXT never appears in audit metadata.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, workspace_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        workspace = _workspace_for_user(workspace_id, request.user)
+        resolutions = request.data.get("resolutions")
+        rationale = (request.data.get("rationale") or "").strip()
+        evidence_ack = bool(request.data.get("evidence_ack"))
+
+        if not isinstance(resolutions, list) or len(resolutions) == 0:
+            return Response(
+                {
+                    "detail": "resolutions must be a non-empty array.",
+                    "code": "resolutions_required",
+                },
+                status=400,
+            )
+        if len(rationale) < 4:
+            return Response(
+                {
+                    "detail": "Rationale is required (>= 4 characters).",
+                    "code": "rationale_required",
+                },
+                status=400,
+            )
+        if not evidence_ack:
+            return Response(
+                {
+                    "detail": "Evidence acknowledgement is required.",
+                    "code": "evidence_ack_required",
+                },
+                status=400,
+            )
+
+        invalidated_sections: list[str] = []
+        resolved_meta: list[dict[str, object]] = []
+        with transaction.atomic():
+            locked_workspace = models.ReviewWorkspace.objects.select_for_update().get(
+                pk=workspace.pk
+            )
+            previous_state = locked_workspace.reviewed_state or reviewed_state_from_workspace(
+                locked_workspace
+            )
+            conflicts = list(previous_state.get("conflicts") or [])
+            actor_label = (
+                getattr(request.user, "email", None)
+                or getattr(request.user, "username", None)
+                or "unknown"
+            )
+            resolved_at = timezone.now().isoformat()
+
+            for resolution in resolutions:
+                if not isinstance(resolution, dict):
+                    return Response(
+                        {
+                            "detail": "Each resolution must be an object with field + chosen_fact_id.",
+                            "code": "resolution_shape",
+                        },
+                        status=400,
+                    )
+                field = (resolution.get("field") or "").strip()
+                chosen_fact_id = resolution.get("chosen_fact_id")
+                if not field:
+                    return Response(
+                        {"detail": "field is required.", "code": "field_required"},
+                        status=400,
+                    )
+                if not isinstance(chosen_fact_id, int):
+                    return Response(
+                        {
+                            "detail": "chosen_fact_id must be an integer.",
+                            "code": "chosen_fact_id_required",
+                        },
+                        status=400,
+                    )
+
+                target_index: int | None = None
+                target_conflict: dict | None = None
+                for index, conflict in enumerate(conflicts):
+                    if conflict.get("field") == field:
+                        target_index = index
+                        target_conflict = conflict
+                        break
+                if target_conflict is None or target_index is None:
+                    return Response(
+                        {
+                            "detail": f"Conflict for {field!r} was not found.",
+                            "code": "conflict_not_found",
+                        },
+                        status=404,
+                    )
+                if chosen_fact_id not in (target_conflict.get("fact_ids") or []):
+                    return Response(
+                        {
+                            "detail": "chosen_fact_id is not a candidate for one of the conflicts.",
+                            "code": "chosen_fact_not_in_conflict",
+                        },
+                        status=400,
+                    )
+                try:
+                    chosen_fact = locked_workspace.extracted_facts.select_related("document").get(
+                        pk=chosen_fact_id
+                    )
+                except models.ExtractedFact.DoesNotExist:
+                    return Response(
+                        {
+                            "detail": "Chosen fact does not belong to this workspace.",
+                            "code": "chosen_fact_not_in_workspace",
+                        },
+                        status=400,
+                    )
+                resolved_conflict = {
+                    **target_conflict,
+                    "resolved": True,
+                    "chosen_fact_id": chosen_fact_id,
+                    "resolution": chosen_fact.value,
+                    "rationale": rationale,
+                    "evidence_ack": True,
+                    "resolved_at": resolved_at,
+                    "resolved_by": actor_label,
+                }
+                conflicts[target_index] = resolved_conflict
+                resolved_meta.append(
+                    {
+                        "field": field,
+                        "section": target_conflict.get("section"),
+                        "chosen_fact_id": chosen_fact_id,
+                        "candidate_count": len(target_conflict.get("fact_ids") or []),
+                    }
+                )
+
+            new_state = dict(previous_state)
+            new_state["conflicts"] = conflicts
+            try:
+                validate_review_state_contract(new_state)
+            except ValueError as exc:
+                return Response(safe_response_payload(exc), status=400)
+
+            version = create_state_version(locked_workspace, user=request.user, state=new_state)
+            approvals = locked_workspace.section_approvals.filter(
+                status=models.SectionApproval.Status.APPROVED
+            )
+            for approval in approvals:
+                if section_blockers(new_state, approval.section):
+                    approval.status = models.SectionApproval.Status.NEEDS_ATTENTION
+                    approval.save(update_fields=["status", "updated_at"])
+                    invalidated_sections.append(approval.section)
+
+        # One audit event per resolved conflict (locked #37). Emitted
+        # AFTER the atomic block commits so the audit log doesn't
+        # record events for a transaction that rolled back.
+        for meta in resolved_meta:
+            record_event(
+                action="review_conflict_resolved",
+                entity_type="review_workspace",
+                entity_id=workspace.external_id,
+                actor=_actor(request),
+                metadata={
+                    "version": version.version,
+                    "workspace_id": workspace.external_id,
+                    "field": meta["field"],
+                    "section": meta["section"],
+                    "chosen_fact_id": meta["chosen_fact_id"],
+                    "candidate_count": meta["candidate_count"],
+                    "rationale_len": len(rationale),
+                    "invalidated_approvals": invalidated_sections,
+                    "bulk": True,
+                    "bulk_count": len(resolved_meta),
+                },
+            )
+
+        return Response(
+            {
+                "state": version.state,
+                "readiness": version.readiness,
+                "invalidated_approvals": invalidated_sections,
+                "resolved_count": len(resolved_meta),
+            }
+        )
+
+
 class ReviewWorkspaceFactOverrideView(APIView):
     """POST /api/review-workspaces/<wsid>/facts/override/ — Phase 5b.10/11.
 

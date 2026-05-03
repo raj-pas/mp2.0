@@ -587,7 +587,19 @@
       "resolved_toast_body": "{{label}} updated.",
       "confidence_high": "High",
       "confidence_medium": "Medium",
-      "confidence_low": "Low"
+      "confidence_low": "Low",
+      "add_to_bulk": "Add this resolution to a bulk batch",
+      "bulk_bar_aria": "Bulk resolution form",
+      "bulk_bar_title_one": "{{count}} conflict selected for bulk resolve",
+      "bulk_bar_title_other": "{{count}} conflicts selected for bulk resolve",
+      "bulk_bar_body": "Apply one rationale + evidence acknowledgement to all selected conflicts.",
+      "bulk_cancel": "Clear selection",
+      "bulk_submit_one": "Resolve {{count}} together",
+      "bulk_submit_other": "Resolve {{count}} together",
+      "bulk_submit_pending": "Resolving…",
+      "bulk_resolved_title": "Conflicts resolved",
+      "bulk_resolved_body_one": "{{count}} conflict resolved.",
+      "bulk_resolved_body_other": "{{count}} conflicts resolved."
     }
   },
   "confidence": {

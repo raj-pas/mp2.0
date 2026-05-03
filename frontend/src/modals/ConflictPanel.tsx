@@ -16,16 +16,18 @@
  * redacted on the server (`web/api/review_redaction.py`); this
  * component does no further redaction.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "../components/ui/button";
 import { ConfidenceChip } from "../components/ConfidenceChip";
 import { Skeleton } from "../components/ui/skeleton";
 import {
+  type BulkResolutionItem,
   type ConflictCandidate,
   type ResolveConflictPayload,
   type ReviewConflict,
+  useBulkResolveConflicts,
   useResolveConflict,
 } from "../lib/review";
 import { normalizeApiError } from "../lib/api-error";
@@ -44,6 +46,61 @@ export function ConflictPanel({
   loading = false,
 }: ConflictPanelProps) {
   const { t } = useTranslation();
+  // Phase 5b.12 — `bulkSelections` maps field → chosen_fact_id. When
+  // ≥2 entries are present, the bulk action bar offers a shared
+  // rationale + evidence_ack form so the advisor doesn't repeat the
+  // same KYC-supersedes-statement judgment for every Person 0 field.
+  const [bulkSelections, setBulkSelections] = useState<Map<string, number>>(new Map());
+  const [bulkRationale, setBulkRationale] = useState("");
+  const [bulkEvidenceAck, setBulkEvidenceAck] = useState(false);
+  const bulkResolve = useBulkResolveConflicts(workspaceId);
+
+  function setBulkSelection(field: string, chosenFactId: number | null) {
+    setBulkSelections((prev) => {
+      const next = new Map(prev);
+      if (chosenFactId === null) {
+        next.delete(field);
+      } else {
+        next.set(field, chosenFactId);
+      }
+      return next;
+    });
+  }
+
+  const bulkItems = useMemo<BulkResolutionItem[]>(
+    () =>
+      Array.from(bulkSelections.entries()).map(([field, chosen_fact_id]) => ({
+        field,
+        chosen_fact_id,
+      })),
+    [bulkSelections],
+  );
+
+  function handleSubmitBulk() {
+    if (bulkItems.length < 2 || bulkRationale.trim().length < 4 || !bulkEvidenceAck) return;
+    bulkResolve.mutate(
+      {
+        resolutions: bulkItems,
+        rationale: bulkRationale.trim(),
+        evidence_ack: bulkEvidenceAck,
+      },
+      {
+        onSuccess: (response) => {
+          toastSuccess(
+            t("review.conflict.bulk_resolved_title"),
+            t("review.conflict.bulk_resolved_body", { count: response.resolved_count }),
+          );
+          setBulkSelections(new Map());
+          setBulkRationale("");
+          setBulkEvidenceAck(false);
+        },
+        onError: (err) => {
+          const e = normalizeApiError(err, t("review.conflict.resolve_error"));
+          toastError(t("review.conflict.resolve_error"), { description: e.message });
+        },
+      },
+    );
+  }
 
   if (loading) {
     return (
@@ -80,10 +137,31 @@ export function ConflictPanel({
           })}
         </span>
       </header>
+      {bulkItems.length >= 2 && (
+        <BulkResolveBar
+          count={bulkItems.length}
+          rationale={bulkRationale}
+          onRationaleChange={setBulkRationale}
+          evidenceAck={bulkEvidenceAck}
+          onEvidenceAckChange={setBulkEvidenceAck}
+          onSubmit={handleSubmitBulk}
+          submitting={bulkResolve.isPending}
+          onCancel={() => {
+            setBulkSelections(new Map());
+            setBulkRationale("");
+            setBulkEvidenceAck(false);
+          }}
+        />
+      )}
       <ul className="flex flex-col gap-3">
         {items.map((conflict) => (
           <li key={conflict.field}>
-            <ConflictCard workspaceId={workspaceId} conflict={conflict} />
+            <ConflictCard
+              workspaceId={workspaceId}
+              conflict={conflict}
+              bulkSelectedFactId={bulkSelections.get(conflict.field) ?? null}
+              onBulkSelect={(chosenFactId) => setBulkSelection(conflict.field, chosenFactId)}
+            />
           </li>
         ))}
       </ul>
@@ -91,12 +169,87 @@ export function ConflictPanel({
   );
 }
 
+interface BulkResolveBarProps {
+  count: number;
+  rationale: string;
+  onRationaleChange: (value: string) => void;
+  evidenceAck: boolean;
+  onEvidenceAckChange: (value: boolean) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+  submitting: boolean;
+}
+
+function BulkResolveBar({
+  count,
+  rationale,
+  onRationaleChange,
+  evidenceAck,
+  onEvidenceAckChange,
+  onSubmit,
+  onCancel,
+  submitting,
+}: BulkResolveBarProps) {
+  const { t } = useTranslation();
+  const submittable = !submitting && rationale.trim().length >= 4 && evidenceAck;
+  return (
+    <section
+      aria-label={t("review.conflict.bulk_bar_aria")}
+      className="flex flex-col gap-2 border border-accent/40 bg-accent/5 p-3"
+    >
+      <header className="flex items-baseline justify-between">
+        <h3 className="font-mono text-[10px] uppercase tracking-widest text-accent">
+          {t("review.conflict.bulk_bar_title", { count })}
+        </h3>
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={submitting}>
+          {t("review.conflict.bulk_cancel")}
+        </Button>
+      </header>
+      <p className="font-sans text-[11px] text-muted">{t("review.conflict.bulk_bar_body")}</p>
+      <textarea
+        value={rationale}
+        onChange={(e) => onRationaleChange(e.target.value)}
+        disabled={submitting}
+        rows={2}
+        placeholder={t("review.conflict.rationale_placeholder")}
+        className="border border-hairline-2 bg-paper px-2 py-1 font-sans text-[11px] text-ink focus:border-accent focus:outline-none"
+      />
+      <label className="flex items-start gap-2 font-sans text-[11px] text-ink">
+        <input
+          type="checkbox"
+          checked={evidenceAck}
+          onChange={(e) => onEvidenceAckChange(e.target.checked)}
+          disabled={submitting}
+          className="mt-0.5"
+        />
+        <span>{t("review.conflict.evidence_ack")}</span>
+      </label>
+      <div className="flex items-center justify-end">
+        <Button type="button" size="sm" onClick={onSubmit} disabled={!submittable}>
+          {submitting
+            ? t("review.conflict.bulk_submit_pending")
+            : t("review.conflict.bulk_submit", { count })}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 interface ConflictCardProps {
   workspaceId: string;
   conflict: ReviewConflict;
+  /** Phase 5b.12: panel-level bulk selection. null = not in bulk. */
+  bulkSelectedFactId?: number | null;
+  /** Phase 5b.12: toggles the panel-level bulk selection map. */
+  onBulkSelect?: (chosenFactId: number | null) => void;
 }
 
-export function ConflictCard({ workspaceId, conflict }: ConflictCardProps) {
+export function ConflictCard({
+  workspaceId,
+  conflict,
+  bulkSelectedFactId = null,
+  onBulkSelect,
+}: ConflictCardProps) {
   const { t } = useTranslation();
   const resolve = useResolveConflict(workspaceId);
   const [chosenFactId, setChosenFactId] = useState<number | null>(
@@ -113,6 +266,7 @@ export function ConflictCard({ workspaceId, conflict }: ConflictCardProps) {
     chosenFactId !== null &&
     rationale.trim().length >= 4 &&
     evidenceAck;
+  const inBulk = bulkSelectedFactId !== null;
 
   const handleSubmit = () => {
     if (!submittable || chosenFactId === null) return;
@@ -190,43 +344,63 @@ export function ConflictCard({ workspaceId, conflict }: ConflictCardProps) {
             ))}
           </ol>
 
-          <label className="flex flex-col gap-1">
-            <span className="font-sans text-[10px] uppercase tracking-wider text-muted">
-              {t("review.conflict.rationale_label")}
-            </span>
-            <textarea
-              className="min-h-[60px] rounded-sm border border-hairline-2 bg-paper px-2 py-1 font-sans text-[12px] text-ink focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-              value={rationale}
-              onChange={(e) => setRationale(e.target.value)}
-              placeholder={t("review.conflict.rationale_placeholder")}
-              maxLength={500}
-            />
-          </label>
+          {onBulkSelect !== undefined && chosenFactId !== null && (
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={inBulk && bulkSelectedFactId === chosenFactId}
+                onChange={(e) => {
+                  onBulkSelect(e.target.checked ? chosenFactId : null);
+                }}
+                className="mt-0.5"
+              />
+              <span className="font-sans text-[11px] text-ink">
+                {t("review.conflict.add_to_bulk")}
+              </span>
+            </label>
+          )}
 
-          <label className="flex items-start gap-2">
-            <input
-              type="checkbox"
-              checked={evidenceAck}
-              onChange={(e) => setEvidenceAck(e.target.checked)}
-              className="mt-0.5"
-            />
-            <span className="font-sans text-[11px] text-ink">
-              {t("review.conflict.evidence_ack")}
-            </span>
-          </label>
+          {!inBulk && (
+            <>
+              <label className="flex flex-col gap-1">
+                <span className="font-sans text-[10px] uppercase tracking-wider text-muted">
+                  {t("review.conflict.rationale_label")}
+                </span>
+                <textarea
+                  className="min-h-[60px] rounded-sm border border-hairline-2 bg-paper px-2 py-1 font-sans text-[12px] text-ink focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                  value={rationale}
+                  onChange={(e) => setRationale(e.target.value)}
+                  placeholder={t("review.conflict.rationale_placeholder")}
+                  maxLength={500}
+                />
+              </label>
 
-          <div className="flex items-center justify-end">
-            <Button
-              variant="default"
-              size="sm"
-              disabled={!submittable || resolve.isPending}
-              onClick={handleSubmit}
-            >
-              {resolve.isPending
-                ? t("review.conflict.submit_pending")
-                : t("review.conflict.submit")}
-            </Button>
-          </div>
+              <label className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={evidenceAck}
+                  onChange={(e) => setEvidenceAck(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="font-sans text-[11px] text-ink">
+                  {t("review.conflict.evidence_ack")}
+                </span>
+              </label>
+
+              <div className="flex items-center justify-end">
+                <Button
+                  variant="default"
+                  size="sm"
+                  disabled={!submittable || resolve.isPending}
+                  onClick={handleSubmit}
+                >
+                  {resolve.isPending
+                    ? t("review.conflict.submit_pending")
+                    : t("review.conflict.submit")}
+                </Button>
+              </div>
+            </>
+          )}
         </fieldset>
       )}
     </article>

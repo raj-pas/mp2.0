@@ -781,6 +781,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/review-workspaces/{workspace_id}/conflicts/bulk-resolve/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST /api/review-workspaces/<wsid>/conflicts/bulk-resolve/ — Phase 5b.12.
+         *
+         *     Body: {resolutions: [{field, chosen_fact_id}, ...], rationale,
+         *     evidence_ack}. Applies a shared advisor judgment + rationale +
+         *     evidence acknowledgement to multiple conflicts in a single
+         *     atomic transaction. Common case: one KYC supersedes ALL other
+         *     sources for Person 0 — advisor selects the KYC candidate for
+         *     DOB, marital_status, and risk profile in one motion instead of
+         *     three.
+         *
+         *     Each resolved conflict gets its own `review_conflict_resolved`
+         *     audit event (locked #37 — one event per state-changing action),
+         *     sharing the same rationale_len + invalidated_approvals shape.
+         *     Section approval re-evaluation runs ONCE at the end so we don't
+         *     flap a section approval through N intermediate states.
+         *
+         *     Atomic: if ANY resolution validation fails (chosen_fact_id not
+         *     in candidates, conflict not found, fact not in workspace), the
+         *     whole batch rolls back. Partial application would leave the
+         *     workspace in a half-resolved state advisors couldn't easily
+         *     undo.
+         *
+         *     PII discipline: rationale TEXT never appears in audit metadata.
+         */
+        post: operations["review_workspaces_conflicts_bulk_resolve_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/review-workspaces/{workspace_id}/conflicts/resolve/": {
         parameters: {
             query?: never;
@@ -2324,6 +2365,26 @@ export interface operations {
         };
     };
     review_workspaces_commit_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    review_workspaces_conflicts_bulk_resolve_create: {
         parameters: {
             query?: never;
             header?: never;

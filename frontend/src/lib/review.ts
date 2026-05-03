@@ -555,6 +555,45 @@ export function useResolveConflict(workspaceId: string | null) {
 }
 
 // --------------------------------------------------------------------
+// Bulk conflict resolve (Phase 5b.12) + defer (Phase 5b.13)
+// --------------------------------------------------------------------
+
+export type BulkResolutionItem = {
+  field: string;
+  chosen_fact_id: number;
+};
+
+export type BulkResolveConflictsPayload = {
+  resolutions: BulkResolutionItem[];
+  rationale: string;
+  evidence_ack: boolean;
+};
+
+export type BulkResolveConflictsResponse = ResolveConflictResponse & {
+  resolved_count: number;
+};
+
+export function useBulkResolveConflicts(workspaceId: string | null) {
+  const qc = useQueryClient();
+  return useMutation<BulkResolveConflictsResponse, Error, BulkResolveConflictsPayload>({
+    mutationFn: (payload) => {
+      if (workspaceId === null) {
+        return Promise.reject(new Error("workspace id required"));
+      }
+      return apiFetch<BulkResolveConflictsResponse>(
+        `/api/review-workspaces/${encodeURIComponent(workspaceId)}/conflicts/bulk-resolve/`,
+        { method: "POST", body: payload },
+      );
+    },
+    onSuccess: () => {
+      if (workspaceId === null) return;
+      qc.invalidateQueries({ queryKey: reviewWorkspaceStateKey(workspaceId) });
+      qc.invalidateQueries({ queryKey: reviewWorkspaceKey(workspaceId) });
+    },
+  });
+}
+
+// --------------------------------------------------------------------
 // Section approval + commit (the gates that produce a Household)
 // --------------------------------------------------------------------
 
