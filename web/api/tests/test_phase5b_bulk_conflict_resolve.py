@@ -9,13 +9,10 @@ the whole batch.
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APIClient
-
 from web.api import models
 from web.audit.models import AuditEvent
 
@@ -70,7 +67,9 @@ def _seed_two_conflicts(workspace) -> tuple[int, int]:
     kyc = _doc(workspace, filename="kyc.pdf", document_type="kyc")
     statement = _doc(workspace, filename="statement.pdf", document_type="statement")
 
-    kyc_dob = _fact(workspace, kyc, field="people[0].date_of_birth", value="1985-03-12", confidence="high")
+    kyc_dob = _fact(
+        workspace, kyc, field="people[0].date_of_birth", value="1985-03-12", confidence="high"
+    )
     _fact(workspace, statement, field="people[0].date_of_birth", value="1985-03-15")
 
     kyc_marital = _fact(

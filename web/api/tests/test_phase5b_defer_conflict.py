@@ -15,7 +15,6 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APIClient
-
 from web.api import models
 from web.api.review_state import (
     reviewed_state_from_workspace,
@@ -119,7 +118,6 @@ def test_deferred_conflict_does_not_block_section_approval() -> None:
     user = _user()
     workspace = models.ReviewWorkspace.objects.create(label="WS", owner=user)
     field = _seed_conflict(workspace)
-    conflicts_before = workspace.reviewed_state.get("conflicts") or []
     assert len(section_blockers(workspace.reviewed_state, "people")) > 0
 
     # Defer the conflict
@@ -136,8 +134,7 @@ def test_deferred_conflict_does_not_block_section_approval() -> None:
     blockers = section_blockers(workspace.reviewed_state, "people")
     # No conflict-kind blocker for the deferred field.
     assert all(
-        not (b.get("kind") == "conflict" and field in (b.get("label", "")))
-        for b in blockers
+        not (b.get("kind") == "conflict" and field in (b.get("label", ""))) for b in blockers
     )
 
 
@@ -176,8 +173,7 @@ def test_deferred_conflict_resurfaces_on_new_evidence() -> None:
     workspace.save(update_fields=["reviewed_state"])
     blockers = section_blockers(workspace.reviewed_state, "people")
     assert any(b.get("kind") == "conflict" for b in blockers), (
-        f"expected re-surfaced conflict to block 'people' section, "
-        f"but got blockers: {blockers}"
+        f"expected re-surfaced conflict to block 'people' section, but got blockers: {blockers}"
     )
 
 

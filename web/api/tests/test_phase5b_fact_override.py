@@ -26,7 +26,6 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APIClient
-
 from web.api import models
 from web.audit.models import AuditEvent
 

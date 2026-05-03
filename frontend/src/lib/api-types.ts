@@ -1129,6 +1129,15 @@ export interface paths {
          *     Marks the welcome tour as completed for the advisor (server-side
          *     per-account ack so the tour never re-shows on any device for
          *     this advisor). Audit event captures advisor + timestamp.
+         *
+         *     Concurrency: get-or-create + select_for_update inside an atomic
+         *     transaction prevents the TOCTOU race surfaced by Phase 6
+         *     concurrency stress testing (Agent 2 flagged: prior check-then-
+         *     update could emit up to N audit events under concurrent first-
+         *     completes from multiple devices). The lock serializes concurrent
+         *     callers; only the first sees `tour_completed_at is None`, sets
+         *     it + emits the audit event; subsequent callers see the populated
+         *     field and short-circuit to a no-op response.
          */
         post: operations["tour_complete_create"];
         delete?: never;

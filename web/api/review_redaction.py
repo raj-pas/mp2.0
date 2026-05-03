@@ -8,8 +8,21 @@ from typing import Any
 from django.conf import settings
 
 _EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+# REDACT-2 (Phase 6 sub-session #4 — flagged by adversarial fuzzing
+# in test_pii_adversarial.py): the prior 4-4-4-1+ pattern only caught
+# Visa/MC/Discover (16-digit 4-4-4-4 grouping). AMEX uses a 15-digit
+# 4-6-5 grouping (e.g., 3782-822463-10005) which slipped through
+# unredacted. Alternation covers both grouping shapes. Order matters
+# (longer pattern first) so the 4-4-4-1+ branch doesn't claim part
+# of a 4-6-5 number.
 _CREDIT_CARD_PATTERN = re.compile(
-    r"(?<!\$)(?<!\d)\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{1,7}(?!\d)"
+    r"(?<!\$)(?<!\d)"
+    r"(?:"
+    r"\d{4}[\s\-]?\d{6}[\s\-]?\d{5}"  # AMEX 4-6-5
+    r"|"
+    r"\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{1,7}"  # Visa/MC/Discover 4-4-4-1+
+    r")"
+    r"(?!\d)"
 )
 _SIN_PATTERN = re.compile(r"(?<!\$)(?<!#)(?<!\d)\b\d{3}[-\s]\d{3}[-\s]\d{3}\b(?!\s*%)(?!\d)")
 _SSN_PATTERN = re.compile(r"(?<!\$)(?<!#)(?<!\d)\b\d{3}[-\s]\d{2}[-\s]\d{4}\b(?!\s*%)(?!\d)")

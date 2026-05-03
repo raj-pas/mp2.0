@@ -200,15 +200,32 @@ class TourCompleteView(APIView):
     Marks the welcome tour as completed for the advisor (server-side
     per-account ack so the tour never re-shows on any device for
     this advisor). Audit event captures advisor + timestamp.
+
+    Concurrency: get-or-create + select_for_update inside an atomic
+    transaction prevents the TOCTOU race surfaced by Phase 6
+    concurrency stress testing (Agent 2 flagged: prior check-then-
+    update could emit up to N audit events under concurrent first-
+    completes from multiple devices). The lock serializes concurrent
+    callers; only the first sees `tour_completed_at is None`, sets
+    it + emits the audit event; subsequent callers see the populated
+    field and short-circuit to a no-op response.
     """
 
     permission_classes = [IsAuthenticated]
 
     def post(self, request):  # noqa: ANN001
-        profile, _ = models.AdvisorProfile.objects.get_or_create(user=request.user)
-        if profile.tour_completed_at is None:
-            profile.tour_completed_at = timezone.now()
-            profile.save(update_fields=["tour_completed_at"])
+        with transaction.atomic():
+            # Ensure the row exists (idempotent under race; the unique
+            # constraint on user_id makes get_or_create itself
+            # serializable under Postgres READ COMMITTED).
+            models.AdvisorProfile.objects.get_or_create(user=request.user)
+            # Now lock the row so the check-then-update is atomic.
+            profile = models.AdvisorProfile.objects.select_for_update().get(user=request.user)
+            should_emit = profile.tour_completed_at is None
+            if should_emit:
+                profile.tour_completed_at = timezone.now()
+                profile.save(update_fields=["tour_completed_at"])
+        if should_emit:
             record_event(
                 action="tour_completed",
                 entity_type="advisor",
@@ -1797,7 +1814,9 @@ class ReviewWorkspaceConflictBulkResolveView(APIView):
                 if not isinstance(resolution, dict):
                     return Response(
                         {
-                            "detail": "Each resolution must be an object with field + chosen_fact_id.",
+                            "detail": (
+                                "Each resolution must be an object with field + chosen_fact_id."
+                            ),
                             "code": "resolution_shape",
                         },
                         status=400,
