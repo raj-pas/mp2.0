@@ -33,6 +33,7 @@ import { Button } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
 import { useRememberedClientId } from "../chrome/ClientPicker";
 import {
+  type ReviewConflict,
   type ReviewWorkspace,
   type SectionApprovalStatus,
   useApproveSection,
@@ -42,6 +43,7 @@ import {
   useReviewedState,
   useRetryDocument,
 } from "../lib/review";
+import { ConflictPanel } from "./ConflictPanel";
 import { normalizeApiError } from "../lib/api-error";
 import { toastError, toastSuccess } from "../lib/toast";
 import { cn } from "../lib/cn";
@@ -204,8 +206,14 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
             markingManualEntry={manualEntry.isPending}
           />
           <ReadinessPanel workspace={workspace} />
-          {/* Conflict-resolution cards land here — the wiring is in
-              `useStatePatch`; R7 v1 ships the readiness gate first. */}
+          <ConflictPanel
+            workspaceId={workspaceId}
+            conflicts={
+              ((stateQuery.data?.state as { conflicts?: ReviewConflict[] })
+                ?.conflicts) ?? []
+            }
+            loading={stateQuery.isLoading}
+          />
         </main>
         <aside className="flex flex-col gap-4">
           {(workspace.readiness?.missing ?? []).length > 0 && (

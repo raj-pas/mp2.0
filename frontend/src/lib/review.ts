@@ -379,6 +379,78 @@ export function useStatePatch(workspaceId: string | null) {
 }
 
 // --------------------------------------------------------------------
+// Conflict resolution (Phase 5a)
+// --------------------------------------------------------------------
+
+export type ConflictCandidate = {
+  fact_id: number;
+  value: unknown;
+  confidence: "high" | "medium" | "low";
+  derivation_method: "extracted" | "inferred" | "defaulted";
+  source_document_id: number;
+  source_document_filename: string;
+  source_document_type: string;
+  source_location: string;
+  source_page: number | null;
+  redacted_evidence_quote: string;
+  asserted_at: string | null;
+};
+
+export type ReviewConflict = {
+  field: string;
+  label: string;
+  section: string;
+  values: string[];
+  count: number;
+  fact_ids: number[];
+  resolved: boolean;
+  required: boolean;
+  same_authority: boolean;
+  source_types: string[];
+  candidates?: ConflictCandidate[];
+  // Populated after resolution
+  chosen_fact_id?: number;
+  resolution?: unknown;
+  rationale?: string;
+  evidence_ack?: boolean;
+  resolved_at?: string;
+  resolved_by?: string;
+};
+
+export type ResolveConflictPayload = {
+  field: string;
+  chosen_fact_id: number;
+  rationale: string;
+  evidence_ack: boolean;
+};
+
+export type ResolveConflictResponse = {
+  state: Record<string, unknown> & { conflicts?: ReviewConflict[] };
+  readiness: Readiness;
+  invalidated_approvals: string[];
+};
+
+export function useResolveConflict(workspaceId: string | null) {
+  const qc = useQueryClient();
+  return useMutation<ResolveConflictResponse, Error, ResolveConflictPayload>({
+    mutationFn: (payload) => {
+      if (workspaceId === null) {
+        return Promise.reject(new Error("workspace id required"));
+      }
+      return apiFetch<ResolveConflictResponse>(
+        `/api/review-workspaces/${encodeURIComponent(workspaceId)}/conflicts/resolve/`,
+        { method: "POST", body: payload },
+      );
+    },
+    onSuccess: () => {
+      if (workspaceId === null) return;
+      qc.invalidateQueries({ queryKey: reviewWorkspaceStateKey(workspaceId) });
+      qc.invalidateQueries({ queryKey: reviewWorkspaceKey(workspaceId) });
+    },
+  });
+}
+
+// --------------------------------------------------------------------
 // Section approval + commit (the gates that produce a Household)
 // --------------------------------------------------------------------
 

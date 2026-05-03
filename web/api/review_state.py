@@ -41,6 +41,7 @@ from extraction.reconciliation import (
 
 from web.api import models
 from web.api.access import linkable_households
+from web.api.review_redaction import redact_evidence_quote
 from web.audit.writer import record_event
 
 REVIEW_SCHEMA_VERSION = "reviewed_client_state.v1"
@@ -676,7 +677,44 @@ def _source_summary(workspace: models.ReviewWorkspace) -> list[dict[str, Any]]:
 
 
 def _conflicts(workspace: models.ReviewWorkspace) -> list[dict[str, Any]]:
-    return conflicts_for_facts(workspace.extracted_facts.select_related("document"))
+    """Workspace conflicts enriched with per-candidate source metadata.
+
+    Phase 5a (2026-05-02): each conflict carries a `candidates` array
+    so the conflict-resolution card UI can render multi-source
+    attribution (filename, doc type, confidence, derivation_method,
+    redacted evidence quote) without the frontend re-querying
+    extracted_facts. The candidates entry preserves the existing
+    `fact_ids` array shape; consumers that only need the IDs ignore
+    the new field.
+    """
+    facts = list(workspace.extracted_facts.select_related("document"))
+    raw_conflicts = conflicts_for_facts(facts)
+    facts_by_id = {fact.id: fact for fact in facts}
+    enriched: list[dict[str, Any]] = []
+    for conflict in raw_conflicts:
+        candidates: list[dict[str, Any]] = []
+        for fact_id in conflict.get("fact_ids", []):
+            fact = facts_by_id.get(fact_id)
+            if fact is None:
+                continue
+            document = fact.document
+            candidates.append(
+                {
+                    "fact_id": fact.id,
+                    "value": fact.value,
+                    "confidence": fact.confidence,
+                    "derivation_method": fact.derivation_method,
+                    "source_document_id": document.id,
+                    "source_document_filename": document.original_filename,
+                    "source_document_type": document.document_type,
+                    "source_location": fact.source_location,
+                    "source_page": fact.source_page,
+                    "redacted_evidence_quote": redact_evidence_quote(fact.evidence_quote or ""),
+                    "asserted_at": fact.asserted_at.isoformat() if fact.asserted_at else None,
+                }
+            )
+        enriched.append({**conflict, "candidates": candidates})
+    return enriched
 
 
 def _field_sources(

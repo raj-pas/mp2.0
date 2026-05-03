@@ -696,6 +696,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/review-workspaces/{workspace_id}/conflicts/resolve/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST /api/review-workspaces/<wsid>/conflicts/resolve/ — Phase 5a.
+         *
+         *     Body: {field, chosen_fact_id, rationale, evidence_ack}.
+         *     Records the advisor's chosen candidate + rationale + evidence
+         *     acknowledgement on the workspace conflict slot. Atomic +
+         *     select_for_update on the workspace; serializes concurrent
+         *     advisor calls. Re-runs section-approval blocker check + flips
+         *     affected approvals to NEEDS_ATTENTION (mirrors
+         *     ReviewWorkspaceStateView.patch behavior). Emits exactly one
+         *     `review_conflict_resolved` audit event per locked decision #37.
+         *
+         *     PII discipline (canon §11.8.3): the rationale text is persisted
+         *     on the reviewed_state row (advisor-scoped) but NEVER copied into
+         *     audit-event metadata; metadata records only `rationale_len` so
+         *     the immutable audit row stays free of advisor-typed content
+         *     that could reference real PII.
+         */
+        post: operations["review_workspaces_conflicts_resolve_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/review-workspaces/{workspace_id}/documents/{document_id}/manual-entry/": {
         parameters: {
             query?: never;
@@ -2042,6 +2076,26 @@ export interface operations {
         };
     };
     review_workspaces_commit_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    review_workspaces_conflicts_resolve_create: {
         parameters: {
             query?: never;
             header?: never;

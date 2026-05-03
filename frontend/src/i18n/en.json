@@ -484,6 +484,26 @@
       "WorkerStalled": "The extraction worker stalled mid-job. Retry; if it stalls repeatedly, contact ops.",
       "ImproperlyConfigured": "Storage or model configuration is invalid. Contact ops.",
       "OSError": "Storage I/O error. Retry; if it repeats, contact ops."
+    },
+    "conflict": {
+      "heading": "Same-source disagreements",
+      "summary": "{{unresolved}} unresolved of {{total}}",
+      "required": "Required",
+      "resolved_state": "Resolved",
+      "candidates_legend": "Candidate values for {{label}}",
+      "rationale_label": "Why this value (visible to compliance)",
+      "rationale_placeholder": "e.g. KYC is canonical source of record per canon §11.4 — DOB on KYC supersedes statement.",
+      "evidence_ack": "I've reviewed the source evidence for each candidate.",
+      "submit": "Use this value",
+      "submit_pending": "Saving…",
+      "chosen_value_label": "Chosen value",
+      "resolved_by": "Resolved by",
+      "resolve_error": "Could not resolve conflict.",
+      "resolved_toast_title": "Conflict resolved",
+      "resolved_toast_body": "{{label}} updated.",
+      "confidence_high": "High",
+      "confidence_medium": "Medium",
+      "confidence_low": "Low"
     }
   },
   "descriptor": {

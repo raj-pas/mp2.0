@@ -115,6 +115,11 @@ urlpatterns = [
         name="review-workspace-state",
     ),
     path(
+        "api/review-workspaces/<str:workspace_id>/conflicts/resolve/",
+        views.ReviewWorkspaceConflictResolveView.as_view(),
+        name="review-workspace-conflict-resolve",
+    ),
+    path(
         "api/review-workspaces/<str:workspace_id>/approve-section/",
         views.ReviewWorkspaceSectionApprovalView.as_view(),
         name="review-workspace-approve-section",
