@@ -4380,8 +4380,8 @@ critical findings, all fixed in the close-out commit:
 
 | Layer | New tests | Total |
 |---|---|---|
-| Backend pytest | +5 (workspace DELETE) +15 (R10 sweep helpers) | 853 |
-| Frontend Vitest | +6 (Truncated) +18 (format) +5 (wizard draft) | 76 |
+| Backend pytest | +5 (workspace DELETE) +15 (R10 sweep helpers) | 848 |
+| Frontend Vitest | +6 (Truncated) +18 (format) +5 (wizard draft) +3 (tooltip) | 79 |
 | Cross-browser Playwright | +5 (webkit) +5 (firefox) | 10 |
 
 ### Live R10 sweep
@@ -4397,9 +4397,9 @@ Currently running in the background at HEAD `cb408cc`:
 
 ### Gate suite at HEAD
 
-- 853 backend pytest passing (was 833, +20 new from this follow-up)
+- 848 backend pytest passing (was 828, +20 new: 5 workspace DELETE + 15 R10 helpers)
 - 7 skipped (unchanged)
-- 76 frontend Vitest passing (unchanged from #11 close-out)
+- 79 frontend Vitest passing (was 52, +27 new across the 4 polish bundles + tooltip smoke)
 - typecheck + lint + build clean
 - ruff check + format clean
 - PII grep + vocab CI + OpenAPI codegen drift gate green
