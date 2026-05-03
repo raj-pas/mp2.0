@@ -1715,6 +1715,137 @@ class ReviewWorkspaceConflictResolveView(APIView):
         )
 
 
+class ReviewWorkspaceFactOverrideView(APIView):
+    """POST /api/review-workspaces/<wsid>/facts/override/ — Phase 5b.10/11.
+
+    Body: {field, value, rationale, is_added}.
+    Persists an advisor-supplied value on a new append-only
+    FactOverride row. Mirrors ConflictResolveView's discipline:
+    atomic + select_for_update on the workspace; re-evaluates
+    section-blockers + flips affected approvals to NEEDS_ATTENTION
+    so the commit gate forces a re-review when the advisor changes
+    a fact that was already approved. Emits one
+    `review_fact_overridden` audit event per locked decision #37.
+
+    `is_added=True` indicates the advisor is ADDING a fact extraction
+    never produced (e.g., a goal not documented in the uploaded
+    folder); `is_added=False` indicates an OVERRIDE of an extracted
+    fact. Both share the same persistence path; the distinction
+    flows into the audit row + the source-attribution surface in
+    DocDetailPanel.
+
+    PII discipline (canon §11.8.3): rationale text persists on the
+    DB row (advisor-scoped) but NEVER appears in audit metadata;
+    metadata records only structural data (field, is_added,
+    rationale_len, value_present).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, workspace_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        field = (request.data.get("field") or "").strip()
+        value = request.data.get("value")
+        rationale = (request.data.get("rationale") or "").strip()
+        is_added = bool(request.data.get("is_added", False))
+
+        if not field:
+            return Response(
+                {"detail": "Field path is required.", "code": "field_required"},
+                status=400,
+            )
+        if value is None or value == "":
+            return Response(
+                {"detail": "Value is required.", "code": "value_required"},
+                status=400,
+            )
+        if len(rationale) < 4:
+            return Response(
+                {
+                    "detail": "Rationale is required (>= 4 characters).",
+                    "code": "rationale_required",
+                },
+                status=400,
+            )
+
+        invalidated_sections: list[str] = []
+        with transaction.atomic():
+            workspace = (
+                models.ReviewWorkspace.objects.select_for_update()
+                .filter(pk__in=team_workspaces(request.user).values("pk"))
+                .filter(external_id=workspace_id)
+                .first()
+            )
+            if workspace is None:
+                return Response({"detail": "Workspace not found."}, status=404)
+
+            override = models.FactOverride.objects.create(
+                workspace=workspace,
+                field=field,
+                value=value,
+                rationale=rationale,
+                is_added=is_added,
+                created_by=request.user,
+            )
+
+            # Re-compose reviewed_state with the new override + flip
+            # any approved sections whose blockers shift.
+            new_state = reviewed_state_from_workspace(workspace)
+            try:
+                validate_review_state_contract(new_state)
+            except ValueError as exc:
+                # Roll back — invalid override (e.g., engine-incompatible
+                # type). Atomic block tears down the FactOverride row
+                # too.
+                transaction.set_rollback(True)
+                return Response(safe_response_payload(exc), status=400)
+            version = create_state_version(workspace, user=request.user, state=new_state)
+            approvals = workspace.section_approvals.filter(
+                status=models.SectionApproval.Status.APPROVED
+            )
+            for approval in approvals:
+                if section_blockers(new_state, approval.section):
+                    approval.status = models.SectionApproval.Status.NEEDS_ATTENTION
+                    approval.save(update_fields=["status", "updated_at"])
+                    invalidated_sections.append(approval.section)
+
+        record_event(
+            action="review_fact_overridden",
+            entity_type="review_workspace",
+            entity_id=workspace.external_id,
+            actor=_actor(request),
+            metadata={
+                "workspace_id": workspace.external_id,
+                "override_id": override.id,
+                "field": field,
+                "is_added": is_added,
+                "section": _field_section_for_audit(field),
+                "rationale_len": len(rationale),
+                "invalidated_approvals": invalidated_sections,
+                "version": version.version,
+            },
+        )
+
+        return Response(
+            {
+                "override_id": override.id,
+                "state": version.state,
+                "readiness": version.readiness,
+                "invalidated_approvals": invalidated_sections,
+            }
+        )
+
+
+def _field_section_for_audit(field: str) -> str:
+    """Audit-safe section name (no PII). Uses the same section
+    classification as the reviewed-state composer.
+    """
+    from extraction.reconciliation import field_section as _section
+
+    return _section(field)
+
+
 class ReviewWorkspaceSectionApprovalView(APIView):
     permission_classes = [IsAuthenticated]
 

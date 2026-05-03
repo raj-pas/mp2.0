@@ -15,8 +15,8 @@
  * grouped by section with a `<dl>` semantic structure so screen
  * readers narrate the relationship.
  */
-import { X } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { Pencil, Plus, X } from "lucide-react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "../components/ui/button";
@@ -25,8 +25,11 @@ import { Skeleton } from "../components/ui/skeleton";
 import {
   type ContributedFact,
   type ReviewDocumentDetail,
+  useApplyFactOverride,
   useReviewDocument,
 } from "../lib/review";
+import { normalizeApiError } from "../lib/api-error";
+import { toastError, toastSuccess } from "../lib/toast";
 import { cn } from "../lib/cn";
 
 interface DocDetailPanelProps {
@@ -35,11 +38,25 @@ interface DocDetailPanelProps {
   onClose: () => void;
 }
 
+const ADDABLE_SECTIONS: Array<{ section: string; sample_field: string }> = [
+  // Phase 5b.11 — drives the "Add fact" picker. The sample_field is
+  // pre-filled into the form input so advisors see the canonical
+  // path shape and can edit it (e.g. people[1].date_of_birth).
+  { section: "people", sample_field: "people[0].date_of_birth" },
+  { section: "accounts", sample_field: "accounts[0].current_value" },
+  { section: "goals", sample_field: "goals[0].name" },
+  { section: "risk", sample_field: "risk.household_score" },
+  { section: "household", sample_field: "household.display_name" },
+];
+
 export function DocDetailPanel({ workspaceId, documentId, onClose }: DocDetailPanelProps) {
   const { t } = useTranslation();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const detail = useReviewDocument(workspaceId, documentId);
+  const applyOverride = useApplyFactOverride(workspaceId);
   const open = documentId !== null;
+  const [editingFieldId, setEditingFieldId] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
 
   // Focus the close button + bind Escape on open.
   useEffect(() => {
@@ -106,7 +123,60 @@ export function DocDetailPanel({ workspaceId, documentId, onClose }: DocDetailPa
               {t("doc_detail.load_error")}
             </p>
           )}
-          {detail.data && <ContributedFactsList facts={detail.data.contributed_facts} />}
+          {detail.data && (
+            <ContributedFactsList
+              facts={detail.data.contributed_facts}
+              editingFieldId={editingFieldId}
+              onEdit={setEditingFieldId}
+              onSubmitEdit={(fact, value, rationale) => {
+                applyOverride.mutate(
+                  { field: fact.field, value, rationale, is_added: false },
+                  {
+                    onSuccess: (response) => {
+                      setEditingFieldId(null);
+                      toastSuccess(
+                        t("doc_detail.edit_saved_title"),
+                        t("doc_detail.edit_saved_body", {
+                          label: fact.label,
+                          invalidated: response.invalidated_approvals.join(", ") || "—",
+                        }),
+                      );
+                    },
+                    onError: (err) => {
+                      const e = normalizeApiError(err, t("doc_detail.edit_error"));
+                      toastError(t("doc_detail.edit_error"), { description: e.message });
+                    },
+                  },
+                );
+              }}
+              submitting={applyOverride.isPending}
+            />
+          )}
+          {detail.data && (
+            <AddFactSection
+              adding={adding}
+              onToggle={() => setAdding((v) => !v)}
+              submitting={applyOverride.isPending}
+              onSubmit={(field, value, rationale) => {
+                applyOverride.mutate(
+                  { field, value, rationale, is_added: true },
+                  {
+                    onSuccess: () => {
+                      setAdding(false);
+                      toastSuccess(
+                        t("doc_detail.add_saved_title"),
+                        t("doc_detail.add_saved_body", { field }),
+                      );
+                    },
+                    onError: (err) => {
+                      const e = normalizeApiError(err, t("doc_detail.add_error"));
+                      toastError(t("doc_detail.add_error"), { description: e.message });
+                    },
+                  },
+                );
+              }}
+            />
+          )}
         </div>
       </aside>
     </>
@@ -126,9 +196,19 @@ function DocDetailSkeleton() {
 
 interface ContributedFactsListProps {
   facts: ReviewDocumentDetail["contributed_facts"];
+  editingFieldId: number | null;
+  onEdit: (fact_id: number | null) => void;
+  onSubmitEdit: (fact: ContributedFact, value: string, rationale: string) => void;
+  submitting: boolean;
 }
 
-function ContributedFactsList({ facts }: ContributedFactsListProps) {
+function ContributedFactsList({
+  facts,
+  editingFieldId,
+  onEdit,
+  onSubmitEdit,
+  submitting,
+}: ContributedFactsListProps) {
   const { t } = useTranslation();
   const grouped = useMemo(() => groupBySection(facts), [facts]);
   if (facts.length === 0) {
@@ -150,7 +230,15 @@ function ContributedFactsList({ facts }: ContributedFactsListProps) {
           </h3>
           <dl className="flex flex-col gap-2">
             {sectionFacts.map((fact) => (
-              <FactRow key={fact.fact_id} fact={fact} />
+              <FactRow
+                key={fact.fact_id}
+                fact={fact}
+                editing={editingFieldId === fact.fact_id}
+                onEdit={() => onEdit(fact.fact_id)}
+                onCancelEdit={() => onEdit(null)}
+                onSubmit={(value, rationale) => onSubmitEdit(fact, value, rationale)}
+                submitting={submitting}
+              />
             ))}
           </dl>
         </section>
@@ -159,26 +247,246 @@ function ContributedFactsList({ facts }: ContributedFactsListProps) {
   );
 }
 
-function FactRow({ fact }: { fact: ContributedFact }) {
+function FactRow({
+  fact,
+  editing,
+  onEdit,
+  onCancelEdit,
+  onSubmit,
+  submitting,
+}: {
+  fact: ContributedFact;
+  editing: boolean;
+  onEdit: () => void;
+  onCancelEdit: () => void;
+  onSubmit: (value: string, rationale: string) => void;
+  submitting: boolean;
+}) {
   const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-1 border border-hairline-2 bg-paper-2 p-2">
       <div className="flex items-baseline justify-between gap-2">
         <dt className="font-sans text-[12px] text-ink">{fact.label}</dt>
-        <ConfidenceChip level={fact.confidence} />
+        <div className="flex items-center gap-2">
+          <ConfidenceChip level={fact.confidence} />
+          {!editing && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={onEdit}
+              aria-label={t("doc_detail.edit_aria", { label: fact.label })}
+            >
+              <Pencil aria-hidden className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
       </div>
-      <dd className="font-mono text-[12px] text-ink">{formatFactValue(fact.value)}</dd>
-      {fact.source_page !== null && (
+      {!editing && (
+        <dd className="font-mono text-[12px] text-ink">{formatFactValue(fact.value)}</dd>
+      )}
+      {!editing && fact.source_page !== null && (
         <p className="font-mono text-[9px] uppercase tracking-widest text-muted">
           {t("doc_detail.source_page", { page: fact.source_page })}
         </p>
       )}
-      {fact.redacted_evidence_quote && (
+      {!editing && fact.redacted_evidence_quote && (
         <blockquote className="border-l-2 border-hairline pl-2 font-sans text-[11px] italic text-muted">
           {fact.redacted_evidence_quote}
         </blockquote>
       )}
+      {editing && (
+        <FactEditForm
+          initialValue={formatFactValue(fact.value)}
+          onCancel={onCancelEdit}
+          onSubmit={onSubmit}
+          submitting={submitting}
+        />
+      )}
     </div>
+  );
+}
+
+function FactEditForm({
+  initialValue,
+  onCancel,
+  onSubmit,
+  submitting,
+}: {
+  initialValue: string;
+  onCancel: () => void;
+  onSubmit: (value: string, rationale: string) => void;
+  submitting: boolean;
+}) {
+  const { t } = useTranslation();
+  const [value, setValue] = useState(initialValue);
+  const [rationale, setRationale] = useState("");
+  const valueInputRef = useRef<HTMLInputElement | null>(null);
+
+  // jsx-a11y/no-autofocus rules out the `autoFocus` attr; do it
+  // imperatively on mount so the editing surface is keyboard-ready.
+  useEffect(() => {
+    valueInputRef.current?.focus();
+  }, []);
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (value.trim().length === 0 || rationale.trim().length < 4) return;
+    onSubmit(value.trim(), rationale.trim());
+  }
+
+  return (
+    <form className="flex flex-col gap-2" onSubmit={handleSubmit}>
+      <label className="flex flex-col gap-1">
+        <span className="font-mono text-[9px] uppercase tracking-widest text-muted">
+          {t("doc_detail.edit_value_label")}
+        </span>
+        <input
+          ref={valueInputRef}
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          disabled={submitting}
+          className="border border-hairline-2 bg-paper px-2 py-1 font-mono text-[12px] text-ink focus:border-accent focus:outline-none"
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="font-mono text-[9px] uppercase tracking-widest text-muted">
+          {t("doc_detail.edit_rationale_label")}
+        </span>
+        <textarea
+          value={rationale}
+          onChange={(e) => setRationale(e.target.value)}
+          disabled={submitting}
+          rows={2}
+          placeholder={t("doc_detail.edit_rationale_placeholder")}
+          className="border border-hairline-2 bg-paper px-2 py-1 font-sans text-[11px] text-ink focus:border-accent focus:outline-none"
+        />
+      </label>
+      <div className="flex items-center justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={submitting}>
+          {t("doc_detail.edit_cancel")}
+        </Button>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={submitting || value.trim().length === 0 || rationale.trim().length < 4}
+        >
+          {submitting ? t("doc_detail.edit_saving") : t("doc_detail.edit_save")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function AddFactSection({
+  adding,
+  onToggle,
+  submitting,
+  onSubmit,
+}: {
+  adding: boolean;
+  onToggle: () => void;
+  submitting: boolean;
+  onSubmit: (field: string, value: string, rationale: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [field, setField] = useState("");
+  const [value, setValue] = useState("");
+  const [rationale, setRationale] = useState("");
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (field.trim().length === 0 || value.trim().length === 0 || rationale.trim().length < 4)
+      return;
+    onSubmit(field.trim(), value.trim(), rationale.trim());
+  }
+
+  if (!adding) {
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={onToggle}
+        className="self-start"
+      >
+        <Plus aria-hidden className="mr-1 h-3 w-3" />
+        {t("doc_detail.add_action")}
+      </Button>
+    );
+  }
+  return (
+    <form
+      className="flex flex-col gap-2 border border-accent/40 bg-paper-2 p-3"
+      onSubmit={handleSubmit}
+    >
+      <h3 className="font-mono text-[10px] uppercase tracking-widest text-accent">
+        {t("doc_detail.add_title")}
+      </h3>
+      <p className="font-sans text-[11px] text-muted">{t("doc_detail.add_body")}</p>
+      <label className="flex flex-col gap-1">
+        <span className="font-mono text-[9px] uppercase tracking-widest text-muted">
+          {t("doc_detail.add_field_label")}
+        </span>
+        <input
+          list="doc-detail-add-field-suggestions"
+          type="text"
+          value={field}
+          onChange={(e) => setField(e.target.value)}
+          disabled={submitting}
+          placeholder={t("doc_detail.add_field_placeholder")}
+          className="border border-hairline-2 bg-paper px-2 py-1 font-mono text-[12px] text-ink focus:border-accent focus:outline-none"
+        />
+        <datalist id="doc-detail-add-field-suggestions">
+          {ADDABLE_SECTIONS.map((row) => (
+            <option key={row.section} value={row.sample_field} />
+          ))}
+        </datalist>
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="font-mono text-[9px] uppercase tracking-widest text-muted">
+          {t("doc_detail.edit_value_label")}
+        </span>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          disabled={submitting}
+          className="border border-hairline-2 bg-paper px-2 py-1 font-mono text-[12px] text-ink focus:border-accent focus:outline-none"
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="font-mono text-[9px] uppercase tracking-widest text-muted">
+          {t("doc_detail.edit_rationale_label")}
+        </span>
+        <textarea
+          value={rationale}
+          onChange={(e) => setRationale(e.target.value)}
+          disabled={submitting}
+          rows={2}
+          placeholder={t("doc_detail.add_rationale_placeholder")}
+          className="border border-hairline-2 bg-paper px-2 py-1 font-sans text-[11px] text-ink focus:border-accent focus:outline-none"
+        />
+      </label>
+      <div className="flex items-center justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={onToggle} disabled={submitting}>
+          {t("doc_detail.add_cancel")}
+        </Button>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={
+            submitting ||
+            field.trim().length === 0 ||
+            value.trim().length === 0 ||
+            rationale.trim().length < 4
+          }
+        >
+          {submitting ? t("doc_detail.add_saving") : t("doc_detail.add_save")}
+        </Button>
+      </div>
+    </form>
   );
 }
 

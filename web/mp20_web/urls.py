@@ -150,6 +150,11 @@ urlpatterns = [
         name="review-workspace-conflict-resolve",
     ),
     path(
+        "api/review-workspaces/<str:workspace_id>/facts/override/",
+        views.ReviewWorkspaceFactOverrideView.as_view(),
+        name="review-workspace-fact-override",
+    ),
+    path(
         "api/review-workspaces/<str:workspace_id>/approve-section/",
         views.ReviewWorkspaceSectionApprovalView.as_view(),
         name="review-workspace-approve-section",

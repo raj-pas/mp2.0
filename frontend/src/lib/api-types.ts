@@ -915,6 +915,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/review-workspaces/{workspace_id}/facts/override/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST /api/review-workspaces/<wsid>/facts/override/ — Phase 5b.10/11.
+         *
+         *     Body: {field, value, rationale, is_added}.
+         *     Persists an advisor-supplied value on a new append-only
+         *     FactOverride row. Mirrors ConflictResolveView's discipline:
+         *     atomic + select_for_update on the workspace; re-evaluates
+         *     section-blockers + flips affected approvals to NEEDS_ATTENTION
+         *     so the commit gate forces a re-review when the advisor changes
+         *     a fact that was already approved. Emits one
+         *     `review_fact_overridden` audit event per locked decision #37.
+         *
+         *     `is_added=True` indicates the advisor is ADDING a fact extraction
+         *     never produced (e.g., a goal not documented in the uploaded
+         *     folder); `is_added=False` indicates an OVERRIDE of an extracted
+         *     fact. Both share the same persistence path; the distinction
+         *     flows into the audit row + the source-attribution surface in
+         *     DocDetailPanel.
+         *
+         *     PII discipline (canon §11.8.3): rationale text persists on the
+         *     DB row (advisor-scoped) but NEVER appears in audit metadata;
+         *     metadata records only structural data (field, is_added,
+         *     rationale_len, value_present).
+         */
+        post: operations["review_workspaces_facts_override_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/review-workspaces/{workspace_id}/manual-reconcile/": {
         parameters: {
             query?: never;
@@ -2412,6 +2452,26 @@ export interface operations {
             header?: never;
             path: {
                 fact_id: number;
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    review_workspaces_facts_override_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
                 workspace_id: string;
             };
             cookie?: never;

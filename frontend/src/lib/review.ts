@@ -492,6 +492,48 @@ export type ResolveConflictResponse = {
   invalidated_approvals: string[];
 };
 
+// --------------------------------------------------------------------
+// FactOverride (Phase 5b.10 inline fact edit + 5b.11 add-missing-fact)
+// --------------------------------------------------------------------
+
+export type ApplyFactOverridePayload = {
+  field: string;
+  value: unknown;
+  rationale: string;
+  is_added?: boolean;
+};
+
+export type ApplyFactOverrideResponse = {
+  override_id: number;
+  state: Record<string, unknown> & { readiness?: Readiness };
+  readiness: Readiness;
+  invalidated_approvals: string[];
+};
+
+export function useApplyFactOverride(workspaceId: string | null) {
+  const qc = useQueryClient();
+  return useMutation<ApplyFactOverrideResponse, Error, ApplyFactOverridePayload>({
+    mutationFn: (payload) => {
+      if (workspaceId === null) {
+        return Promise.reject(new Error("workspace id required"));
+      }
+      return apiFetch<ApplyFactOverrideResponse>(
+        `/api/review-workspaces/${encodeURIComponent(workspaceId)}/facts/override/`,
+        { method: "POST", body: payload },
+      );
+    },
+    onSuccess: () => {
+      if (workspaceId === null) return;
+      qc.invalidateQueries({ queryKey: reviewWorkspaceStateKey(workspaceId) });
+      qc.invalidateQueries({ queryKey: reviewWorkspaceKey(workspaceId) });
+      // Doc-detail panels also need to refresh — invalidate any
+      // doc-detail query for this workspace so contributed_facts
+      // reflect the override path.
+      qc.invalidateQueries({ queryKey: ["review-workspace", workspaceId, "document"] });
+    },
+  });
+}
+
 export function useResolveConflict(workspaceId: string | null) {
   const qc = useQueryClient();
   return useMutation<ResolveConflictResponse, Error, ResolveConflictPayload>({

@@ -572,9 +572,65 @@ def engine_payload_from_reviewed_state(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
-def _current_facts(workspace: models.ReviewWorkspace) -> dict[str, models.ExtractedFact]:
+def _current_facts(workspace: models.ReviewWorkspace) -> dict[str, Any]:
     facts = list(workspace.extracted_facts.select_related("document"))
-    return current_facts_by_field(facts)
+    current = current_facts_by_field(facts)
+    return _apply_fact_overrides(workspace, current)
+
+
+class _FactOverrideAsFact:
+    """Lightweight stand-in for `ExtractedFact` that the reviewed-state
+    composer can read interchangeably (Phase 5b.10).
+
+    Carries the advisor-supplied value + field path so all the
+    `_value()` / `_indexed_items()` consumers stay agnostic to whether
+    the source is an extraction or an advisor override. The advisor
+    override is the highest-priority source per canon §11.4 + locked
+    decision (2026-05-02 append-only).
+    """
+
+    def __init__(self, override: models.FactOverride) -> None:
+        self.id = -override.id  # negative so it can't collide with ExtractedFact pks
+        self.field = override.field
+        self.value = override.value
+        self.confidence = "high"  # advisor judgement is authoritative
+        self.derivation_method = "extracted"
+        self.source_location = "advisor override"
+        self.source_page = None
+        self.evidence_quote = override.rationale or ""
+        self.asserted_at = None
+        self.document = None
+        self.document_id = None
+        self.workspace = override.workspace
+        self.workspace_id = override.workspace_id
+        self.is_advisor_override = True
+        self.override_id = override.id
+        self.is_added_by_advisor = override.is_added
+
+
+def _latest_overrides(workspace: models.ReviewWorkspace) -> dict[str, models.FactOverride]:
+    """Return the most-recent FactOverride per field for this workspace.
+
+    Append-only model means historical rows persist; the reviewed-state
+    composer needs only the latest. ORDER BY -created_at + take-first
+    per field group.
+    """
+    overrides: dict[str, models.FactOverride] = {}
+    rows = workspace.fact_overrides.order_by("-created_at", "-id")
+    for override in rows:
+        if override.field not in overrides:
+            overrides[override.field] = override
+    return overrides
+
+
+def _apply_fact_overrides(
+    workspace: models.ReviewWorkspace,
+    current: dict[str, Any],
+) -> dict[str, Any]:
+    overrides = _latest_overrides(workspace)
+    for field, override in overrides.items():
+        current[field] = _FactOverrideAsFact(override)
+    return current
 
 
 def _fact_sort_key(fact: models.ExtractedFact) -> tuple[int, int, float]:
@@ -719,10 +775,33 @@ def _conflicts(workspace: models.ReviewWorkspace) -> list[dict[str, Any]]:
 
 def _field_sources(
     workspace: models.ReviewWorkspace,
-    current_facts: dict[str, models.ExtractedFact],
+    current_facts: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    return {
-        field: {
+    sources: dict[str, dict[str, Any]] = {}
+    for field, fact in current_facts.items():
+        if fact.workspace_id != workspace.id:
+            continue
+        if getattr(fact, "is_advisor_override", False):
+            sources[field] = {
+                "fact_id": fact.id,
+                "field_label": advisor_label(field),
+                "section": field_section(field),
+                "document_id": None,
+                "document_name": "advisor override",
+                "document_type": "advisor_override",
+                "confidence": fact.confidence,
+                "source_page": None,
+                "source_location": fact.source_location,
+                "evidence_quote": fact.evidence_quote,
+                "extraction_run_id": "",
+                "classifier_route": "",
+                "schema_hints": [],
+                "is_advisor_override": True,
+                "override_id": fact.override_id,
+                "is_added_by_advisor": fact.is_added_by_advisor,
+            }
+            continue
+        sources[field] = {
             "fact_id": fact.id,
             "field_label": advisor_label(field),
             "section": field_section(field),
@@ -740,10 +819,9 @@ def _field_sources(
             "schema_hints": fact.document.processing_metadata.get("classifier", {}).get(
                 "schema_hints", []
             ),
+            "is_advisor_override": False,
         }
-        for field, fact in current_facts.items()
-        if fact.workspace_id == workspace.id
-    }
+    return sources
 
 
 def serialize_doc_contributed_facts(
