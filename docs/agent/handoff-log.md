@@ -2,6 +2,57 @@
 
 ---
 
+## 2026-05-04 AM (sub-session #1 close-out) — Engine→UI Display A1+A2a: Sandra/Mike refresh + helper + 4 trigger points
+
+**HEAD:** `f003ed6`. 3 commits past sub-session #1 entry (`8bf774b`).
+
+### What changed
+- **A1 (commit `c641cbb`)**: Sandra/Mike fixture refresh + load_synthetic_personas extension + 4 smoke tests + reset-v2-dev.sh ordering fix. RiskProfile (anchor=22.5/score=3/Balanced) + 7 canonical sh_* fund holdings + advisor pre-ack (disclaimer v1 + tour). Verified: engine probe 654ms (was 861ms; faster after canonical funds remove alias resolution).
+- **A2a (commit `f003ed6`)**: 5 typed exception classes (EngineKillSwitchBlocked, NoActiveCMASnapshot, InvalidCMAUniverse, ReviewedStateNotConstructionReady, MissingProvenance) + `_map_engine_value_error` + `_trigger_portfolio_generation` (engine optimize + PortfolioRun create) + `_trigger_and_audit` (caller wrapper with typed-skip + unexpected-failure paths per #9) + `_trigger_and_audit_for_workspace` (linked_household gate per #27). 4 trigger points wired: review_commit, wizard_commit, override, realignment. `HouseholdDetailSerializer.latest_portfolio_failure` SerializerMethodField added.
+
+### What was tested
+- **Backend pytest**: 866 passed, 7 skipped (was 858 baseline, +8 from new auto-trigger tests). Test file: `web/api/tests/test_auto_portfolio_generation.py` (8 tests). Test fix: test_generate_portfolio_blocks_duplicate_current_lifecycle_state now accepts 'InvalidCMAUniverse' code.
+- **Static gates**: ruff/format/PII/vocab/OpenAPI/migrations all clean.
+- **Engine probe** post-A2a (live HTTP): 200, 314ms wall (REUSED path; faster). HouseholdDetail.latest_portfolio_failure field present + null.
+- **Manual smoke**: reset-v2-dev.sh with new ordering produces clean state with advisor pre-ack visible in `/api/session/`.
+
+### A2a must-pass gate (locked #46) — all criteria ✓
+1. ✓ A1 fixture loads cleanly (verified by reset-v2-dev.sh + curl probe)
+2. ✓ Helper extracted: `_trigger_portfolio_generation` at views.py:621; 5 typed exceptions at views.py:91-110; `_trigger_and_audit` at :873; `_trigger_and_audit_for_workspace` at :932
+3. ✓ No existing test broken (866 passed; baseline 858 + 8 new)
+4. ✓ Manual smoke passed (engine probe 200; latest_portfolio_failure exposed)
+5. ✓ Cross-trigger audit emission verified via test_trigger_and_audit_success_emits_portfolio_run_generated_audit (`metadata.source == "review_commit"`)
+6. ✓ Locked-decision compliance: zero str(exc) in new code (PII grep guard clean); safe_audit_metadata used throughout
+
+### What didn't ship (open items for sub-session #2)
+- **Triggers #5-#8** (workspace-level: conflict_resolve, defer_conflict, fact_override, section_approve) — `_trigger_and_audit_for_workspace` helper exists but not wired into the 4 view sites yet. Defers to sub-session #2 (A2b).
+- **~50 test updates** with explicit CMA fixture (per locked #25) — sub-session #2 (A2c). A0.4 grep audit identified ~17 test files needing updates; full set of churn deferred.
+- **A3a backend moves preview** — `/api/preview/moves/` reads from goal_rollups when run exists. Sub-session #2.
+- **Frontend work A3b + A4** — Goal route + Household route engine→UI consumption + new components. Sub-session #3.
+- **A6 testing rounds** — Hypothesis + Vitest + concurrency + perf + visual regression. Sub-sessions #4-#5.
+- **Real-browser smoke at sub-session #1 boundary** (per locked #100) — pending operator verification in actual Chrome.
+
+### What's next
+- **Sub-session #2** (A2b + A2c + A3a; estimated 5-7 hr per #92 if sync, 6-8 hr if threading — A0.2 confirmed sync-inline so 5-7 hr applies). User halt-and-flush gate per locked #46 met; can proceed when ready.
+
+### Risk
+- **Trigger expansion to triggers #5-#8** could surface workspace-level state-machine race conditions; covered by A6.5 concurrency stress (per locked #80 pool=150).
+- **Pre-A2 PortfolioRun backwards-compat**: not yet directly tested at integration level; locked #97 schedules backward-compat integration test in A6.3.
+- **i18n change** to en.json was clean during A0 (no leftover state from prior session).
+
+### Bedrock $ delta
+- **$0** — synthetic only; engine.optimize() pure Python.
+
+### Locked decisions honored
+A1: #4, #19 (rosy-mccarthy), #69. A2a: #9, #14, #16, #27, #46 (must-pass gate), #59, #74 (sync inline), #81 (helper-managed atomic), #93 (line numbers).
+
+### Continuity check
+- session-state.md headline: refreshing (this commit) to HEAD `f003ed6` + sub-session #1 complete.
+- engine-ui-display-handoff-2026-05-03.md §3: this entry + the prior A0 entry serve as the dossier per locked #43.
+- MEMORY.md: not updated this sub-session per locked #45 (sub-session boundary updates only when state materially changed; engine-UI display work is in flight; deferred to A6.16 final close-out).
+
+---
+
 ## 2026-05-03 PM (sub-session #1) — Engine→UI Display Phase A0: Pre-flight baseline
 
 **HEAD:** `8bf774b`. 1 commit past `081cfc8` (engine-ui-display-starter-prompt extraction).
