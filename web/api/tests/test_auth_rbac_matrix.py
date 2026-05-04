@@ -32,6 +32,7 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 from web.api import models
 from web.api.access import FINANCIAL_ANALYST_GROUP
+from web.api.review_state import reviewed_state_from_workspace as _rebuild_state
 
 # Auth-passes status codes (NOT 401/403). 404 included for inner-
 # entity-not-found responses on workspace-scoped routes.
@@ -371,3 +372,388 @@ def test_feedback_report_analyst_returns_200() -> None:
 def test_feedback_report_anonymous_returns_401_or_403() -> None:
     response = _client_for(None).get(reverse("feedback-report"))
     assert response.status_code in {401, 403}
+
+
+# --- 7. Auto-trigger audit emission on the 4 NEW workspace-level triggers ---
+#
+# Per locked decisions #14 + #27 + #74: the 4 endpoints below NOW fire
+# `_trigger_and_audit_for_workspace` after their canonical mutation
+# audit. The pre-existing role matrix (anonymous → 401/403, FA → 403,
+# advisor-in-team → 2xx) is verified above. This section adds
+# assertions that for the 200-success cell, the auto-trigger fires AND
+# the workspace-skip audit emits with locked metadata (the test
+# workspace is unlinked → workspace-skip path; that's correct per #27).
+
+
+def _seed_kyc_conflict(workspace) -> tuple[str, int]:
+    """Seed a single resolvable kyc-vs-kyc conflict on people[0].dob.
+
+    Returns (field, chosen_fact_id) for the resolve/defer endpoints.
+    Mirrors `test_concurrency_stress._seed_one_conflict` but inline
+    so the auth-rbac module stays independent.
+    """
+    kyc = models.ReviewDocument.objects.create(
+        workspace=workspace,
+        original_filename="kyc.pdf",
+        content_type="application/pdf",
+        extension="pdf",
+        file_size=1024,
+        sha256="a" * 64,
+        storage_path=f"workspace_{workspace.external_id}/kyc.pdf",
+        document_type="kyc",
+        status=models.ReviewDocument.Status.RECONCILED,
+    )
+    kyc2 = models.ReviewDocument.objects.create(
+        workspace=workspace,
+        original_filename="kyc-v2.pdf",
+        content_type="application/pdf",
+        extension="pdf",
+        file_size=1024,
+        sha256="b" * 64,
+        storage_path=f"workspace_{workspace.external_id}/kyc-v2.pdf",
+        document_type="kyc",
+        status=models.ReviewDocument.Status.RECONCILED,
+    )
+    chosen = models.ExtractedFact.objects.create(
+        workspace=workspace,
+        document=kyc,
+        field="people[0].date_of_birth",
+        value="1985-03-12",
+        confidence="medium",
+        derivation_method="extracted",
+        source_location="page 1",
+        source_page=1,
+        evidence_quote="evidence",
+        extraction_run_id="run-test",
+    )
+    models.ExtractedFact.objects.create(
+        workspace=workspace,
+        document=kyc2,
+        field="people[0].date_of_birth",
+        value="1985-03-15",
+        confidence="medium",
+        derivation_method="extracted",
+        source_location="page 1",
+        source_page=1,
+        evidence_quote="evidence",
+        extraction_run_id="run-test",
+    )
+    workspace.reviewed_state = _rebuild_state(workspace)
+    workspace.save(update_fields=["reviewed_state"])
+    return "people[0].date_of_birth", chosen.id
+
+
+def _trigger_audit_count_for_workspace(workspace, source: str) -> int:
+    """Count of `portfolio_generation_skipped_post_<source>` workspace-skip
+    audit rows attributed to this workspace.
+
+    Per locked #27 + the helper at views.py:_trigger_and_audit_for_workspace,
+    unlinked workspaces emit this exact action with
+    `entity_type='review_workspace'` + `entity_id=workspace.external_id`.
+    """
+    from web.audit.models import AuditEvent
+
+    return AuditEvent.objects.filter(
+        action=f"portfolio_generation_skipped_post_{source}",
+        entity_id=workspace.external_id,
+        entity_type="review_workspace",
+    ).count()
+
+
+# --- 7a. conflicts/resolve — auto-trigger audit on 200 ---
+
+
+@pytest.mark.django_db
+def test_conflict_resolve_advisor_success_emits_auto_trigger_audit() -> None:
+    """Advisor + valid workspace + valid resolve payload → 200 + the
+    workspace-skip auto-trigger audit fires. Per locked #14 trigger #5
+    + #27 unlinked-skip semantics.
+    """
+    advisor = _advisor()
+    workspace = _workspace(advisor)
+    field, fact_id = _seed_kyc_conflict(workspace)
+    starting = _trigger_audit_count_for_workspace(workspace, "conflict_resolve")
+
+    response = _client_for(advisor).post(
+        reverse("review-workspace-conflict-resolve", args=[workspace.external_id]),
+        {
+            "field": field,
+            "chosen_fact_id": fact_id,
+            "rationale": "KYC supersedes statement (auth-rbac auto-trigger probe).",
+            "evidence_ack": True,
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200, (
+        f"Advisor on conflicts/resolve must succeed; got "
+        f"{response.status_code}: {response.content[:200]!r}"
+    )
+    ending = _trigger_audit_count_for_workspace(workspace, "conflict_resolve")
+    assert ending - starting == 1, (
+        f"Auto-trigger workspace-skip audit must fire exactly once on "
+        f"successful conflicts/resolve; got delta={ending - starting}. "
+        f"Per locked #14 + #27."
+    )
+
+
+@pytest.mark.django_db
+def test_conflict_resolve_analyst_returns_403_no_auto_trigger() -> None:
+    """FA + workspace conflicts/resolve → 403 + NO auto-trigger audit
+    (RBAC rejects before the canonical mutation, so the trigger never
+    fires).
+    """
+    advisor = _advisor()
+    analyst = _analyst()
+    workspace = _workspace(advisor)
+    _seed_kyc_conflict(workspace)
+    starting = _trigger_audit_count_for_workspace(workspace, "conflict_resolve")
+
+    response = _client_for(analyst).post(
+        reverse("review-workspace-conflict-resolve", args=[workspace.external_id]),
+        {"field": "x", "chosen_fact_id": 1, "rationale": "matrix", "evidence_ack": True},
+        format="json",
+    )
+
+    assert response.status_code == 403
+    assert _trigger_audit_count_for_workspace(workspace, "conflict_resolve") == starting
+
+
+@pytest.mark.django_db
+def test_conflict_resolve_anonymous_returns_401_or_403_no_auto_trigger() -> None:
+    """Anonymous + conflicts/resolve → 401/403 + NO auto-trigger audit."""
+    advisor = _advisor()
+    workspace = _workspace(advisor)
+    _seed_kyc_conflict(workspace)
+    starting = _trigger_audit_count_for_workspace(workspace, "conflict_resolve")
+
+    response = _client_for(None).post(
+        reverse("review-workspace-conflict-resolve", args=[workspace.external_id]),
+        {"field": "x", "chosen_fact_id": 1, "rationale": "matrix", "evidence_ack": True},
+        format="json",
+    )
+
+    assert response.status_code in {401, 403}
+    assert _trigger_audit_count_for_workspace(workspace, "conflict_resolve") == starting
+
+
+# --- 7b. conflicts/defer — auto-trigger audit on 200 ---
+
+
+@pytest.mark.django_db
+def test_conflict_defer_advisor_success_emits_auto_trigger_audit() -> None:
+    """Advisor + valid workspace + valid defer payload → 200 + the
+    workspace-skip auto-trigger audit fires. Per locked #14 trigger #6.
+    """
+    advisor = _advisor()
+    workspace = _workspace(advisor)
+    field, _ = _seed_kyc_conflict(workspace)
+    starting = _trigger_audit_count_for_workspace(workspace, "defer_conflict")
+
+    response = _client_for(advisor).post(
+        reverse("review-workspace-conflict-defer", args=[workspace.external_id]),
+        {"field": field, "rationale": "Decide later — auth-rbac auto-trigger probe."},
+        format="json",
+    )
+
+    assert response.status_code == 200, response.content[:200]
+    ending = _trigger_audit_count_for_workspace(workspace, "defer_conflict")
+    assert ending - starting == 1
+
+
+@pytest.mark.django_db
+def test_conflict_defer_analyst_returns_403_no_auto_trigger() -> None:
+    advisor = _advisor()
+    analyst = _analyst()
+    workspace = _workspace(advisor)
+    _seed_kyc_conflict(workspace)
+    starting = _trigger_audit_count_for_workspace(workspace, "defer_conflict")
+
+    response = _client_for(analyst).post(
+        reverse("review-workspace-conflict-defer", args=[workspace.external_id]),
+        {"field": "x", "rationale": "matrix matrix"},
+        format="json",
+    )
+
+    assert response.status_code == 403
+    assert _trigger_audit_count_for_workspace(workspace, "defer_conflict") == starting
+
+
+@pytest.mark.django_db
+def test_conflict_defer_anonymous_returns_401_or_403_no_auto_trigger() -> None:
+    advisor = _advisor()
+    workspace = _workspace(advisor)
+    _seed_kyc_conflict(workspace)
+    starting = _trigger_audit_count_for_workspace(workspace, "defer_conflict")
+
+    response = _client_for(None).post(
+        reverse("review-workspace-conflict-defer", args=[workspace.external_id]),
+        {"field": "x", "rationale": "matrix matrix"},
+        format="json",
+    )
+
+    assert response.status_code in {401, 403}
+    assert _trigger_audit_count_for_workspace(workspace, "defer_conflict") == starting
+
+
+# --- 7c. facts/override — auto-trigger audit on 200 ---
+
+
+@pytest.mark.django_db
+def test_fact_override_advisor_success_emits_auto_trigger_audit() -> None:
+    """Advisor + valid workspace + valid override payload → 200 + the
+    workspace-skip auto-trigger audit fires. Per locked #14 trigger #7.
+    """
+    advisor = _advisor()
+    workspace = _workspace(advisor)
+    starting = _trigger_audit_count_for_workspace(workspace, "fact_override")
+
+    response = _client_for(advisor).post(
+        reverse("review-workspace-fact-override", args=[workspace.external_id]),
+        {
+            "field": "people[0].date_of_birth",
+            "value": "1985-03-12",
+            "rationale": "Auth-rbac auto-trigger probe override.",
+            "is_added": False,
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200, response.content[:200]
+    ending = _trigger_audit_count_for_workspace(workspace, "fact_override")
+    assert ending - starting == 1
+
+
+@pytest.mark.django_db
+def test_fact_override_analyst_returns_403_no_auto_trigger() -> None:
+    advisor = _advisor()
+    analyst = _analyst()
+    workspace = _workspace(advisor)
+    starting = _trigger_audit_count_for_workspace(workspace, "fact_override")
+
+    response = _client_for(analyst).post(
+        reverse("review-workspace-fact-override", args=[workspace.external_id]),
+        {
+            "field": "people[0].dob",
+            "value": "1985-03-12",
+            "rationale": "matrix matrix",
+            "is_added": False,
+        },
+        format="json",
+    )
+
+    assert response.status_code == 403
+    assert _trigger_audit_count_for_workspace(workspace, "fact_override") == starting
+
+
+@pytest.mark.django_db
+def test_fact_override_anonymous_returns_401_or_403_no_auto_trigger() -> None:
+    advisor = _advisor()
+    workspace = _workspace(advisor)
+    starting = _trigger_audit_count_for_workspace(workspace, "fact_override")
+
+    response = _client_for(None).post(
+        reverse("review-workspace-fact-override", args=[workspace.external_id]),
+        {
+            "field": "people[0].dob",
+            "value": "1985-03-12",
+            "rationale": "matrix matrix",
+            "is_added": False,
+        },
+        format="json",
+    )
+
+    assert response.status_code in {401, 403}
+    assert _trigger_audit_count_for_workspace(workspace, "fact_override") == starting
+
+
+# --- 7d. sections/<key>/approve — auto-trigger audit on 200 ---
+
+
+def _engine_ready_state_for_approval() -> dict:
+    """Minimal reviewed-state where the `risk` section has no blockers,
+    so plain APPROVED succeeds. Mirrors the canonical
+    `_engine_ready_state` shape from test_review_ingestion.py inline.
+    """
+    return {
+        "schema_version": "reviewed_client_state.v1",
+        "household": {
+            "display_name": "Auth-RBAC Auto-trigger",
+            "household_type": "couple",
+            "household_risk_score": 3,
+        },
+        "people": [{"id": "person_1", "name": "A", "age": 60}],
+        "accounts": [
+            {
+                "id": "acct_1",
+                "type": "RRSP",
+                "current_value": 100000,
+                "missing_holdings_confirmed": True,
+            }
+        ],
+        "goals": [{"id": "goal_1", "name": "Retirement", "time_horizon_years": 5}],
+        "goal_account_links": [
+            {"goal_id": "goal_1", "account_id": "acct_1", "allocated_amount": 100000}
+        ],
+        "risk": {"household_score": 3},
+    }
+
+
+@pytest.mark.django_db
+def test_section_approve_advisor_success_emits_auto_trigger_audit() -> None:
+    """Advisor + valid workspace + clean reviewed_state → section
+    approval succeeds → workspace-skip auto-trigger audit fires.
+    Per locked #14 trigger #8.
+    """
+    advisor = _advisor()
+    workspace = _workspace(advisor)
+    workspace.reviewed_state = _engine_ready_state_for_approval()
+    workspace.save(update_fields=["reviewed_state"])
+    starting = _trigger_audit_count_for_workspace(workspace, "section_approve")
+
+    response = _client_for(advisor).post(
+        reverse("review-workspace-approve-section", args=[workspace.external_id]),
+        {"section": "risk", "status": "approved"},
+        format="json",
+    )
+
+    assert response.status_code == 200, response.content[:200]
+    ending = _trigger_audit_count_for_workspace(workspace, "section_approve")
+    assert ending - starting == 1
+
+
+@pytest.mark.django_db
+def test_section_approve_analyst_returns_403_no_auto_trigger() -> None:
+    advisor = _advisor()
+    analyst = _analyst()
+    workspace = _workspace(advisor)
+    workspace.reviewed_state = _engine_ready_state_for_approval()
+    workspace.save(update_fields=["reviewed_state"])
+    starting = _trigger_audit_count_for_workspace(workspace, "section_approve")
+
+    response = _client_for(analyst).post(
+        reverse("review-workspace-approve-section", args=[workspace.external_id]),
+        {"section": "risk", "status": "approved"},
+        format="json",
+    )
+
+    assert response.status_code == 403
+    assert _trigger_audit_count_for_workspace(workspace, "section_approve") == starting
+
+
+@pytest.mark.django_db
+def test_section_approve_anonymous_returns_401_or_403_no_auto_trigger() -> None:
+    advisor = _advisor()
+    workspace = _workspace(advisor)
+    workspace.reviewed_state = _engine_ready_state_for_approval()
+    workspace.save(update_fields=["reviewed_state"])
+    starting = _trigger_audit_count_for_workspace(workspace, "section_approve")
+
+    response = _client_for(None).post(
+        reverse("review-workspace-approve-section", args=[workspace.external_id]),
+        {"section": "risk", "status": "approved"},
+        format="json",
+    )
+
+    assert response.status_code in {401, 403}
+    assert _trigger_audit_count_for_workspace(workspace, "section_approve") == starting

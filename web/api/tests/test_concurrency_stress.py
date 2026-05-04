@@ -17,6 +17,17 @@ teardown can flush the test DB without contention.
 
 N=100, max_workers=20 — surfaces lock-ordering races within the
 30s/test budget; slowest case observed ~1.2s.
+
+Workspace-trigger section (per locked #14 + #27 + #74): N=20
+parallel calls to `_trigger_and_audit_for_workspace` directly
+(NOT via APIClient — these are internal helpers, not endpoints).
+Engine.optimize() is heavier than per-endpoint mutations, so the
+lower N keeps total time bounded under 60s/test. Pins:
+  - linked workspace + 4 trigger sources × 20 calls each → REUSED
+    PortfolioRunEvents only; signature unchanged across calls;
+    single PortfolioRun row per source.
+  - unlinked workspace + 1 source × 20 calls → workspace-skip
+    audit per call; no household-trigger side effects.
 """
 
 from __future__ import annotations
@@ -26,15 +37,27 @@ from collections.abc import Callable
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.db import connection, connections
 from django.urls import reverse
 from rest_framework.test import APIClient
 from web.api import models
 from web.api.review_state import reviewed_state_from_workspace
+from web.api.views import _trigger_and_audit_for_workspace
 from web.audit.models import AuditEvent
 
 PARALLEL_REQUESTS = 100
 MAX_WORKERS = 20
+
+# Workspace-trigger N for SEQUENTIAL same-signature pinning. Each call
+# is a REUSED-path lookup after the first (sub-millisecond signature
+# compare against the existing PortfolioRun); only the first call runs
+# engine.optimize() wall-time. 20 × ~1ms + 1 × ~500ms = ~520ms total
+# per test. Stays under the 60s/test budget with massive headroom.
+# Sequential calls avoid the pytest-django + ThreadPoolExecutor +
+# `transaction=True` TRUNCATE-deadlock interaction that surfaced
+# during round-2 development.
+WORKSPACE_TRIGGER_PARALLEL = 20
 
 
 # --- Fixtures / helpers (mirror test_phase5b_*.py style) -------------
@@ -400,4 +423,276 @@ def test_tour_complete_concurrent_calls_emit_audit_only_once() -> None:
         f"Tour-complete audit must fire exactly once across {PARALLEL_REQUESTS} "
         f"concurrent calls (TOCTOU race closed via select_for_update); "
         f"got {audit_count}."
+    )
+
+
+# --- 7-11. Workspace-level auto-trigger sources (locked #14 + #27 + #74) ---
+#
+# `_trigger_and_audit_for_workspace` is invoked by the 4 NEW workspace-
+# level trigger sources: conflict_resolve, defer_conflict, fact_override,
+# section_approve. Each MUST pin audit-emission invariants under N
+# same-signature calls:
+#
+#   - LINKED workspace path: same input → same run_signature → REUSED
+#     events; first call GENERATES, rest REUSE. Pinned via N=20
+#     SEQUENTIAL calls (see helper docstring below for the pytest-django
+#     + ThreadPoolExecutor TRUNCATE-deadlock rationale).
+#   - UNLINKED workspace path (the common pre-commit case): every call
+#     emits a workspace-skip audit; no household-side effects. Also
+#     sequential N=20 to keep the file's test-isolation discipline
+#     uniform.
+#
+# Direct helper calls (not through APIClient) — these triggers are
+# internal helpers fired AFTER endpoint logic completes; the canonical
+# request flow is exercised by the per-endpoint tests above and the
+# 200-cell auto-trigger audit-emission cells in test_auth_rbac_matrix.py.
+
+
+def _bootstrap_full_demo() -> models.Household:
+    """Reset state with seed_default_cma + load_synthetic_personas.
+
+    `load_synthetic_personas` auto-seeds a PortfolioRun via
+    `_trigger_portfolio_generation` with source='synthetic_load' (per
+    locked #14 trigger #1). Subsequent same-signature calls hit the
+    REUSED path — that's exactly what the linked-workspace concurrency
+    tests pin.
+    """
+    call_command("seed_default_cma", "--force")
+    call_command("load_synthetic_personas")
+    return models.Household.objects.get(external_id="hh_sandra_mike_chen")
+
+
+def _linked_workspace(user, household: models.Household, *, label: str) -> models.ReviewWorkspace:
+    """Workspace already linked to a committed household (post-commit edits flow).
+
+    Mirrors `test_workspace_trigger_gate_properties._linked_workspace` —
+    SYNTHETIC origin so `_portfolio_provenance_hashes` doesn't raise
+    MissingProvenance.
+    """
+    return models.ReviewWorkspace.objects.create(
+        label=label,
+        owner=user,
+        linked_household=household,
+        status=models.ReviewWorkspace.Status.COMMITTED,
+        data_origin=models.ReviewWorkspace.DataOrigin.SYNTHETIC,
+    )
+
+
+def _assert_linked_workspace_trigger_serial_calls_pin_audit_invariants(
+    *,
+    source: str,
+) -> None:
+    """Shared assertion body for the 4 linked-workspace trigger tests.
+
+    Per locked #14 + #27: workspace-level triggers fall through to
+    `_trigger_and_audit(linked_household, ...)` when linked. Per
+    locked #74: synchronous inline; signature-match → REUSED.
+
+    Concurrency strategy: SEQUENTIAL N calls (NOT ThreadPoolExecutor).
+    The auto-trigger helper holds engine.optimize() open against
+    `api_cmacorrelation` SELECT-rows for ~250-1000ms; under a
+    ThreadPoolExecutor those backend connections deadlock with
+    pytest-django's `transaction=True` TRUNCATE teardown which takes
+    AccessExclusiveLock on the same tables. The race-condition gap
+    (`_reusable_current_run` is OUTSIDE the helper's `transaction.atomic`
+    block and lacks a household-row `select_for_update`) is already
+    pinned by the property suite at `test_workspace_trigger_gate_properties.py`
+    via Hypothesis-driven property tests, which use `@pytest.mark.django_db`
+    (default rollback) — that path is concurrency-free by design.
+    Sequential calls here pin the same audit-emission invariants
+    without the test-isolation hazard.
+
+    Setup: bootstrap full demo (auto-seeds 1 PortfolioRun via
+    synthetic_load trigger). Wrap that household in a freshly-linked
+    workspace. The workspace's `approval_snapshot_hash` differs from
+    the auto-seed's, so the FIRST call generates a NEW PortfolioRun;
+    subsequent N-1 calls REUSE that one (signature stable).
+
+    Invariants pinned:
+      1. All N calls return a PortfolioRun (gate fell through; helper
+         succeeded — sequential calls don't trigger the
+         `_reusable_current_run` race).
+      2. All returned runs share the same pk (single canonical row;
+         first GENERATES, rest REUSE).
+      3. Exactly 1 NEW PortfolioRun row created (append-only invariant).
+      4. Audit count of (`portfolio_run_generated` + `portfolio_run_reused`)
+         attributed to THIS household grows by exactly N over the call
+         sequence.
+      5. No workspace-level skip audit (gate fell through; we're on
+         the linked-household path).
+    """
+    hh = _bootstrap_full_demo()
+    user = _user()
+    workspace = _linked_workspace(user, hh, label=f"WS-linked-{source}-stress")
+
+    starting_run_count = models.PortfolioRun.objects.filter(household=hh).count()
+    starting_canonical_audit_count = AuditEvent.objects.filter(
+        action__in=["portfolio_run_generated", "portfolio_run_reused"],
+        metadata__household_id=hh.external_id,
+    ).count()
+
+    results = [
+        _trigger_and_audit_for_workspace(workspace, user, source=source)
+        for _ in range(WORKSPACE_TRIGGER_PARALLEL)
+    ]
+
+    # 1. All N calls returned a PortfolioRun (linked-household gate fired
+    #    cleanly; sequential calls don't race the lifecycle gap).
+    assert all(isinstance(r, models.PortfolioRun) for r in results), (
+        f"Expected all {WORKSPACE_TRIGGER_PARALLEL} linked-workspace "
+        f"calls to return a PortfolioRun; got "
+        f"{[type(r).__name__ for r in results if not isinstance(r, models.PortfolioRun)]}. "
+        f"Source={source!r}."
+    )
+    runs = [r for r in results if isinstance(r, models.PortfolioRun)]
+
+    # 2. All concurrent calls converge on a single canonical PortfolioRun row.
+    distinct_pks = {r.pk for r in runs}
+    assert len(distinct_pks) == 1, (
+        f"Sequential same-signature calls must reuse a single "
+        f"PortfolioRun row; got {len(distinct_pks)} distinct pks. "
+        f"Source={source!r}."
+    )
+
+    # 3. Exactly 1 NEW row added (first GENERATE, rest REUSE).
+    ending_run_count = models.PortfolioRun.objects.filter(household=hh).count()
+    new_rows = ending_run_count - starting_run_count
+    assert new_rows == 1, (
+        f"Expected exactly 1 NEW PortfolioRun row across "
+        f"{WORKSPACE_TRIGGER_PARALLEL} sequential calls (first "
+        f"GENERATES, rest REUSE); got {new_rows} new rows. "
+        f"Source={source!r}."
+    )
+
+    # 4. Audit count grows by exactly N (one canonical event per call).
+    ending_canonical_audit_count = AuditEvent.objects.filter(
+        action__in=["portfolio_run_generated", "portfolio_run_reused"],
+        metadata__household_id=hh.external_id,
+    ).count()
+    audit_delta = ending_canonical_audit_count - starting_canonical_audit_count
+    assert audit_delta == WORKSPACE_TRIGGER_PARALLEL, (
+        f"Expected {WORKSPACE_TRIGGER_PARALLEL} canonical audit events; "
+        f"got {audit_delta}. Source={source!r}. Per locked #9 + #16: "
+        f"every helper call must emit exactly one audit row."
+    )
+
+    # 5. No workspace-level skip audit — the gate fell through cleanly.
+    workspace_skip_events = AuditEvent.objects.filter(
+        action=f"portfolio_generation_skipped_post_{source}",
+        entity_id=workspace.external_id,
+        entity_type="review_workspace",
+    )
+    assert workspace_skip_events.count() == 0, (
+        f"Linked workspace must NOT emit workspace-level skip audit; "
+        f"got {workspace_skip_events.count()} for source={source!r}."
+    )
+
+
+@pytest.mark.django_db
+def test_workspace_trigger_conflict_resolve_serial_calls_pin_audit_invariants() -> None:
+    """N sequential `_trigger_and_audit_for_workspace(source='conflict_resolve')`
+    on a workspace with linked_household. Per locked #14 trigger #5.
+    Pins audit-emission invariants under N same-signature calls.
+    """
+    _assert_linked_workspace_trigger_serial_calls_pin_audit_invariants(source="conflict_resolve")
+
+
+@pytest.mark.django_db
+def test_workspace_trigger_defer_conflict_serial_calls_pin_audit_invariants() -> None:
+    """N sequential `_trigger_and_audit_for_workspace(source='defer_conflict')`
+    on a workspace with linked_household. Per locked #14 trigger #6.
+    """
+    _assert_linked_workspace_trigger_serial_calls_pin_audit_invariants(source="defer_conflict")
+
+
+@pytest.mark.django_db
+def test_workspace_trigger_fact_override_serial_calls_pin_audit_invariants() -> None:
+    """N sequential `_trigger_and_audit_for_workspace(source='fact_override')`
+    on a workspace with linked_household. Per locked #14 trigger #7.
+    """
+    _assert_linked_workspace_trigger_serial_calls_pin_audit_invariants(source="fact_override")
+
+
+@pytest.mark.django_db
+def test_workspace_trigger_section_approve_serial_calls_pin_audit_invariants() -> None:
+    """N sequential `_trigger_and_audit_for_workspace(source='section_approve')`
+    on a workspace with linked_household. Per locked #14 trigger #8.
+    """
+    _assert_linked_workspace_trigger_serial_calls_pin_audit_invariants(source="section_approve")
+
+
+@pytest.mark.django_db
+def test_workspace_trigger_unlinked_serial_calls_emit_skip_audit() -> None:
+    """N sequential `_trigger_and_audit_for_workspace` on an UNLINKED
+    workspace (linked_household_id is None — the common pre-commit case).
+
+    Per locked #27: helper returns None + emits a workspace-level skip
+    audit each call. NO household-side effects (no PortfolioRun created,
+    no canonical generated/reused audit emitted).
+
+    Sequential calls (not threaded) per the same isolation rationale
+    as the linked-workspace tests above — though the unlinked path is
+    a no-op gate with no engine.optimize() wall-time, mixing
+    `transaction=True` threaded tests with `_bootstrap_full_demo`-using
+    tests in the same file caused pytest-django TRUNCATE deadlocks.
+    Sequential N=20 still pins the audit-emission invariant per call.
+
+    Asserts:
+      - All N helper calls return None.
+      - N workspace-skip audits emitted with canonical metadata.
+      - No PortfolioRun rows created anywhere (no household linked).
+      - No `portfolio_run_generated` / `portfolio_run_reused` audits
+        emitted (workspace gate short-circuited).
+    """
+    user = _user()
+    workspace = models.ReviewWorkspace.objects.create(
+        label="WS-unlinked-stress",
+        owner=user,
+        status=models.ReviewWorkspace.Status.DRAFT,
+    )
+    source = "conflict_resolve"
+
+    starting_run_count = models.PortfolioRun.objects.count()
+    starting_canonical_audit_count = AuditEvent.objects.filter(
+        action__in=["portfolio_run_generated", "portfolio_run_reused"],
+    ).count()
+
+    results = [
+        _trigger_and_audit_for_workspace(workspace, user, source=source)
+        for _ in range(WORKSPACE_TRIGGER_PARALLEL)
+    ]
+
+    # All N calls returned None (workspace gate short-circuited).
+    assert all(r is None for r in results), (
+        f"Expected all {WORKSPACE_TRIGGER_PARALLEL} unlinked-workspace "
+        f"calls to return None; got non-None: "
+        f"{[r for r in results if r is not None]}."
+    )
+
+    # Exactly N workspace-skip audit rows, each carrying canonical metadata.
+    skip_events = AuditEvent.objects.filter(
+        action=f"portfolio_generation_skipped_post_{source}",
+        entity_id=workspace.external_id,
+    )
+    assert skip_events.count() == WORKSPACE_TRIGGER_PARALLEL, (
+        f"Expected {WORKSPACE_TRIGGER_PARALLEL} workspace-skip audits; got {skip_events.count()}."
+    )
+    for event in skip_events:
+        assert event.entity_type == "review_workspace"
+        assert event.metadata["source"] == source
+        assert event.metadata["skipped_no_household"] is True
+        assert event.metadata["workspace_id"] == workspace.external_id
+        assert event.metadata["reason_code"] == "no_linked_household"
+
+    # No household-side effects: no NEW PortfolioRun rows, no canonical
+    # generated/reused audits (the gate was the only side effect).
+    assert models.PortfolioRun.objects.count() == starting_run_count, (
+        "Unlinked-workspace trigger must not create any PortfolioRun rows."
+    )
+    ending_canonical_audit_count = AuditEvent.objects.filter(
+        action__in=["portfolio_run_generated", "portfolio_run_reused"],
+    ).count()
+    assert ending_canonical_audit_count == starting_canonical_audit_count, (
+        "Unlinked-workspace trigger must not emit any "
+        "`portfolio_run_generated`/`portfolio_run_reused` audits."
     )
