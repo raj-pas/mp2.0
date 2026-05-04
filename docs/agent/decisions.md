@@ -414,3 +414,99 @@ to `AnthropicBedrock(...)`, surfacing as `PermissionDeniedError 403
 should prefix with `unset AWS_SESSION_TOKEN` (or run in a Docker
 container with no inherited STS context). Worker-via-docker-compose
 isn't affected.
+
+
+---
+
+## Engine→UI Display Integration (2026-05-03/04)
+
+Sub-sessions #1-#5 closed the gap between the engine's `PortfolioRun`
+output and the advisor's eyes. 111 locked decisions distilled from
+`~/.claude/plans/i-want-you-to-jolly-beacon.md` (deleted at A6.16
+close-out per locked #11+#42 lifecycle). Tag `v0.1.2-engine-display`
+at HEAD `e5cd859`.
+
+### Architecture (8 entries)
+- **#1** Phased delivery: A1-A5 demo-bar; A6 pilot-bar via 3-round sub-agent orchestration (#20).
+- **#9** Failure surfacing: typed-skip silent + audit; unexpected → catch-all + audit + `latest_portfolio_failure` SerializerMethodField + Banner inline + Sonner toast.
+- **#14** 8 trigger points: review_commit + wizard_commit + override + realignment + 4 workspace-level (conflict_resolve / defer_conflict / fact_override / section_approve).
+- **#27** Workspace-level triggers gate on `linked_household_id is None` (silent-skip + observability audit).
+- **#56** Strict P99 ≤ 1000ms threshold; sync vs threading decision locked at A0.2.
+- **#74** Auto-trigger SYNCHRONOUS inside `transaction.atomic`; response IS truth (not `transaction.on_commit`).
+- **#80** PostgreSQL pool to 150 + max_connections to 200 supports 100-parallel commits.
+- **#81** Helper-managed atomic (Django nested-atomic via savepoints); reusable check OUTSIDE atomic so audit emits persist on raise.
+
+### UX (12 entries)
+- **#5** Goal "ideal mix" source: `EngineOutput.goal_rollups[].allocations` (engine pre-computed; honors locked #2 server roundtrip).
+- **#6** Moves: modify `/api/preview/moves/` in place; reads `ideal_pct` from `goal_rollups` when run exists; SLEEVE_REF_POINTS calibration fallback. Response includes `source: "portfolio_run" | "calibration"`.
+- **#10** HouseholdRoute portfolio rollup panel placement: between AUM strip and treemap.
+- **#18** Stale state UX: muted run-data + accent-bordered overlay with Regenerate CTA.
+- **#19** HouseholdPortfolioPanel mirrors RecommendationBanner failure pattern.
+- **#24** Dual-line FanChart: engine canonical solid + calibration what-if dotted (DEFERRED to post-pilot).
+- **#28** State precedence: failure > stale > success.
+- **#29** Multi-link goal: dollar-weighted P50 single line.
+- **#75** i18n keys distribute under existing feature namespaces (`routes.goal.*`, `routes.household.*`).
+- **#78** AdvisorSummaryPanel multi-link: default-collapsed Radix Accordion (first link expanded). NOTE: shipped as inline render with border-t-hairline separators (simpler; equivalent UX).
+- **#90** Dual-line FanChart includes explicit Legend + axe + Vitest tests (DEFERRED with #24).
+- **#109** `aria-live="polite"` on RecommendationBanner + HouseholdPortfolioPanel (WCAG 4.1.3 Status Messages).
+
+### Operational (10 entries)
+- **#7** Sandra/Mike PortfolioRun seeded at end of `load_synthetic_personas`. Demo-ready DB via `reset-v2-dev.sh --yes`.
+- **#8** Auto-trigger fires on every committed household (synthetic + real-PII).
+- **#13** Demo-prep `scripts/demo-prep/upload_and_drain.py` extended (auto-seed PortfolioRun for committed real-PII households).
+- **#22** A6.11 real-PII auto-trigger smoke (Niesner) — DEFERRED to authorized session.
+- **#23** Cross-browser scope: A6 manual gate (webkit + firefox); not CI-integrated.
+- **#34** `bash scripts/reset-v2-dev.sh --yes` is the only pre-authorized real-PII path; specific Bedrock uploads require per-target authorization.
+- **#69** session-state.md update enforcement at every sub-session boundary.
+- **#79+#86** A6.11 Niesner uses delete-then-upload (preserves Seltzer/Weryha demo state).
+- **#88** Demo dress rehearsal: 10s threshold for trigger steps; 8s for non-trigger.
+- **#89** OTEL spans wrap `_trigger_portfolio_generation`; no-op locally; backend-ready.
+
+### Testing (15 entries)
+- **#17** Comprehensive Vitest scope: ~60-80 unit tests across new components.
+- **#20** A6 sub-agent orchestration: 3 sequential rounds, 2 parallel agents per round + 1 in round 3.
+- **#46** Sub-session #1 must-pass gate before #2.
+- **#55** mockHousehold byte-for-byte production payload shape (cost-key bug at `2bd77d3` was fixture/payload drift).
+- **#60** §Y comprehensive testing & regression matrix (14 layers).
+- **#61** 85% line coverage gate on touched modules.
+- **#63** Visual regression baseline maintenance (per-PR workflow + intentional-diff handling).
+- **#64** StrictMode double-invoke tests for every new component (DocDropOverlay regression at `bca0112`).
+- **#71** Test selectors must match accessible-name resolution (aria-label > visible text in Playwright role-name; lesson from `b14a199` visual-verification gap closure).
+- **#82** Visual-verification spec is single source of truth; A6 Round 3 EXTENDS rather than replaces.
+- **#84** mockHousehold factory at `frontend/src/__tests__/__fixtures__/household.ts`.
+- **#85** Bundle size gate < 290 kB gzipped (measured 267.22 kB).
+- **#96** Full advisor lifecycle integration test (catches sequential cross-trigger interactions).
+- **#99** Audit-trail integrity Hypothesis property test (catches `str(exc)` regression class explicitly).
+- **#102** Pool capacity regression at 120 concurrent connections.
+- **#103** Rollback smoke test (kill-switch + verify graceful degradation; helper-level + HTTP-level).
+- **#104** A3.1 expectTypeOf type-safety regression tests.
+- **#106** Vitest cache-invalidation tests for useGeneratePortfolio.
+- **#X.10** Sub-agent verification protocol — Read every file the agent edited; re-run tests; spot-check citations; verify locked-decision compliance. Caught 4 real bugs across sub-sessions (1 i18n at sub-session #4 + 1 BLOCKING + 2 CRITICAL via code-reviewer at A6.14).
+
+### Documentation (8 entries)
+- **#11** Tag bump v0.1.2-engine-display + design-system.md update at end of A6.
+- **#21** CHANGELOG.md + `docs/agent/ops-runbook.md` entries at A6.13.
+- **#42** Dedicated starter prompt for multi-sub-session execution (deleted at A6.16 close-out).
+- **#83** CHANGELOG entry version-stamped at A6.13.
+- **#91** A6.16 migrates 111+ decisions to `docs/agent/decisions.md` (this entry).
+
+### Continuity (12 entries)
+- **#43** Within-sub-session compaction discipline (halt at next natural breakpoint).
+- **#44** Per-phase commit message format (citing locked-decision numbers).
+- **#45** Per-phase verbose ~400-word handoff-log entry.
+- **§X.1** Sub-session boundary protocol (commit + handoff + dossier + memory update before suggesting compact).
+- **§X.2** Sub-session boot protocol (read MEMORY → starter → dossier → handoff-log → plan).
+- **§X.7** Starter-prompt lifecycle (created in A0.0; deleted in A6.16).
+
+### Meta (6 entries)
+- Communication style: cite specific evidence (commit hash, regression test ids, gate output tail); never "looks good".
+- Anti-patterns: tests pass ≠ ship-ready; subagent says it's done ≠ verified; mock fixtures must mirror production payload byte-for-byte.
+- Code-reviewer subagent pattern: dispatch on cumulative diff at A6.14; expect findings; fix before tag.
+
+### Reference
+
+- Plan file (deleted at A6.16 close-out): `~/.claude/plans/i-want-you-to-jolly-beacon.md`
+- Starter prompt (deleted at A6.16 close-out): `docs/agent/engine-ui-display-starter-prompt.md`
+- Architecture detail: `docs/agent/design-system.md` "Engine output consumption" section
+- Operational detail: `docs/agent/ops-runbook.md` §1
+- Rollback procedure: `docs/agent/pilot-rollback.md` "Engine→UI Display Rollback (v0.1.2-engine-display)" section

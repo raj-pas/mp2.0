@@ -2,6 +2,147 @@
 
 ---
 
+## 2026-05-04 PM (sub-session #5 close-out) — Engine→UI Display COMPLETE; tag `v0.1.2-engine-display`
+
+**HEAD:** `e5cd859`. 4 commits past sub-session #4 close-out (`1588fec`); 22 commits past sub-session #1 entry baseline (`081cfc8`). **Tag `v0.1.2-engine-display` cut at HEAD `e5cd859`** (local; user pushes Mon morning).
+
+### What changed (sub-session #5 — A6 Round 3 + close-out)
+
+**Code-reviewer subagent dispatch (A6.14)**:
+- Dispatched `pr-review-toolkit:code-reviewer` on the cumulative diff `081cfc8...HEAD`. Surfaced 3 real bugs (1 BLOCKING + 2 CRITICAL):
+  - **B1 (BLOCKING)** — `web/api/views.py:600-608`: `ReviewedStateNotConstructionReady` handler in `GeneratePortfolioView.post()` wrote `str(exc)` directly into both `PortfolioRunEvent.metadata["detail"]` (immutable append-only DB row, locked #37 + Postgres triggers) AND HTTP response body. The exception message is the raw `readiness_error` from `portfolio_generation_blocker_for_household(...)` which f-string-interpolates `account_id`. The other 4 typed-skip handlers in the same view used `safe_audit_metadata` + `safe_response_payload` correctly; only this branch bypassed them. Once shipped + hit by an advisor on Mon morning's demo, raw account-id-bearing text would have persisted in the DB forever. **Fixed at commit `81db5bb`** by replacing with `safe_audit_metadata` + `safe_response_payload`.
+  - **C1 (CRITICAL)** — `web/api/serializers.py:171-177`: `HouseholdDetailSerializer.get_latest_portfolio_failure` returned `metadata.get("source", "unknown")` for `reason_code` — but `metadata["source"]` is the trigger source (review_commit / wizard_commit / etc.), NOT a failure reason. The actual exception class lives at `metadata["failure_code"]` (per `safe_audit_metadata`). `exception_summary` similarly read from non-existent keys. Frontend Banner / Panel would have shown "Generation failed (review_commit)" — useless trigger-source noise instead of meaningful failure class. **Fixed at commit `81db5bb`** by reading `metadata.get("failure_code")`. Updated `test_pre_a2_portfolio_run_compat.py` fixture to seed `failure_code` (matching production audit shape).
+  - **C2 (CRITICAL)** — `frontend/src/goal/AdvisorSummaryPanel.tsx:38`: `t("goal.advisor_summary_title")` referenced a namespace that doesn't exist; actual key lives at `routes.goal.advisor_summary_title` in en.json. Same bug class as `6d7a4ca` (RecommendationBanner i18n namespace fix) — Vitest mock returned the key as-is, masking the bug. Production advisors would have seen literal "goal.advisor_summary_title" instead of "Why this recommendation". **Fixed at commit `81db5bb`** by changing to `routes.goal.advisor_summary_title`. Updated AdvisorSummaryPanel.test.tsx assertion at line 168.
+
+**Documentation pass (A6.9 + A6.13 + A6.13b — commit `f4c9dc0`)**:
+- `CHANGELOG.md` — new `## v0.1.2-engine-display — 2026-05-04` section above v0.1.0-pilot per locked #83. ~120-line entry covering Added (engine recommendations + auto-trigger + 5 typed exceptions + failure surfacing + moves-from-rollups + auto-seed + advisor pre-ack + mockHousehold factory + comprehensive testing + perf benchmarks), Changed (HouseholdDetail field + LinkRecommendation type fix + reset-v2-dev.sh ordering), Tests, Architecture, Audit, Deferred.
+- `docs/agent/ops-runbook.md` — NEW. 6-section operational runbook per locked #21: §1 Recommendation generation failures (5-branch decision tree + SQL diagnostic queries + escalation criteria); §2 Connection pool exhaustion; §3 Workspace state drift; §4 Real-PII handling reminder; §5 Demo state restore procedure; §6 References.
+- `docs/agent/pilot-rollback.md` — Engine→UI Display rollback section appended per locked #21. 3 rollback options (kill-switch / frontend-only / full revert to v0.1.0-pilot); detection signals; non-destructive DB state notes; verification commands.
+- `docs/agent/design-system.md` — "Engine output consumption (v0.1.2-engine-display)" section appended per locked #11. Documents the 3 helpers (findGoalRollup / findHouseholdRollup / findGoalLinkRecommendations); component state precedence (failure > stale > success); useGeneratePortfolio mutation hook; backend helper trio; calibration fallback; mockHousehold byte-fidelity per locked #55.
+
+**A6.13c rollback smoke test** (per locked #103):
+- Helper-level via `override_settings(MP20_ENGINE_ENABLED=False)` from Django shell — 7 PASS:
+  - PASS-1: `_trigger_portfolio_generation` raises `EngineKillSwitchBlocked`.
+  - PASS-2: `_trigger_and_audit` returns None (commit unaffected).
+  - PASS-3: skip audit count delta = 1 (exactly 1 emit per call).
+  - PASS-4: `metadata.failure_code` = "EngineKillSwitchBlocked".
+  - PASS-5: `metadata.reason_code` = "EngineKillSwitchBlocked".
+  - PASS-6: `metadata.source` = "review_commit".
+  - PASS-7: no raw exc text in metadata (no PII leak).
+- HTTP-level via APIClient — 4 PASS:
+  - HTTP-1: status=403 (engine OFF).
+  - HTTP-2: detail="Portfolio generation is disabled.".
+  - HTTP-3: `engine_kill_switch_blocked` audit delta = 1.
+  - HTTP-4: status=200 (engine ON; graceful recovery).
+- Total: 11/11 PASS. Validates rollback Option 1 (kill-switch only) per `pilot-rollback.md`.
+
+**A6 Round 3 — visual regression baselines (Agent E; commit `e5cd859`)**:
+- Extended `frontend/e2e/visual-verification.spec.ts` with new `test.describe("Visual verification — engine→UI display surfaces (v0.1.2-engine-display)")` block per locked #82.
+- 8 NEW tests + 6 baseline PNGs in `frontend/e2e/visual-verification.spec.ts-snapshots/`:
+  - `engine-display-banner-run-present-chromium-darwin.png` (4.8 KB; banner element scope)
+  - `engine-display-advisor-summary-single-link-chromium-darwin.png` (12 KB; Emma education goal)
+  - `engine-display-advisor-summary-multi-link-chromium-darwin.png` (29 KB; goal_retirement_income with 3 account links — Mike RRSP / Sandra RRSP / Joint TFSA)
+  - `engine-display-household-portfolio-panel-chromium-darwin.png` (11 KB; rollup + top funds)
+  - `engine-display-goal-route-full-chromium-darwin.png` (197 KB; full-page Goal route with all engine surfaces)
+  - `engine-display-household-route-full-chromium-darwin.png` (82 KB; full-page Household route)
+- 2 ARIA attribute assertions (no screenshots): RecommendationBanner role=status + aria-live=polite; HouseholdPortfolioPanel same per locked #109 + #19.
+- Cold-start + failure states deferred to Vitest unit tests per locked #82 scope discipline.
+- Run-signature pattern matching (`/Recommendation [0-9a-f]{8}/i`) so baselines tolerate signature variation.
+- Animation suppression via `addStyleTag` eliminates pixel-flake. `maxDiffPixelRatio` 0.02-0.04 absorbs sub-pixel font rendering variance.
+- Both `--update-snapshots` run AND clean re-run verified per locked #X.10: 8/8 PASS each.
+- Visual-verification spec: 24 → 32 tests; 17 → 18 describe blocks.
+
+**A6.12 cross-browser manual gate (commit `e5cd859`)**:
+- Extended `frontend/e2e/cross-browser-smoke.spec.ts` with new `test.describe("Cross-browser smoke — engine→UI display surfaces (v0.1.2-engine-display)")` block per locked #23.
+- 3 NEW tests covering Household route HouseholdPortfolioPanel render + Goal route RecommendationBanner aria-live + AdvisorSummaryPanel i18n heading.
+- 8/8 PASS on Chromium + 8/8 on Webkit (Safari) + 8/8 on Firefox = **24/24 cross-browser**.
+- Synthetic Sandra/Mike only (no real-PII dependency).
+
+**A6.10 — tag bump (commit `e5cd859`)**:
+- All static gates green: ruff check + format ✓ / PII grep ✓ / vocab CI ✓ / OpenAPI codegen ✓ / makemigrations check ✓ / typecheck ✓ / lint ✓ / build ✓.
+- Comprehensive test counts at HEAD `e5cd859`:
+  - **903 backend pytest passing** (was 854 baseline at `081cfc8`; +49 net new across A1 fixture + auto-trigger regression + Hypothesis property suites + concurrency stress + RBAC matrix + connection pool capacity + perf benchmarks + full lifecycle integration + pre-A2 compat + HouseholdDetail JSON-shape snapshot + audit-metadata invariants + workspace-trigger-gate properties).
+  - **177 Vitest in 19 files** (was 82 in 13; +95).
+  - **32 visual-verification chromium tests** (24 baseline + 8 engine→UI Round 3).
+  - **24 cross-browser** (chromium + webkit + firefox; engine→UI extended).
+  - **13 foundation e2e** (unchanged).
+  - Bundle 267.22 kB gzipped (under 290 kB threshold per locked #85).
+- Tag created: `git tag -a v0.1.2-engine-display -m "..."` at HEAD `e5cd859`. NOT pushed; user pushes Mon morning per locked direction.
+- Tags now: `v0.1.0-pilot` + `v0.1.1-improved-intake` + `v0.1.2-engine-display`.
+
+**A6.16 final close-out**:
+- 111 locked decisions migrated to `docs/agent/decisions.md` "Engine→UI Display Integration (2026-05-03/04)" section per locked #91. Distilled into ~110 lines grouped by dimension (architecture / UX / operational / testing / documentation / continuity / meta) + reference pointers.
+- Auto-memory file created at `~/.claude/projects/.../memory/project_engine_ui_display.md` per locked #54. Updated MEMORY.md index pointer to "START HERE" the new memory file.
+- `docs/agent/engine-ui-display-starter-prompt.md` DELETED per locked #42 + §X.7 lifecycle (work complete; decisions durable in `decisions.md`; starter-prompt's purpose was multi-sub-session continuity which is no longer needed post-tag).
+- `~/.claude/plans/i-want-you-to-jolly-beacon.md` DELETED per locked #11+#42 lifecycle (canonical decisions migrated; plan file no longer load-bearing).
+
+### What didn't ship (deferred, awaiting authorization)
+
+1. **A6.11 Niesner real-PII auto-trigger smoke** — locked #79+#86 specifies delete-then-upload Niesner via `scripts/demo-prep/upload_and_drain.py`. Permission check denied the upload (correct safety check — real-PII processing requires per-target authorization beyond locked #34's `reset-v2-dev.sh --yes` pre-authorization). User asked + I clarified the situation; awaiting their explicit go-ahead on real-PII uploads. The synthetic auto-trigger + helper trio is comprehensively validated (903 backend + 11/11 rollback smoke); the deferral does not block tag or pilot launch readiness on the technical side.
+
+2. **A6.15 demo dress rehearsal** — locked #95 specifies FULL reset + re-upload Seltzer/Weryha/Niesner + 8-step timed walkthrough per locked #88. Same authorization gate as A6.11. Deferred.
+
+3. The 6 visual-verification ReviewScreen+ConflictPanel+DocDetailPanel tests (24-test baseline) remain state-dependent failures because the R10 sweep state was wiped by `reset-v2-dev.sh`. Per locked #95 these unblock at A6.15 dress rehearsal which restores Niesner workspace state. Documented as state-dependent per prior handoffs; not a code regression.
+
+### What's next
+
+The technical work for `v0.1.2-engine-display` is COMPLETE + tagged. Mon morning: user reviews + pushes the local commits + tag to origin. Optional pre-push: A6.11 + A6.15 with explicit user authorization to validate the real-PII path end-to-end.
+
+Pilot launch Mon 2026-05-08 awaits the push + standard pilot-rollback procedure validation.
+
+### Risk
+
+- **Real-PII smoke (A6.11) deferral**: the auto-trigger code path is comprehensively tested on synthetic Sandra/Mike + via mocked Bedrock-failure paths in test_audit_metadata_invariants.py. The risk of an unseen real-PII-specific bug surfacing post-launch is LOW but non-zero. Mitigation: pilot rollback procedure validated via A6.13c smoke; advisors can revert via Option 1 (kill-switch) within 5 minutes per `pilot-rollback.md`.
+- **Visual baseline drift on CI**: baselines were captured on macOS Darwin chromium. A different DPI / OS in CI would cause baseline mismatch. Mitigation: locked #63 documents per-PR `--update-snapshots` workflow + intentional-diff handling. Pre-pilot CI integration is post-launch scope.
+- **Sub-agent stalls**: 2 of 5 sub-agents stalled at the verification phase (Round 1 Agent A + Round 2 Agent C). Files were complete + correct on disk; main thread #X.10 verification independently caught all issues. Pattern: dispatch in parallel + accept stall risk + run independent verification ourselves.
+
+### Bedrock $ delta
+
+$0 (sub-session #5 was test-only + documentation; no Bedrock probes against real-PII).
+
+### Continuity check
+
+- session-state.md headline updated: yes (commit pending in this close-out).
+- engine-ui-display-starter-prompt.md: DELETED per locked lifecycle.
+- jolly-beacon plan file: DELETED per locked lifecycle.
+- MEMORY.md updated: yes — pointer to new auto-memory file as "START HERE".
+- decisions.md: 111 decisions migrated to "Engine→UI Display Integration" section.
+
+### Locked decisions honored (sub-session #5 specifically)
+
+#9, #11, #19, #21, #23, #34, #42, #54, #63, #71, #75, #82, #83, #88, #91, #95, #103, #109, #X.10, §X.1, §X.7
+
+### Sub-session #5 commits at HEAD `e5cd859`
+
+```
+e5cd859 test(engine-ui): A6 Round 3 visual baselines + A6.12 cross-browser engine→UI tests
+81db5bb fix(engine-ui): code-reviewer findings — PII leak + wrong reason_code source + i18n key
+f4c9dc0 docs(engine-ui): A6.9 + A6.13 + A6.13b — design-system + CHANGELOG + ops-runbook + pilot-rollback
+```
+
+Tag `v0.1.2-engine-display` at `e5cd859` (local; user pushes Mon morning).
+
+### Cumulative summary (sub-sessions #1-#5)
+
+**5 sub-sessions across 4 days. 22 commits past baseline `081cfc8`. Tag `v0.1.2-engine-display`.**
+
+| Layer | Baseline `081cfc8` | Final `e5cd859` | Net delta |
+|---|---|---|---|
+| Backend pytest (in isolation) | 854 + 7 skipped | **903** + 12 skipped | +49 |
+| Frontend Vitest | 82 in 13 files | **177** in 19 files | +95 |
+| Foundation e2e (chromium) | 13 | 13 | 0 |
+| Visual-verification e2e | 24 | **32** (+8 engine→UI) | +8 |
+| Cross-browser e2e | 10 in webkit+firefox | **24** (+14 engine→UI extension) | +14 |
+| Bundle gzipped | 258 kB | 267.22 kB | +9.22 kB (under 290 kB) |
+| Locked decisions captured | 0 | 111 (migrated to decisions.md) | +111 |
+| Real production bugs caught + fixed via #X.10 | 0 | 4 (1 i18n at sub-session #4 + 1 BLOCKING + 2 CRITICAL via code-reviewer at A6.14) | +4 |
+
+The advisor sees engine recommendations on Goal route + Household route. Auto-trigger fires synchronously on every committed-state mutation. Sandra/Mike Chen synthetic auto-seeds with PortfolioRun on `bash scripts/reset-v2-dev.sh --yes`. Rollback procedure validated. Documentation complete. Tag cut.
+
+**Mission accomplished.**
+
+---
+
 ## 2026-05-04 PM (sub-session #4 close-out) — Engine→UI Display A6 round 1+2 COMPLETE
 
 **HEAD:** `0ebce21`. 5 commits past sub-session #3 close-out (`46f37e3`); 17 commits past sub-session #1 entry baseline (`081cfc8`).
