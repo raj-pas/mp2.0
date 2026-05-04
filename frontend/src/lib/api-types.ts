@@ -1446,6 +1446,8 @@ export interface components {
             current_value: string;
             /** @default  */
             custodian: string;
+            /** @default false */
+            missing_holdings_confirmed: boolean;
         };
         /**
          * @description Locked decision #7: wizard is the fallback path. Doc-drop is primary.

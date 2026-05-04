@@ -47,6 +47,7 @@ export default {
         // Semantic
         success: "#2E5D3A",
         danger: "#8B2E2E",
+        warning: "#B87333", // orange — engineering-attention signal (integrity alerts, stale overlays)
         info: "#2E4A6B",
         // v36 fund palette (matches engine/sleeves.py SLEEVE_COLOR_HEX)
         funds: {
