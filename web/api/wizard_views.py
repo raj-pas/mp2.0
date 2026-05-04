@@ -461,6 +461,13 @@ class WizardCommitView(APIView):
                 },
             )
 
+        # Trigger #2 (per locked #14 + #74): auto-trigger sync-inline against
+        # the wizard-created household. Outside the transaction.atomic block
+        # so it sees the committed state. Failure never breaks the response.
+        from web.api.views import _trigger_and_audit
+
+        _trigger_and_audit(household, request.user, source="wizard_commit")
+
         return Response(
             {"household_id": household.external_id, "household_score_1_5": risk_result.score_1_5},
             status=status.HTTP_201_CREATED,
@@ -561,6 +568,12 @@ class RealignmentView(APIView):
                     "big_shift_count": len(big_shifts),
                 },
             )
+
+        # Trigger #4 (per locked #14 + #74): realignment changes account_goal
+        # links → input_hash changes → new PortfolioRun. Outside the atomic.
+        from web.api.views import _trigger_and_audit
+
+        _trigger_and_audit(household, request.user, source="realignment")
 
         return Response(
             {
@@ -773,6 +786,13 @@ class GoalRiskOverrideCreateView(APIView):
                     "rationale": data["rationale"],
                 },
             )
+
+        # Trigger #3 (per locked #14 + #74): override changes goal_risk_score
+        # → run_signature changes → new PortfolioRun. Outside the atomic so
+        # the helper sees the committed override.
+        from web.api.views import _trigger_and_audit
+
+        _trigger_and_audit(household, request.user, source="override")
 
         return Response(
             {

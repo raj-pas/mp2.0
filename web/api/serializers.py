@@ -114,6 +114,7 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
     goals = GoalSerializer(many=True)
     accounts = AccountSerializer(many=True)
     latest_portfolio_run = serializers.SerializerMethodField()
+    latest_portfolio_failure = serializers.SerializerMethodField()
     portfolio_runs = serializers.SerializerMethodField()
 
     class Meta:
@@ -131,6 +132,7 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
             "goals",
             "accounts",
             "latest_portfolio_run",
+            "latest_portfolio_failure",
             "portfolio_runs",
         ]
 
@@ -143,6 +145,36 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
     def get_latest_portfolio_run(self, obj: models.Household) -> dict | None:
         run = obj.portfolio_runs.order_by("-created_at").first()
         return PortfolioRunSerializer(run).data if run else None
+
+    def get_latest_portfolio_failure(self, obj: models.Household) -> dict | None:
+        """Most recent portfolio_generation_*_failed AuditEvent newer than the
+        household's latest PortfolioRun (if any). Drives RecommendationBanner's
+        inline-error state per locked decision #9.
+        """
+        from web.audit.models import AuditEvent
+
+        latest_run = obj.portfolio_runs.order_by("-created_at").first()
+        cutoff = latest_run.created_at if latest_run else obj.created_at
+        failure = (
+            AuditEvent.objects.filter(
+                entity_type="household",
+                entity_id=obj.external_id,
+                action__startswith="portfolio_generation_post_",
+                action__endswith="_failed",
+                created_at__gt=cutoff,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if failure is None:
+            return None
+        return {
+            "action": failure.action,
+            "reason_code": failure.metadata.get("source", "unknown"),
+            "exception_summary": failure.metadata.get("failure_summary")
+            or failure.metadata.get("exception_summary", ""),
+            "occurred_at": failure.created_at.isoformat() if failure.created_at else None,
+        }
 
     def get_portfolio_runs(self, obj: models.Household) -> list[dict]:
         runs = obj.portfolio_runs.order_by("-created_at")[:10]

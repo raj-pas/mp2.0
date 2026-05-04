@@ -88,6 +88,45 @@ CMA_AUDIT_ACTIONS = {
 }
 
 
+class EngineKillSwitchBlocked(ValueError):
+    """`MP20_ENGINE_ENABLED=False` blocks portfolio generation (typed-skip path)."""
+
+
+class NoActiveCMASnapshot(ValueError):
+    """No `CMASnapshot.Status.ACTIVE` row exists; analyst must publish (typed-skip path)."""
+
+
+class InvalidCMAUniverse(ValueError):
+    """Active CMA fails `_validate_cma_snapshot` (typed-skip path)."""
+
+
+class ReviewedStateNotConstructionReady(ValueError):
+    """`portfolio_generation_blocker_for_household` raised — committed state can't pass
+    construction rules yet (typed-skip path)."""
+
+
+class MissingProvenance(ValueError):
+    """Real-derived household lacks Bedrock provenance for facts (typed-skip path)."""
+
+
+def _map_engine_value_error(exc: ValueError) -> Exception:
+    """Map raw engine ValueError to typed exception class based on message.
+
+    Falls back to `InvalidCMAUniverse` for unknown patterns (cleanest semantics
+    for advisor-facing copy via `friendly_message_for_code`). Per locked #59.
+    """
+    msg = str(exc).lower()
+    if "active cma" in msg or "no cma" in msg:
+        return NoActiveCMASnapshot(str(exc))
+    if "kill switch" in msg or "engine_enabled" in msg:
+        return EngineKillSwitchBlocked(str(exc))
+    if "construction" in msg or "engine_ready" in msg or "blocker" in msg or "engine-ready" in msg:
+        return ReviewedStateNotConstructionReady(str(exc))
+    if "provenance" in msg:
+        return MissingProvenance(str(exc))
+    return InvalidCMAUniverse(str(exc))
+
+
 class CMAValidationError(ValueError):
     def __init__(
         self,
@@ -528,10 +567,9 @@ class GeneratePortfolioView(APIView):
             )
             return Response({"detail": "Portfolio generation is disabled."}, status=403)
         household = get_object_or_404(_household_queryset(request.user), external_id=household_id)
-        cma_snapshot = models.CMASnapshot.objects.filter(
-            status=models.CMASnapshot.Status.ACTIVE
-        ).first()
-        if cma_snapshot is None:
+        try:
+            run = _trigger_portfolio_generation(household, request.user, source="manual")
+        except NoActiveCMASnapshot:
             _record_portfolio_event(
                 event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
                 household=household,
@@ -547,9 +585,7 @@ class GeneratePortfolioView(APIView):
                 },
                 status=409,
             )
-        try:
-            _validate_cma_snapshot(cma_snapshot)
-        except ValueError as exc:
+        except InvalidCMAUniverse as exc:
             _record_portfolio_event(
                 event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
                 household=household,
@@ -557,32 +593,20 @@ class GeneratePortfolioView(APIView):
                 reason_code="invalid_cma_universe",
                 metadata=safe_audit_metadata(exc, household_id=household.external_id),
             )
-            # Phase 2 PII scrub: CMA-universe error message is internally
-            # constructed (non-PII) but route through the structured shape
-            # for consistency with the grep guard.
             return Response(
                 safe_response_payload(exc, hint="invalid_cma_universe"),
                 status=409,
             )
-        readiness_error = portfolio_generation_blocker_for_household(household)
-        if readiness_error:
+        except ReviewedStateNotConstructionReady as exc:
             _record_portfolio_event(
                 event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
                 household=household,
                 actor=_actor(request),
                 reason_code="reviewed_state_not_ready",
-                metadata={"household_id": household.external_id, "detail": readiness_error},
+                metadata={"household_id": household.external_id, "detail": str(exc)},
             )
-            return Response({"detail": readiness_error}, status=400)
-
-        input_snapshot = committed_construction_snapshot(household)
-        input_hash = _hash_json(input_snapshot)
-        cma_hash = _cma_input_hash(cma_snapshot)
-        try:
-            reviewed_state_hash, approval_snapshot_hash, provenance_warnings = (
-                _portfolio_provenance_hashes(household)
-            )
-        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+        except MissingProvenance as exc:
             _record_portfolio_event(
                 event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
                 household=household,
@@ -591,28 +615,103 @@ class GeneratePortfolioView(APIView):
                 metadata=safe_audit_metadata(exc, household_id=household.external_id),
             )
             return Response(safe_response_payload(exc), status=400)
-        as_of_date = timezone.localdate()
-        run_signature = _hash_json(
-            {
-                "schema_version": "engine_output.link_first.v2",
-                "input_hash": input_hash,
-                "cma_hash": cma_hash,
-                "reviewed_state_hash": reviewed_state_hash,
-                "approval_snapshot_hash": approval_snapshot_hash,
-                "as_of_date": as_of_date.isoformat(),
-            }
+        return Response(PortfolioRunSerializer(run).data)
+
+
+def _trigger_portfolio_generation(
+    household: models.Household,
+    user,
+    *,
+    source: str,
+) -> models.PortfolioRun:
+    """Run engine.optimize() inline + create-or-reuse PortfolioRun.
+
+    SYNCHRONOUS auto-trigger helper per locked decision #74. Runs INSIDE
+    its own `transaction.atomic` block (per #81; uses savepoints under
+    nested-atomic semantics). Returns the freshly-created OR reused
+    PortfolioRun.
+
+    Raises typed exceptions for known states (caller emits skip audit
+    + returns no-op):
+      - `EngineKillSwitchBlocked` — `MP20_ENGINE_ENABLED=False`
+      - `NoActiveCMASnapshot` — no `CMASnapshot.Status.ACTIVE` row
+      - `InvalidCMAUniverse` — `_validate_cma_snapshot` failed
+      - `ReviewedStateNotConstructionReady` — committed state not engine-ready
+      - `MissingProvenance` — real-derived household lacks Bedrock provenance
+
+    Unexpected exceptions propagate; caller (`_trigger_and_audit`) catches
+    + emits `portfolio_generation_post_<source>_failed` audit + records
+    a `latest_portfolio_failure` payload visible to advisors via
+    `HouseholdDetailSerializer.latest_portfolio_failure`.
+
+    `source` ∈ {"manual","review_commit","wizard_commit","override",
+    "realignment","conflict_resolve","defer_conflict","fact_override",
+    "section_approve","synthetic_load"} — captured in audit metadata.
+
+    Per locked decision #74: response IS truth (no transaction.on_commit).
+    """
+    if not getattr(settings, "MP20_ENGINE_ENABLED", True):
+        raise EngineKillSwitchBlocked("Portfolio generation is disabled (kill-switch).")
+
+    cma_snapshot = models.CMASnapshot.objects.filter(
+        status=models.CMASnapshot.Status.ACTIVE
+    ).first()
+    if cma_snapshot is None:
+        raise NoActiveCMASnapshot(
+            "No active CMA snapshot exists. Ask a financial analyst to publish one."
         )
-        try:
-            reusable = _reusable_current_run(household, run_signature)
-        except ValueError as exc:
-            _record_portfolio_event(
-                event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
-                household=household,
-                actor=_actor(request),
-                reason_code="ambiguous_current_lifecycle",
-                metadata=safe_audit_metadata(exc, household_id=household.external_id),
-            )
-            return Response(safe_response_payload(exc), status=409)
+
+    try:
+        _validate_cma_snapshot(cma_snapshot)
+    except ValueError as exc:
+        raise InvalidCMAUniverse(str(exc)) from exc
+
+    readiness_error = portfolio_generation_blocker_for_household(household)
+    if readiness_error:
+        raise ReviewedStateNotConstructionReady(readiness_error)
+
+    # Pre-write reads + hashes (NO atomic — reads only; hashes are pure).
+    input_snapshot = committed_construction_snapshot(household)
+    input_hash = _hash_json(input_snapshot)
+    cma_hash = _cma_input_hash(cma_snapshot)
+    try:
+        reviewed_state_hash, approval_snapshot_hash, provenance_warnings = (
+            _portfolio_provenance_hashes(household)
+        )
+    except ValueError as exc:
+        raise MissingProvenance(str(exc)) from exc
+
+    as_of_date = timezone.localdate()
+    run_signature = _hash_json(
+        {
+            "schema_version": "engine_output.link_first.v2",
+            "input_hash": input_hash,
+            "cma_hash": cma_hash,
+            "reviewed_state_hash": reviewed_state_hash,
+            "approval_snapshot_hash": approval_snapshot_hash,
+            "as_of_date": as_of_date.isoformat(),
+        }
+    )
+    actor = _actor_for_user(user)
+
+    # Reusable check is OUTSIDE the write-atomic so the audit event for
+    # ambiguous_current_lifecycle commits even when we raise. Each
+    # `_record_portfolio_event` call uses its own atomic via Django default
+    # autocommit semantics; the explicit atomic below scopes the engine
+    # write block (per #81 helper-managed atomic).
+    try:
+        reusable = _reusable_current_run(household, run_signature)
+    except ValueError as exc:
+        _record_portfolio_event(
+            event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
+            household=household,
+            actor=actor,
+            reason_code="ambiguous_current_lifecycle",
+            metadata=safe_audit_metadata(exc, household_id=household.external_id),
+        )
+        raise InvalidCMAUniverse(str(exc)) from exc
+
+    with transaction.atomic():
         if reusable is not None:
             verification = _portfolio_run_verification(
                 reusable,
@@ -626,27 +725,28 @@ class GeneratePortfolioView(APIView):
                     event_type=models.PortfolioRunEvent.EventType.REUSED,
                     portfolio_run=reusable,
                     household=household,
-                    actor=_actor(request),
+                    actor=actor,
                     metadata=verification,
                 )
                 record_event(
                     action="portfolio_run_reused",
                     entity_type="portfolio_run",
                     entity_id=reusable.external_id,
-                    actor=_actor(request),
+                    actor=actor,
                     metadata={
                         "household_id": household.external_id,
                         "run_signature": run_signature,
                         "input_hash": input_hash,
                         "output_hash": reusable.output_hash,
+                        "source": source,
                     },
                 )
-                return Response(PortfolioRunSerializer(reusable).data)
+                return reusable
             _record_portfolio_event(
                 event_type=models.PortfolioRunEvent.EventType.HASH_MISMATCH,
                 portfolio_run=reusable,
                 household=household,
-                actor=_actor(request),
+                actor=actor,
                 reason_code="stored_run_hash_mismatch",
                 metadata=verification,
             )
@@ -672,21 +772,15 @@ class GeneratePortfolioView(APIView):
         try:
             _validate_v2_manifest(payload["run_manifest"])
         except ValueError as exc:
-            _record_portfolio_event(
-                event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
-                household=household,
-                actor=_actor(request),
-                reason_code="missing_v2_manifest_inputs",
-                metadata=safe_audit_metadata(exc, household_id=household.external_id),
-            )
-            return Response(safe_response_payload(exc), status=409)
+            raise InvalidCMAUniverse(str(exc)) from exc
+
         payload["warnings"] = sorted(set(payload.get("warnings") or []).union(provenance_warnings))
         output_hash = _hash_json(payload)
         regenerated_after_decline = _latest_reusable_run_was_declined(household)
         run = models.PortfolioRun.objects.create(
             household=household,
             cma_snapshot=cma_snapshot,
-            generated_by=request.user,
+            generated_by=user if user and user.is_authenticated else None,
             as_of_date=as_of_date,
             run_signature=run_signature,
             input_snapshot=input_snapshot,
@@ -744,7 +838,7 @@ class GeneratePortfolioView(APIView):
             event_type=event_type,
             portfolio_run=run,
             household=household,
-            actor=_actor(request),
+            actor=actor,
             metadata={
                 "run_signature": run_signature,
                 "input_hash": input_hash,
@@ -757,7 +851,7 @@ class GeneratePortfolioView(APIView):
             action="portfolio_run_generated",
             entity_type="portfolio_run",
             entity_id=run.external_id,
-            actor=_actor(request),
+            actor=actor,
             metadata={
                 "model_version": output.audit_trace.model_version,
                 "method": output.audit_trace.method,
@@ -769,9 +863,109 @@ class GeneratePortfolioView(APIView):
                 "run_signature": run_signature,
                 "schema_version": payload["schema_version"],
                 "link_count": len(output.link_recommendations),
+                "source": source,
             },
         )
-        return Response(PortfolioRunSerializer(run).data)
+        return run
+
+
+def _actor_for_user(user) -> str:
+    """Return audit-actor string. Mirrors `_actor(request)` for non-request calls."""
+    if user and getattr(user, "is_authenticated", False):
+        return user.get_username() if hasattr(user, "get_username") else str(user)
+    return "system"
+
+
+def _trigger_and_audit(
+    household: models.Household,
+    user,
+    *,
+    source: str,
+) -> models.PortfolioRun | None:
+    """Wrap `_trigger_portfolio_generation` with audit-on-failure (per locked #9).
+
+    Two failure classes:
+      - TYPED (known states): emit `portfolio_generation_skipped_post_<source>`
+        audit, return None. No advisor toast — these are known states.
+      - UNEXPECTED: emit `portfolio_generation_post_<source>_failed` audit
+        with `safe_audit_metadata`. Advisor surfaced via:
+        (a) `latest_portfolio_failure` SerializerMethodField on
+            HouseholdDetailSerializer
+        (b) RecommendationBanner reads it + shows inline error
+        (c) Sonner toast on banner mount when failure is recent
+
+    Commit/wizard/override/realignment ALWAYS succeed. Generation failure
+    never breaks the wrapping mutation.
+    """
+    actor = _actor_for_user(user)
+    try:
+        return _trigger_portfolio_generation(household, user, source=source)
+    except (
+        EngineKillSwitchBlocked,
+        NoActiveCMASnapshot,
+        InvalidCMAUniverse,
+        ReviewedStateNotConstructionReady,
+        MissingProvenance,
+    ) as exc:
+        record_event(
+            action=f"portfolio_generation_skipped_post_{source}",
+            entity_type="household",
+            entity_id=household.external_id,
+            actor=actor,
+            metadata=safe_audit_metadata(
+                exc,
+                source=source,
+                household_id=household.external_id,
+                reason_code=type(exc).__name__,
+            ),
+        )
+        return None
+    except Exception as exc:  # noqa: BLE001 — catch-all per locked #9 unexpected path
+        record_event(
+            action=f"portfolio_generation_post_{source}_failed",
+            entity_type="household",
+            entity_id=household.external_id,
+            actor=actor,
+            metadata=safe_audit_metadata(
+                exc,
+                source=source,
+                household_id=household.external_id,
+            ),
+        )
+        return None
+
+
+def _trigger_and_audit_for_workspace(
+    workspace: models.ReviewWorkspace,
+    user,
+    *,
+    source: str,
+) -> models.PortfolioRun | None:
+    """Workspace-scoped trigger variant for triggers 5-8 (per locked #27).
+
+    No-ops when workspace is not yet linked to a committed household
+    (the common pre-commit case). Emits a `portfolio_run_skipped`
+    audit with metadata.skipped_no_household=True for observability.
+
+    For linked workspaces (post-commit advisor edits, rare flow), fires
+    against `workspace.linked_household` and signature-match yields
+    REUSED PortfolioRunEvent.
+    """
+    if workspace.linked_household_id is None:
+        record_event(
+            action=f"portfolio_generation_skipped_post_{source}",
+            entity_type="review_workspace",
+            entity_id=workspace.external_id,
+            actor=_actor_for_user(user),
+            metadata={
+                "source": source,
+                "skipped_no_household": True,
+                "workspace_id": workspace.external_id,
+                "reason_code": "no_linked_household",
+            },
+        )
+        return None
+    return _trigger_and_audit(workspace.linked_household, user, source=source)
 
 
 class PortfolioRunListView(APIView):
@@ -2392,6 +2586,11 @@ class ReviewWorkspaceCommitView(APIView):
                 ),
                 status=400,
             )
+        # Trigger #1 (per locked #14 + #74): auto-trigger sync-inline against
+        # the freshly-committed household. Generation failure NEVER breaks the
+        # commit response (per locked #9 — typed-skip + audit, unexpected +
+        # audit + advisor surface via latest_portfolio_failure).
+        _trigger_and_audit(committed, request.user, source="review_commit")
         return Response(
             {
                 "household_id": committed.external_id,

@@ -118,7 +118,9 @@ def test_generate_portfolio_blocks_duplicate_current_lifecycle_state() -> None:
     assert response.status_code == 409
     # Phase 2 PII scrub: detail is now generic; the structured event
     # carries the durable diagnostic via reason_code, not response detail.
-    assert response.json()["code"] in {"ValueError", "ValidationError"}
+    # A2a: typed exception classes (#74) replace bare ValueError/ValidationError;
+    # InvalidCMAUniverse is the typed wrapper for ambiguous-current-lifecycle.
+    assert response.json()["code"] in {"ValueError", "ValidationError", "InvalidCMAUniverse"}
     assert models.PortfolioRunEvent.objects.filter(
         event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
         reason_code="ambiguous_current_lifecycle",
