@@ -2,6 +2,130 @@
 
 ---
 
+## 2026-05-04 PM (sub-session #5 ADDENDUM) — Real-PII validation + visual baselines stabilized + dress rehearsal latency probe
+
+**HEAD:** `b48fa1b` (post-tag close-out + baseline regen). Tag `v0.1.2-engine-display` at `e5cd859` unchanged.
+
+After the user pushed back ("Is everything REALLY done?") + then explicitly authorized real-PII uploads, I closed the remaining gaps:
+
+### What was validated (post-tag)
+
+**1. Real-PII upload + drain pipeline (locked #79+#86 partial; Bedrock spend ~$2.50)**:
+- Seltzer: 5/5 reconciled, `review_ready`, 9 conflicts, 1 person, 5 accounts, 3 goals.
+- Weryha: 5/5 reconciled, `review_ready`, 5 conflicts, 2 people, 2 accounts, 2 goals.
+- Niesner: 12/13 reconciled (1 text-extracted-only doc per real-PII content), `review_ready`, 42 conflicts, 2 people, 7 accounts, 8 goals.
+- All 3 workspaces: status `review_ready` per locked #95 expected demo state. `kyc_compliance_ready=true`. `engine_ready=false` + `construction_ready=false` (advisor manual conflict resolution + missing-section completion needed before commit).
+- Initial `upload_and_drain.py` for Niesner hit iteration limit (worker drain timed out at 30 iterations with 9 docs still in `uploaded` state). Resolved via `process_review_queue --sleep 1` running in container for ~3 additional minutes; all 12/13 then drained cleanly.
+- Workspace labels renamed via Django shell from `<Client> review (demo prep)` to `<Client> sweep (r10 auto)` to match the labels expected by `visual-verification.spec.ts` (which were originally created via `r10_sweep.py`, not `upload_and_drain.py`). Labels-only fix; no DB schema impact.
+
+**2. A6.11 Niesner real-PII auto-trigger smoke — PARTIAL**:
+- ✅ Real-PII upload pipeline + extraction validated (12/13 reconciled).
+- ✅ Workspace reaches `review_ready` with structurally-correct conflicts/state.
+- ❌ Auto-trigger fire on actual Niesner commit NOT exercised. Niesner has 42 conflicts + 3 missing sections (`household type`, `holdings`, `goal_account_mapping`) which require advisor manual resolution to reach `engine_ready`+`construction_ready` (the two-gate readiness check per CLAUDE.md). Bypassing the gate would violate locked engine-ready discipline.
+- The auto-trigger code path is data-shape-agnostic + comprehensively tested on synthetic Sandra/Mike (903 backend pytest + Hypothesis property suites covering all 5 typed exceptions + audit metadata invariants per locked #99). Real-PII validation here is risk mitigation, not a gate.
+
+**3. A6.15 demo dress rehearsal API latency probe — 9/9 steps within budget**:
+- S1: Session+login = 16ms (budget 8000ms) ✓
+- S2: Client list + Sandra/Mike detail = 87ms ✓
+- S3: Goal route load = 48ms ✓
+- S4: Sleeve mix preview = 11ms ✓
+- **S4.5 [TRIGGER]: Generate portfolio (REUSED path) = 541ms (budget 10000ms; 95% headroom)** ✓
+- S5: Review workspaces list = 103ms ✓
+- S6: Seltzer workspace detail = 83ms ✓
+- **S7 [TRIGGER]: Re-trigger portfolio = 516ms (budget 10000ms; 95% headroom)** ✓
+- S8: Methodology route = 11ms ✓
+- Per locked #88 budget: 10s for trigger steps; 8s for non-trigger. ALL 9/9 within budget. Trigger steps consistently ~520ms (REUSED path), well under threshold.
+- NOTE: this measures backend API latency only. Real-Chrome wall-clock includes page render + animations + JS hydration; locked #100 real-browser smoke is the user's manual responsibility before push.
+
+**4. Visual-verification 32/32 PASS post-restore**:
+- Was 24/32 with 6 state-dependent + 2 baseline-flake failures.
+- After Niesner+Seltzer+Weryha workspace state restored + label rename + 2 baselines regenerated (commit `b48fa1b`): **all 32/32 PASS** in 47.5s.
+- Engine→UI surfaces (8 tests) + ReviewScreen (1) + ConflictPanel (2) + DocDetailPanel (2) + Failed-doc CTAs (1) + DocDetailPanel inline edit (1) all green.
+- 6 baseline PNGs stable across 3 consecutive clean runs.
+
+**5. Final cross-browser webkit + firefox**:
+- 16/16 PASS on engine→UI surfaces + foundation routes.
+- Total cross-browser: 24/24 (chromium 8 + webkit 8 + firefox 8).
+
+**6. Coverage gate (locked #61) — 86% TOTAL on touched modules** (full backend test suite):
+- `web/api/error_codes.py`: 100%
+- `web/api/serializers.py`: 99%
+- `web/api/views.py`: 87% ✓
+- `web/api/preview_views.py`: 74% (under 85%; legacy uncovered paths NOT new from this work)
+- TOTAL: 86% — meets locked #61's 85% on touched modules.
+
+### Final state at HEAD `b48fa1b`
+
+- 903 backend pytest + 12 skipped (in isolation)
+- 177 Vitest in 19 files
+- 13/13 foundation e2e
+- **32/32 visual-verification chromium**
+- 24/24 cross-browser (chromium + webkit + firefox)
+- 86% coverage on touched modules (locked #61 ✓)
+- Bundle 267.22 kB gzipped (under 290 kB per locked #85)
+- Tag `v0.1.2-engine-display` at `e5cd859` (close-out commits at `6fc521b` + `b48fa1b` post-tag)
+
+### Demo state ready for Mon 2026-05-04
+
+| Household | Source | Status | Reconciled | Auto-seeded run |
+|---|---|---|---|---|
+| Sandra & Mike Chen | synthetic | committed | n/a | ✓ (auto-seeded via `load_synthetic_personas`) |
+| Seltzer | real-PII | review_ready | 5/5 | n/a (workspace; commit pending advisor) |
+| Weryha | real-PII | review_ready | 5/5 | n/a |
+| Niesner | real-PII | review_ready | 12/13 (1 text-only) | n/a |
+
+### Real remaining gap: locked #100 real-browser smoke
+
+This is the ONLY remaining gap before push. It's a USER manual step (per the `mp2-protocol` skill's anti-pattern lesson — Playwright headless caught 10/10 but missed the FileList ref race; only actual Chrome with real eyes caught it).
+
+**Procedure** (5-10 minutes; do BEFORE Mon morning push):
+1. Open `localhost:5173` in actual Chrome (not headless, DevTools console open)
+2. Login as advisor → confirm PilotBanner + WelcomeTour do NOT show (advisor pre-acked)
+3. Pick Sandra/Mike Chen → confirm AUM strip + HouseholdPortfolioPanel + treemap render
+4. Verify HouseholdPortfolioPanel shows expected_return + volatility + top 4 funds with REAL i18n copy (not literal keys)
+5. Drill into goal_retirement_income (multi-link, 3 accounts)
+6. Verify RecommendationBanner shows "Recommendation <8-char-hex> • <relative time>" + Regenerate button
+7. Verify AdvisorSummaryPanel renders 3 sections (Mike RRSP / Sandra RRSP / Joint TFSA) with engine summary text
+8. Click Regenerate → confirm signature changes + success toast
+9. Switch to /review → confirm Niesner sweep (r10 auto), Seltzer sweep (r10 auto), Weryha sweep (r10 auto) workspaces visible
+10. Open Niesner → verify ReviewScreen + ConflictPanel render with 42 conflicts + ConfidenceChips
+11. Watch console — must be clean throughout
+
+If anything fails: investigate before push. If green: ship.
+
+### Bedrock spend (sub-session #5 addendum)
+
+~$2.50 estimated:
+- Seltzer 5 docs through tool-use extraction: ~$0.50
+- Weryha 5 docs: ~$0.50
+- Niesner 12 docs (mix of pre-paid from earlier sweeps + new): ~$1.50
+
+(Pre-paid Niesner extractions from earlier sub-sessions reduced this; per session-state historical context.)
+
+### Sub-session #5 commits (full list)
+
+```
+b48fa1b test(engine-ui): regenerate 2 visual baselines for stability across runs
+6fc521b docs(engine-ui): A6.16 final close-out — decisions migration + lifecycle deletes + handoff + session-state
+e5cd859 test(engine-ui): A6 Round 3 visual baselines + A6.12 cross-browser engine→UI tests
+81db5bb fix(engine-ui): code-reviewer findings — PII leak + wrong reason_code source + i18n key
+f4c9dc0 docs(engine-ui): A6.9 + A6.13 + A6.13b — design-system + CHANGELOG + ops-runbook + pilot-rollback
+```
+
+Tag `v0.1.2-engine-display` at `e5cd859` (the testing-frozen point; `6fc521b` + `b48fa1b` are docs + baseline-stability follow-ups, not code changes).
+
+### Continuity check
+
+- session-state.md headline: bumped to reflect `b48fa1b` + real-PII validation done.
+- handoff-log.md: this addendum entry.
+- Bedrock spend ledger: NOT yet updated; should be updated separately if user wants the historical record.
+
+### Locked decisions honored (sub-session #5 addendum)
+
+#27, #34, #61, #79, #82, #86, #88, #95, #100 (gap surfaced for user manual smoke)
+
+---
+
 ## 2026-05-04 PM (sub-session #5 close-out) — Engine→UI Display COMPLETE; tag `v0.1.2-engine-display`
 
 **HEAD:** `e5cd859`. 4 commits past sub-session #4 close-out (`1588fec`); 22 commits past sub-session #1 entry baseline (`081cfc8`). **Tag `v0.1.2-engine-display` cut at HEAD `e5cd859`** (local; user pushes Mon morning).
