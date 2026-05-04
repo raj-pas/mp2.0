@@ -1972,6 +1972,11 @@ class ReviewWorkspaceConflictResolveView(APIView):
                 "invalidated_approvals": invalidated_sections,
             },
         )
+        # Trigger #5 (per locked #14 + #27): workspace-level conflict resolve.
+        # No-ops + emits skipped audit when workspace is un-linked (the common
+        # pre-commit case). For linked workspaces, fires against linked
+        # household → engine reads unchanged tables → REUSED via signature.
+        _trigger_and_audit_for_workspace(workspace, request.user, source="conflict_resolve")
         return Response(
             {
                 "state": version.state,
@@ -2181,6 +2186,9 @@ class ReviewWorkspaceConflictBulkResolveView(APIView):
                 },
             )
 
+        # Trigger #5 (bulk variant; per locked #14 + #27): bulk-resolve is
+        # the same trigger source as single resolve.
+        _trigger_and_audit_for_workspace(workspace, request.user, source="conflict_resolve")
         return Response(
             {
                 "state": version.state,
@@ -2312,6 +2320,8 @@ class ReviewWorkspaceConflictDeferView(APIView):
             },
         )
 
+        # Trigger #6 (per locked #14 + #27): defer-conflict workspace mutation.
+        _trigger_and_audit_for_workspace(workspace, request.user, source="defer_conflict")
         return Response(
             {
                 "state": version.state,
@@ -2433,6 +2443,8 @@ class ReviewWorkspaceFactOverrideView(APIView):
             },
         )
 
+        # Trigger #7 (per locked #14 + #27): fact-override workspace mutation.
+        _trigger_and_audit_for_workspace(workspace, request.user, source="fact_override")
         return Response(
             {
                 "override_id": override.id,
@@ -2514,6 +2526,8 @@ class ReviewWorkspaceSectionApprovalView(APIView):
                 "notes_present": bool(notes.strip()),
             },
         )
+        # Trigger #8 (per locked #14 + #27): section-approval workspace mutation.
+        _trigger_and_audit_for_workspace(workspace, request.user, source="section_approve")
         return Response(
             ReviewWorkspaceSerializer(_review_workspace_queryset().get(pk=workspace.pk)).data
         )

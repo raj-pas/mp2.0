@@ -10,13 +10,10 @@ from __future__ import annotations
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
-
 from web.api import models
 from web.api.views import (
     EngineKillSwitchBlocked,
-    InvalidCMAUniverse,
     NoActiveCMASnapshot,
-    ReviewedStateNotConstructionReady,
     _trigger_and_audit,
     _trigger_portfolio_generation,
 )

@@ -346,6 +346,102 @@ def test_optimizer_output_returns_improvement_pct() -> None:
 
 
 @pytest.mark.django_db
+def test_moves_preview_uses_calibration_when_no_portfolio_run() -> None:
+    """A3a: when no PortfolioRun exists, ideal_pct comes from SLEEVE_REF_POINTS;
+    response includes source='calibration'.
+    """
+    from django.core.management import call_command
+
+    call_command("seed_default_cma")
+    household = _seeded_household()
+    models.RiskProfile.objects.create(
+        household=household,
+        q1=5,
+        q2="B",
+        q3=["career"],
+        q4="B",
+        tolerance_score=Decimal("45.00"),
+        capacity_score=Decimal("50.00"),
+        tolerance_descriptor="Balanced",
+        capacity_descriptor="Balanced",
+        household_descriptor="Balanced",
+        score_1_5=3,
+        anchor=Decimal("22.50"),
+    )
+    client = _authenticated_client()
+    response = client.post(
+        reverse("preview-moves"),
+        {"household_id": household.external_id, "goal_id": "g_test_r1_retire"},
+        format="json",
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "calibration"
+    # SLEEVE_REF_POINTS path: moves are computed against canonical sleeves.
+
+
+@pytest.mark.django_db
+def test_moves_preview_uses_goal_rollup_when_portfolio_run_exists() -> None:
+    """A3a: when PortfolioRun.output.goal_rollups[goal] exists, ideal_pct
+    derives from the engine's per-goal rollup (canonical recommendation),
+    not SLEEVE_REF_POINTS calibration. Response source='portfolio_run'.
+    """
+    from django.core.management import call_command
+
+    call_command("seed_default_cma")
+    call_command("load_synthetic_personas")
+    household = models.Household.objects.get(external_id="hh_sandra_mike_chen")
+
+    # Trigger generation so a PortfolioRun exists with goal_rollups
+    from web.api.views import _trigger_portfolio_generation
+
+    _trigger_portfolio_generation(household, household.owner, source="manual")
+
+    client = _authenticated_client()
+    # Sandra/Mike's first goal: goal_retirement_income
+    response = client.post(
+        reverse("preview-moves"),
+        {"household_id": household.external_id, "goal_id": "goal_retirement_income"},
+        format="json",
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "portfolio_run"
+
+
+@pytest.mark.django_db
+def test_moves_preview_response_always_includes_source_field() -> None:
+    """A3a regression: source field must always be present (calibration or portfolio_run)."""
+    from django.core.management import call_command
+
+    call_command("seed_default_cma")
+    household = _seeded_household()
+    models.RiskProfile.objects.create(
+        household=household,
+        q1=5,
+        q2="B",
+        q3=["career"],
+        q4="B",
+        tolerance_score=Decimal("45.00"),
+        capacity_score=Decimal("50.00"),
+        tolerance_descriptor="Balanced",
+        capacity_descriptor="Balanced",
+        household_descriptor="Balanced",
+        score_1_5=3,
+        anchor=Decimal("22.50"),
+    )
+    client = _authenticated_client()
+    response = client.post(
+        reverse("preview-moves"),
+        {"household_id": household.external_id, "goal_id": "g_test_r1_retire"},
+        format="json",
+    )
+    assert response.status_code == 200
+    assert "source" in response.json()
+    assert response.json()["source"] in {"calibration", "portfolio_run"}
+
+
+@pytest.mark.django_db
 def test_collapse_suggestion_returns_best_score_when_below_threshold() -> None:
     from django.core.management import call_command
 

@@ -533,36 +533,62 @@ class MovesPreviewView(APIView):
         if total_amount > 0:
             current_pct = {fid: w / total_amount for fid, w in current_pct.items()}
 
-        # Use SLEEVE_REF_POINTS as the ideal mix for the goal's resolved
-        # canon score. This is calibration-grade preview, not full
-        # frontier optimization (which lives in /api/clients/.../generate-portfolio/).
-        anchor = (
-            float(household.risk_profile.anchor) if hasattr(household, "risk_profile") else 25.0
-        )
-        from web.api.engine_adapter import active_goal_override, household_aum
-
-        try:
-            resolved = effective_score_and_descriptor(
-                anchor=anchor,
-                necessity_score=goal.necessity_score,
-                goal_amount=sum(
-                    float(link.allocated_amount or 0) for link in goal.account_allocations.all()
-                ),
-                household_aum=household_aum(household),
-                horizon_years=max(
-                    (goal.target_date - household.updated_at.date()).days / 365.25, 0.25
-                ),
-                override=active_goal_override(goal),
+        # Per A3a (locked decision #6 + #5): when a PortfolioRun exists,
+        # derive ideal_pct from the engine's per-goal rollup (canonical
+        # frontier output). When absent, fall back to SLEEVE_REF_POINTS
+        # calibration. Single source of truth + advisor sees what the
+        # engine recommends, not a calibration approximation.
+        ideal_pct: dict[str, float]
+        ideal_source: str
+        latest_run = household.portfolio_runs.order_by("-created_at").first()
+        goal_rollup = None
+        if latest_run is not None and latest_run.output:
+            for rollup in latest_run.output.get("goal_rollups") or []:
+                if rollup.get("id") == goal.external_id:
+                    goal_rollup = rollup
+                    break
+        if goal_rollup is not None:
+            allocations = goal_rollup.get("allocations") or []
+            ideal_pct = {
+                alloc["sleeve_id"]: float(alloc["weight"])
+                for alloc in allocations
+                if alloc.get("sleeve_id")
+            }
+            ideal_source = "portfolio_run"
+        else:
+            anchor = (
+                float(household.risk_profile.anchor) if hasattr(household, "risk_profile") else 25.0
             )
-        except ValueError as exc:
-            return Response(safe_response_payload(exc), status=status.HTTP_400_BAD_REQUEST)
-        rep_score = int(BUCKET_REPRESENTATIVE_SCORE[resolved.score_1_5])
-        ideal_pct_int = SLEEVE_REF_POINTS[rep_score]
-        ideal_pct = {fid: pct / 100.0 for fid, pct in ideal_pct_int.items()}
+            from web.api.engine_adapter import active_goal_override, household_aum
+
+            try:
+                resolved = effective_score_and_descriptor(
+                    anchor=anchor,
+                    necessity_score=goal.necessity_score,
+                    goal_amount=sum(
+                        float(link.allocated_amount or 0) for link in goal.account_allocations.all()
+                    ),
+                    household_aum=household_aum(household),
+                    horizon_years=max(
+                        (goal.target_date - household.updated_at.date()).days / 365.25, 0.25
+                    ),
+                    override=active_goal_override(goal),
+                )
+            except ValueError as exc:
+                return Response(safe_response_payload(exc), status=status.HTTP_400_BAD_REQUEST)
+            rep_score = int(BUCKET_REPRESENTATIVE_SCORE[resolved.score_1_5])
+            ideal_pct_int = SLEEVE_REF_POINTS[rep_score]
+            ideal_pct = {fid: pct / 100.0 for fid, pct in ideal_pct_int.items()}
+            ideal_source = "calibration"
 
         if total_amount <= 0:
             return Response(
-                {"moves": [], "total_buy": 0.0, "total_sell": 0.0},
+                {
+                    "moves": [],
+                    "total_buy": 0.0,
+                    "total_sell": 0.0,
+                    "source": ideal_source,
+                },
             )
         result = compute_rebalance_moves(
             current_pct=current_pct,
@@ -570,7 +596,9 @@ class MovesPreviewView(APIView):
             goal_total_dollars=total_amount,
             fund_names=dict(FUND_NAMES),
         )
-        return Response(result.model_dump())
+        payload = result.model_dump()
+        payload["source"] = ideal_source
+        return Response(payload)
 
 
 @extend_schema(
