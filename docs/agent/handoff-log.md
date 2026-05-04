@@ -2,6 +2,64 @@
 
 ---
 
+## 2026-05-04 PM (post-tag gap-closure sub-session #1 of 3) — Phase A0 + A1 + A2 complete
+
+**HEAD:** `c5a7e02`. 3 commits past tag `v0.1.2-engine-display` at `e5cd859`.
+
+After the audit against the original 2,786-line Engine→UI Display Integration plan surfaced 5 unaddressed gaps (most notably GoalAllocationSection still showing calibration "Reference points" instead of engine's frontier-optimized blend), the user authorized a multi-sub-session production-quality gap-closure plan with 25 locked-this-session §3 decisions captured in `~/.claude/plans/i-want-you-to-jolly-beacon.md`.
+
+Sub-session #1 shipped Phases A0 + A1 + A2 (3 commits, 19 files changed, ~+1,879 / -75 lines):
+
+### Phase A0 (commit `f6e2ef8`)
+- Pre-flight verification at HEAD `1ea5338`: 854 backend pytest passing; 177 Vitest in 19 files; bundle 267.55 kB; engine probe `200/current`.
+- Fixed 2 pre-existing baseline issues: (1) OpenAPI codegen drift from c51e55d/1ea5338 wizard work — regenerated `api-types.ts`. (2) `warning` color token used in 2 places but never defined — added `warning: "#B87333"` to tailwind config.
+- Created `docs/agent/post-tag-gap-closure-starter-prompt.md` (~206 lines) per §3.8 multi-session lifecycle.
+
+### Phase A1 (commit `95dfd01`) — +18 backend tests
+- `test_portfolio_run_status_semantics.py` (NEW, 8 tests): pin all 5 `_portfolio_run_status` outputs.
+- `test_status_audit_invariants.py` (NEW, 5 Hypothesis property tests per §3.18): determinism, dedup invariant under N×M GETs (UUID-unique advisor emails per example to avoid append-only audit table dedup carryover), idempotency, PII discipline, canonical action strings.
+- `test_pre_a2_portfolio_run_compat.py` (extended): +2 backwards-compat tests per §3.16 (pre-tag households render under new statuses); +3 JSON snapshot tests per §3.21.
+- `web/api/serializers.py`: `get_status` emits `portfolio_run_integrity_alert` AuditEvent on `hash_mismatch` (rate-limited via `events.filter(...).exists()`). Routes integrity issues to engineering attention; advisor sees `IntegrityAlertOverlay` with NO Regenerate button (Phase A4). Fixed `get_latest_portfolio_run` + `get_portfolio_runs` to pass `context=self.context` for advisor-email actor extraction.
+- `web/api/views.py:551`: `ClientDetailView.get` passes `context={"request": request}` to `HouseholdDetailSerializer`.
+- `docs/agent/ops-runbook.md` §2 "Portfolio Run Integrity Alert": detection SQL queries, decision tree (recent migration / engine version drift / DB corruption), escalation criteria, recovery procedure.
+
+### Phase A2 (commit `c5a7e02`) — +18 Vitest tests
+- NEW `frontend/src/goal/SourcePill.tsx`: shared `<SourcePill>` component with engine + calibration + calibration_drag variants. `role="status"` + `aria-label`; 8-char run-signature prefix `aria-hidden`.
+- `GoalAllocationSection.tsx` refactor: engine-first read with calibration fallback. Decision tree per locked §3.1: dragging slider → calibration_drag pill; engine rollup exists → engine pill; else → calibration pill. Bars now come from `goal_rollup.allocations` (engine), not calibration.
+- `MovesPanel.tsx`: reads `query.data.source` (backend already emits) + renders shared SourcePill. Per locked §3.3.
+- `RiskSlider.tsx` + `GoalRoute.tsx`: slider drag-state lift via `onPreviewChange` callback; GoalRoute owns `isPreviewingOverride` and propagates per locked §3.7.
+- `lib/preview.ts`: typed `MovesResponse.source` field.
+- `i18n/en.json`: 4 new keys under `goal_allocation.*` namespace per §3.4 + §3.9.
+- 3 new test files: SourcePill (5 tests), GoalAllocationSection (9 tests including StrictMode per locked #64), MovesPanel (4 tests).
+
+### What was tested
+- Backend: 872 pytest passed + 2 skipped (was 854 baseline; +18 = 8 status semantics + 5 Hypothesis + 2 backwards-compat + 3 snapshots).
+- Frontend: 195 Vitest in 22 files (was 177 in 19; +18). typecheck + lint + build clean.
+- Bundle: 268.13 kB gzipped (was 267.55; +0.58 kB; under 290 kB cap per locked #85).
+- Static gates: vocab + PII + OpenAPI all OK.
+- Theme tokens verified: accent-2 + warning + danger + muted all present in tailwind.config.ts.
+
+### What didn't ship (open items)
+- Sub-session #2: Phase A3 (OptimizerOutputWidget refactor; ~75 min) + A4 (Stale-state UX with `StaleRunOverlay` + `IntegrityAlertOverlay`; ~150 min). Estimated 3-4 hr.
+- Sub-session #3: Phase A5 + A5.5 (automated regression coverage of 15 pre-existing flows) + A6 (real-Chrome smoke + dress rehearsal USER) + A7 (close-out + 2 subagent reviews + 90% coverage gate + tag v0.1.3-engine-display-polish). Estimated 5-7 hr.
+
+### What's next
+- Sub-session #2 boots via `docs/agent/post-tag-gap-closure-starter-prompt.md`. First action: §3 pre-flight (expect 872 backend + 195 Vitest + bundle ≤ 275 kB at HEAD `c5a7e02`).
+
+### Risk
+- Stale-overlay focus-trap (Phase A4) needs careful Vitest coverage to avoid keyboard-trap regression class. Plan §3.7 + locked #68 pin the contract; Phase A4 has 10 dedicated Vitest tests.
+
+### Bedrock $ delta
+- $0 (synthetic Sandra/Mike only).
+
+### Continuity check
+- session-state.md headline updated: yes (this commit)
+- handoff-log appended: yes (this entry)
+- post-tag-gap-closure-starter-prompt.md: created A0, deletes A7
+- MEMORY.md updated: not yet (waiting for sub-session #3 close-out per §X.1 — only updates at sub-session boundaries when state changes materially)
+
+---
+
 ## 2026-05-04 PM (sub-session #5 ADDENDUM) — Real-PII validation + visual baselines stabilized + dress rehearsal latency probe
 
 **HEAD:** `b48fa1b` (post-tag close-out + baseline regen). Tag `v0.1.2-engine-display` at `e5cd859` unchanged.
