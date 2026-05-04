@@ -35,7 +35,7 @@ export function AdvisorSummaryPanel({ household, goalId }: AdvisorSummaryPanelPr
         id={`advisor-summary-${goalId}`}
         className="font-mono text-[11px] uppercase tracking-widest text-muted mb-3"
       >
-        {t("goal.advisor_summary_title")}
+        {t("routes.goal.advisor_summary_title")}
       </h3>
       <div className="space-y-3">
         {links.map((link, idx) => (

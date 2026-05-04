@@ -152,7 +152,9 @@ def test_household_with_failure_renders_latest_portfolio_failure(settings) -> No
     models.PortfolioRun.objects.filter(household=hh).delete()
 
     # Manually emit a portfolio_generation_post_<source>_failed audit
-    # mirroring the shape `_trigger_and_audit`'s catch-all produces.
+    # mirroring the shape `_trigger_and_audit`'s catch-all produces via
+    # `safe_audit_metadata`: the PII-safe `failure_code` is the exception
+    # class name, NOT the raw exception message.
     AuditEvent.objects.create(
         action="portfolio_generation_post_review_commit_failed",
         entity_type="household",
@@ -161,7 +163,7 @@ def test_household_with_failure_renders_latest_portfolio_failure(settings) -> No
         metadata={
             "source": "review_commit",
             "household_id": hh.external_id,
-            "failure_summary": "RuntimeError: synthetic failure for shape test",
+            "failure_code": "RuntimeError",
         },
     )
 
@@ -190,8 +192,11 @@ def test_household_with_failure_renders_latest_portfolio_failure(settings) -> No
     }, f"Unexpected key set in failure dict: {sorted(failure.keys())}"
 
     assert failure["action"] == "portfolio_generation_post_review_commit_failed"
-    assert failure["reason_code"] == "review_commit"
-    assert "synthetic failure for shape test" in failure["exception_summary"]
+    # reason_code surfaces the PII-safe exception class name (per safe_audit_metadata),
+    # NOT the trigger source. Frontend Banner / Panel display this as user-facing reason.
+    assert failure["reason_code"] == "RuntimeError"
+    # exception_summary is an alias for the same failure_code value (back-compat).
+    assert failure["exception_summary"] == "RuntimeError"
     assert failure["occurred_at"] is not None
     # ISO-8601 timestamp: must be parseable.
     from datetime import datetime

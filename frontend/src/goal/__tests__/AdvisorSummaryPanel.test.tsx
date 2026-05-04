@@ -165,7 +165,7 @@ describe("AdvisorSummaryPanel", () => {
     );
     // i18n stub: t() returns the key
     expect(
-      screen.getByRole("heading", { level: 3, name: "goal.advisor_summary_title" }),
+      screen.getByRole("heading", { level: 3, name: "routes.goal.advisor_summary_title" }),
     ).toBeInTheDocument();
   });
 });

@@ -168,11 +168,17 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
         )
         if failure is None:
             return None
+        # Production audit metadata uses safe_audit_metadata which writes
+        # `failure_code` (PII-safe exception class name like "RuntimeError"
+        # or "InvalidCMAUniverse"). Frontend Banner / Panel display this as
+        # the user-facing reason. `source` (review_commit / wizard_commit
+        # / etc.) is the trigger source — NOT a useful failure reason for
+        # advisor copy.
+        failure_code = failure.metadata.get("failure_code") or "unknown"
         return {
             "action": failure.action,
-            "reason_code": failure.metadata.get("source", "unknown"),
-            "exception_summary": failure.metadata.get("failure_summary")
-            or failure.metadata.get("exception_summary", ""),
+            "reason_code": failure_code,
+            "exception_summary": failure_code,  # alias for back-compat
             "occurred_at": failure.created_at.isoformat() if failure.created_at else None,
         }
 

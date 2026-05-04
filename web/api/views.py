@@ -603,9 +603,12 @@ class GeneratePortfolioView(APIView):
                 household=household,
                 actor=_actor(request),
                 reason_code="reviewed_state_not_ready",
-                metadata={"household_id": household.external_id, "detail": str(exc)},
+                metadata=safe_audit_metadata(exc, household_id=household.external_id),
             )
-            return Response({"detail": str(exc)}, status=400)
+            return Response(
+                safe_response_payload(exc, hint="reviewed_state_not_ready"),
+                status=400,
+            )
         except MissingProvenance as exc:
             _record_portfolio_event(
                 event_type=models.PortfolioRunEvent.EventType.GENERATION_FAILED,
