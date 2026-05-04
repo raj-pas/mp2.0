@@ -4426,3 +4426,119 @@ All new code + doc additions adhere to canon §11.8.3:
 
 `feature/ux-rebuild` is now ahead of `origin` by 7 commits past
 the starter-prompt baseline.
+
+## 2026-05-03 (sub-session #11 deferred-work — verification pass) — 3 real gaps closed after user pushback
+
+**HEAD before:** `5cb91c0` (close-out doc commit; cost-key bug
+hadn't been discovered yet)
+**HEAD after:** `b887b18` (StrictMode regression test added)
+
+Two rounds of "Is everything done?" from the user surfaced gaps
+the automated gates didn't catch. Three real issues fixed across
+two follow-up commits:
+
+### Issue 1 — R10 sweep cost-key bug (HEAD `2bd77d3`)
+
+Live R10 7-folder sweep finished + appended a results table with
+$0.0000 in every row. Root cause: the script read
+``processing_metadata.bedrock_cost_estimate_usd`` but the
+pipeline stores those fields nested under
+``processing_metadata.extraction.*``. The unit tests passed
+because the mocks used the FLAT shape; the live payload uses the
+NESTED shape.
+
+Fix: new ``_doc_extraction_meta`` helper centralizes the key-path
+across the polling-loop ceiling check, the summary builder, and
+the post-loop totals. Recomputed the actual numbers from DB:
+**56/56 reconciled, 1,122 facts, $0.8639 spend** (max single-doc
+cost ~$0.04; well under the $0.50 stop-condition).
+
+### Issue 2 — DocDropOverlay StrictMode-double-update regression (HEAD `bca0112`)
+
+Tier 3 polish bundle B's ``admitFiles`` rewrote pushed into
+closure-captured ``accepted``/``ignored`` arrays INSIDE the
+``setFiles((prev) => …)`` updater. React 18 StrictMode invokes
+the updater twice in dev, so a single dropped file produced two
+entries in the picker — visible as "2 files ready to upload" in
+the foundation R7 e2e page snapshot.
+
+Same FileList-race class from R7 history. Fix moves dedup +
+classification OUTSIDE the updater + uses a pure spread
+``(prev) => [...prev, ...accepted]``. Toast logic also runs
+outside.
+
+Caught by foundation R7 e2e (which I had skipped in the initial
+close-out, trusting subagent-reported Vitest gates). Foundation
+spec now 13/13 passing.
+
+### Issue 3 — DocDropOverlay had no Vitest coverage (HEAD `b887b18`)
+
+The StrictMode regression was missed by all subagent gates
+because there was no DocDropOverlay.test.tsx — the bundle B
+agent didn't add one. Added 3 Vitest cases that mount the
+component inside ``<StrictMode>`` and assert:
+- one input → exactly one file in picker (StrictMode-safe)
+- identical consecutive drops dedup'd via (name + size) key
+- files > MAX_FILE_BYTES rejected silently
+
+Frontend Vitest: 79 → 82.
+
+### Two stale e2e selectors fixed (in `bca0112`)
+
+Sub-session #10's i18n placeholder change ("Patel & Singh" →
+"Yeager Household") at HEAD ``35a7eba`` left foundation
+``getByPlaceholder(/Patel/i)`` selectors stale. R5 wizard + R7
+doc-drop both broke. Updated both to match current copy.
+
+### Gate suite at HEAD ``b887b18``
+
+- 854 backend pytest passing (was 848, +6 nested-key bug
+  coverage in test_r10_sweep.py)
+- 7 skipped (unchanged)
+- 82 frontend Vitest passing (was 79, +3 DocDropOverlay
+  StrictMode cases)
+- 13/13 foundation Playwright e2e (was 11/13 before
+  bca0112's i18n + StrictMode fixes)
+- 10/10 cross-browser smoke (webkit + firefox unchanged)
+- ruff check + format clean
+- PII grep + vocab CI + OpenAPI codegen drift gate green
+
+### Honest meta-call
+
+User's pushback was the right pushback. Three real gaps closed.
+Two rounds of "Is everything done?" each surfaced a regression
+the automated gates didn't see:
+- First round: subagent-reported "all gates pass" missed the
+  R10 sweep cost-key bug because mocks were flat-shape.
+- Second round: subagent-reported "all gates pass" missed the
+  DocDropOverlay StrictMode regression because there was no
+  DocDropOverlay.test.tsx + foundation e2e wasn't re-run after
+  Tier 3 polish.
+
+The pattern: **subagent gates pass against the test fixtures
+the subagent itself wrote.** They don't catch regressions in
+existing higher-level tests (Playwright e2e) or shape drifts in
+production payloads. Future sub-sessions: re-run the FULL
+foundation e2e after any frontend touch + verify Vitest mocks
+mirror production payload shapes.
+
+### Final state for Mon push
+
+`feature/ux-rebuild` is now ahead of `origin` by **9 commits**
+past the starter-prompt baseline ``8bb96c0``:
+
+```
+b887b18 test: DocDropOverlay StrictMode tests pin the admitFiles fix
+bca0112 fix: DocDropOverlay StrictMode-double-update + foundation e2e + R10 nested-key tests
+2bd77d3 R10 sweep: live run results + cost-key bug fix + recomputed totals
+df6363f docs: correct test counts in handoff log
+1428555 test: tooltip wrapper smoke tests
+5cb91c0 docs: handoff-log entry for sub-session #11 deferred-work follow-up
+cb408cc test: 15 unit tests for R10 sweep automation helpers
+f86dcfd Sub-session #11 deferred work closed: R10 sweep + cross-browser + Tier 3 polish
+af627b3 Sub-session #11: Tier 2 high-leverage items + close-out
+```
+
+Demo state preserved: 7 sweep workspaces in ``review_ready`` +
+Sandra/Mike + 3 prior committed households. Operator runs the
+demo restore Mon morning per ``docs/agent/demo-restore-runbook.md``.
