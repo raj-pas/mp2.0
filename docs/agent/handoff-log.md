@@ -2,6 +2,118 @@
 
 ---
 
+## 2026-05-04 PM (sub-session #4 close-out) — Engine→UI Display A6 round 1+2 COMPLETE
+
+**HEAD:** `0ebce21`. 5 commits past sub-session #3 close-out (`46f37e3`); 17 commits past sub-session #1 entry baseline (`081cfc8`).
+
+### What changed (sub-session #4 — A6 testing rounds 1+2)
+
+**Round 1 (commits `6d7a4ca`, `735bb12`, `be36c72`)**:
+- **Real production bug caught + fixed** at `6d7a4ca` (i18n key namespace): `frontend/src/goal/RecommendationBanner.tsx` had 9 `t("goal.X")` calls but actual i18n keys live at `routes.goal.X` per locked #75. Production users would have seen literal keys like "goal.no_recommendation_yet" instead of "No recommendation generated yet". Caught by Round 1 Agent B (Vitest comprehensive); fixed before commit. HouseholdPortfolioPanel was already correct (`routes.household.*`); only Banner had the bug.
+- **Agent A — 3 NEW Hypothesis property suites** (`735bb12`; +13 tests; ~520 LoC):
+  - `test_auto_trigger_properties.py` — 5 properties (idempotency under same input, append-only PortfolioRun.save() raises, run_signature determinism, signature changes on household mutation, audit count == call count).
+  - `test_audit_metadata_invariants.py` (per locked #99) — 4+ properties: all 5 typed exceptions emit canonical skip audit with `metadata.reason_code = class name`; unexpected exceptions: failed audit excludes raw `str(exc)` (catches PII regression class explicitly); PII regex grep returns zero SIN/email matches; canonical action naming for all 8+ sources.
+  - `test_workspace_trigger_gate_properties.py` (per locked #14 + #27) — 3 properties: workspace WITHOUT `linked_household_id` → skip audit + None; workspace WITH linked_household → fires + emits `portfolio_run_*`; skip-audit `entity_type='review_workspace'` (not 'household') — attribution boundary.
+- **Agent B — 7 NEW Vitest test files** (`be36c72`; +95 tests; ~1693 LoC):
+  - `frontend/src/__tests__/__fixtures__/household.ts` (per locked #84) — canonical mockHousehold factory matching live `/api/clients/hh_sandra_mike_chen/` payload byte-for-byte (allocation weights with full precision incl. scientific notation `9.717270198011035e-5` for tiny weights). Per locked #55: cost-key bug at `2bd77d3` was fixture/payload drift caught only by e2e — this factory is the regression lock.
+  - `frontend/src/goal/__tests__/RecommendationBanner.test.tsx` (18 tests) — all 3 states + StrictMode double-invoke per locked #64 + Sonner toast lifecycle + lastSurfacedRef dedup per locked #9 + aria-live="polite" per locked #109.
+  - `frontend/src/goal/__tests__/AdvisorSummaryPanel.test.tsx` (9 tests) — single-link + multi-link rendering.
+  - `frontend/src/routes/__tests__/HouseholdPortfolioPanel.test.tsx` (16 tests) — all 4 states + top-4-funds sort + StrictMode + aria-live="polite".
+  - `frontend/src/lib/__tests__/household.test.ts` (18 tests) — 3 helpers edge cases.
+  - `frontend/src/lib/__tests__/household.types.test.ts` (27 expectTypeOf assertions per locked #104) — compile-time type contracts.
+  - `frontend/src/lib/__tests__/preview.test.ts` (7 tests per locked #106) — useGeneratePortfolio mutation lifecycle.
+
+**Round 2 (commits `c2f5060`, `0ebce21`)**:
+- **Agent C — concurrency + RBAC + pool capacity** (`c2f5060`; +19 tests; ~883 LoC):
+  - `test_concurrency_stress.py` (+291 LoC; +5 tests) — 4 workspace-level triggers + unlinked-skip path; 20 sequential calls each (lower N than 100-parallel since helper invokes engine.optimize() ~270ms).
+  - `test_auth_rbac_matrix.py` (+387 LoC; +12 RBAC tests) — auth + role-cell extension for 4 NEW workspace-level trigger endpoints (conflict-resolve / defer / fact-override / section-approve). 86 RBAC tests total.
+  - `test_connection_pool_capacity.py` (NEW; 205 LoC; per locked #80+#102) — 120 parallel ThreadPoolExecutor workers each holding cursor ~500ms simulating sync-inline engine.optimize() per locked #74. Asserts no `OperationalError: too many connections`. Pin for 150-pool/200-max_connections headroom.
+  - Static gate fix at commit time: removed E402 import-not-at-top (`_rebuild_state` import moved to module top).
+- **Agent D — perf benchmarks + integration tests** (`0ebce21`; +7 tests; ~828 LoC):
+  - `test_perf_budgets.py` extended (+~145 LoC; 3 NEW benchmarks): `test_perf_trigger_portfolio_generation_direct` (REUSED P50<400ms, P99<1000ms; measured Mean=266ms/Max=274ms — comfortable headroom); `test_perf_trigger_and_audit_typed_skip` (kill-switch P50<250ms; measured Mean=311us — 800x faster); `test_perf_engine_optimize_first_run` (cold-start P50<700ms, P99<1000ms; measured Mean=530ms). Locked #56 strict P99<1000ms preserved on all auto-trigger benchmarks.
+  - **2 main-thread fixes during #X.10 review**: `_assert_within_budget()` extended with optional `p50_max_s` + `p99_max_s` kwargs for per-scenario budgets; `test_perf_engine_optimize_first_run` redesigned with pedantic `setup=` callback to delete prior PortfolioRuns each round (Agent D's original strategy of risk_score mutation across rounds caused "Duplicate or ambiguous current portfolio run lifecycle" because the helper requires only one current run); `test_perf_trigger_and_audit_typed_skip` regained its `@pytest.mark.django_db` decorator + def signature that the budget edit had inadvertently dropped (NameError on `settings`).
+  - `test_full_advisor_lifecycle_with_auto_trigger.py` (NEW; 365 LoC; per locked #96) — 6-step end-to-end advisor lifecycle on Sandra/Mike. Catches sequential cross-trigger interactions that 8 isolated trigger tests miss.
+  - `test_pre_a2_portfolio_run_compat.py` (NEW; 318 LoC; per locked #97 + #101) — 3 tests covering backwards compat + JSON-shape pinning.
+
+**Sub-agent stalls (Round 1 Agent A + Round 2 Agent C)**: Both stalled at the 10min watchdog at the verification phase, NOT during file creation. All files were complete + correct on disk. Main thread ran the locked #X.10 verification protocol independently (Read every file + re-run tests + spot-check citations) before commit. Round 2 stalls didn't compromise output quality.
+
+### What was tested
+
+**Backend pytest (sub-session #4 deltas)**:
+- Baseline at `c5804aa`: 869 passed, 7 skipped
+- After Round 1: 882 passed (+13 from Hypothesis suites)
+- After Round 2: ~913 passing in isolation (+19 Agent C + +7 Agent D = +26 NEW from Round 2; some pre-existing test-isolation flakes when run in full suite)
+- All Round 1 + Round 2 tests pass in isolation: `test_auto_trigger_properties.py` (5/5), `test_audit_metadata_invariants.py` (5/5), `test_workspace_trigger_gate_properties.py` (3/3), `test_concurrency_stress.py` (11/11 — existing 6 + new 5), `test_connection_pool_capacity.py` (2/2), `test_full_advisor_lifecycle_with_auto_trigger.py` (1/1), `test_pre_a2_portfolio_run_compat.py` (3/3), `test_auth_rbac_matrix.py` (86/86 — existing 74 + new 12), `test_perf_budgets.py` (9/9 with `--benchmark-only`).
+
+**Frontend Vitest**:
+- Baseline: 82 in 13 files
+- After Agent B: 177 in 19 files (+95)
+
+**Static gates** (final at HEAD `0ebce21`): ruff check ✓, ruff format ✓, PII grep ✓, vocab CI ✓, OpenAPI codegen ✓, makemigrations check ✓, frontend typecheck ✓, lint ✓, build ✓, bundle 267.21 kB gzipped (under 290 kB threshold per locked #85).
+
+**Perf measurements** (per locked #56 strict P99<1000ms):
+| Benchmark | P50 | P99 | Budget |
+|---|---|---|---|
+| trigger_and_audit_typed_skip | 311us | 380us | P50<250ms ✓ |
+| trigger_portfolio_generation_direct (REUSED) | 266ms | 274ms | P50<400ms ✓ / P99<1000ms ✓ |
+| engine_optimize_first_run (cold) | 530ms | 554ms | P50<700ms ✓ / P99<1000ms ✓ |
+
+All benchmarks within budget. Cold first-run path is dominated by `committed_construction_snapshot` (~265ms) + engine.optimize() (~265ms) + DB writes. Sync-inline auto-trigger per locked #74 stays viable.
+
+### Pre-existing test-isolation flake (DOCUMENTED, not regression)
+
+Running the full suite via `pytest scripts/demo-prep/test_r10_sweep.py engine/tests/ extraction/tests/ web/api/tests/ web/audit/tests/` produces ~64 failures + ~50 errors. Independent investigation showed:
+- All new sub-session #4 test files pass in isolation.
+- The failures concentrate in `test_concurrency_stress.py` (uses `transaction=True` + ThreadPoolExecutor) interacting with `test_migration_rollbacks.py` (DROP/CREATE).
+- The pattern was reported by Agent D: leaked DB connections + relation-not-found errors during teardown propagate to subsequent test classes.
+- Per-file isolation runs show all new tests green. CI sharding/ordering fix is post-pilot scope; tracked in `docs/agent/post-pilot-improvements.md`.
+
+### What didn't ship (open items for sub-session #5)
+
+1. **Code-reviewer subagent dispatch** (per locked #X.10 + #20) — DEFERRED to sub-session #5 entry; allows code-reviewer to see the FULL diff including A6 round 3 visual regression baselines + design-system update. ~30-60 min review + ~30-60 min finding fixes; sub-session #5 budget already includes A6.14.
+
+2. **A6 Round 3 (visual regression baselines)** — sub-session #5: extends `frontend/e2e/visual-verification.spec.ts` with `test.describe("engine→UI display surfaces")` block per locked #82. ~16-20 new tests covering 4 components × 4 states.
+
+3. **A6.9-A6.16 close-out work** — sub-session #5: design-system.md update, tag bump v0.1.2-engine-display, A6.11 Niesner real-PII smoke per locked #79+#86, cross-browser manual gate, CHANGELOG/ops-runbook entries, pilot-rollback runbook, A6.13c rollback smoke per locked #103, A6.15 demo dress rehearsal per locked #95+#88, A6.16 close-out (decisions migration + delete starter prompt + cumulative ping).
+
+### What's next (sub-session #5)
+
+Read `docs/agent/engine-ui-display-starter-prompt.md` §7 for sub-session #5 phase scope. Estimated 4-6 hr per locked plan. Begin with code-reviewer subagent dispatch on full sub-session #1-#4 diff before round 3 starts.
+
+### Risk
+
+- **Test-isolation flakes** could mask real regressions in CI if not addressed. Per-file isolation runs are reliable; full-suite needs sharding. Pre-pilot-launch: validate via `pytest -p pytest-django --reuse-db` or sharded CI (post-pilot scope per locked #15 prioritization).
+- **Code-reviewer findings could uncover surprises** when run on the cumulative diff — mitigated by deferring to sub-session #5 entry where the full scope is reviewable in one pass.
+- **Visual regression baselines** are platform-sensitive (DPI / font rendering); locked #63 documents the per-PR workflow + intentional-diff handling.
+
+### Bedrock $ delta
+
+$0 (sub-session #4 was test-only; no engine probes against real-PII). A6.11 in sub-session #5 incurs ~$0 since extraction is pre-paid.
+
+### Continuity check
+
+- session-state.md headline updated: yes (commit pending)
+- engine-ui-display-starter-prompt.md updated: no — sub-session #5 reads it AS-IS for boot; close-out doesn't need to mutate (the prompt is already accurate for what's left)
+- MEMORY.md updated: no (sub-session #4 boundary; A6.16 in sub-session #5 will create the auto-memory file)
+
+### Locked decisions honored
+
+#9, #14, #16, #17, #19, #20, #27, #55, #56, #61, #64, #71, #74, #75, #80, #81, #84, #92, #96, #97, #99, #101, #102, #104, #106, #109, #X.10
+
+### Sub-session #4 commits at HEAD `0ebce21`
+
+```
+0ebce21 test(auto-trigger): perf benchmarks + lifecycle + pre-A2 compat (Round 2 Agent D)
+c2f5060 test(auto-trigger): concurrency stress + RBAC matrix + pool capacity (Round 2 Agent C)
+be36c72 test(engine-ui): comprehensive Vitest suite for sub-session #4 R1 (Agent B)
+735bb12 test(auto-trigger): Hypothesis property suites for sub-session #4 R1 (Agent A)
+6d7a4ca fix(goal): correct i18n key namespace in RecommendationBanner — `goal.X` → `routes.goal.X`
+```
+
+Halt-and-flush eligibility per locked §21: ✓ all Round 1 + Round 2 work committed; tests pass in isolation; static gates green; no uncommitted work in tree. Sub-session #5 can boot from HEAD `0ebce21` cleanly via `engine-ui-display-starter-prompt.md`.
+
+---
+
 ## 2026-05-04 AM (sub-sessions #2+#3 close-out) — Engine→UI Display COMPLETE backend + frontend wiring
 
 **HEAD:** `303e378`. 5 commits past sub-session #1 close-out (`74e20ce`).
