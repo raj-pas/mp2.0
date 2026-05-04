@@ -244,7 +244,7 @@ test.describe("R5 wizard onboarding", () => {
     // Step 1 — identity
     const stamp = Date.now();
     const householdName = `R5 Smoke Wizard ${stamp}`;
-    await page.getByPlaceholder(/Patel & Singh/i).fill(householdName);
+    await page.getByPlaceholder(/Yeager Household/i).fill(householdName);
     // Member 1 inputs
     const memberInputs = page.locator('input[name^="members."]');
     await memberInputs.nth(0).fill("Smoke Smith");
@@ -356,7 +356,7 @@ test.describe("R7 doc-drop + review queue", () => {
     // Fill workspace label + ensure synthetic origin is selected.
     const stamp = Date.now();
     const label = `R7 e2e doc-drop ${stamp}`;
-    await page.getByPlaceholder(/Patel onboarding/i).fill(label);
+    await page.getByPlaceholder(/Yeager Household/i).fill(label);
 
     // Pick a synthetic file from the test runner (write a tiny temp file
     // and use the hidden file input that DocDropOverlay surfaces).

@@ -99,28 +99,37 @@ export function DocDropOverlay({ onWorkspaceReady }: DocDropOverlayProps) {
 
   function admitFiles(incoming: File[]) {
     if (incoming.length === 0) return;
-    const ignored: IgnoredPickEntry[] = [];
+    // CRITICAL — do not mutate closure-captured arrays inside the
+    // setFiles updater. React 18 StrictMode invokes the updater
+    // twice in dev to surface impurities, and any push() into an
+    // outer-scope `accepted`/`ignored` would double-count (same
+    // FileList-race class from R7 history, regressed by Tier 3
+    // polish bundle B in this session and surfaced by foundation
+    // R7 e2e on 2026-05-03).
+    //
+    // Pattern: classify against the at-call-time `files` snapshot
+    // (closure-captured in the function scope, not the updater),
+    // produce immutable `accepted` + `ignored` lists, then pass
+    // the pure `accepted` list into the updater.
+    const seen = new Set(files.map((f) => `${f.name}::${f.size}`));
     const accepted: File[] = [];
-    setFiles((prev) => {
-      // Dup detection: filename + size pair against the picker's
-      // current set. Avoids the "double-drop the same file" mistake
-      // before any server round-trip.
-      const seen = new Set(prev.map((f) => `${f.name}::${f.size}`));
-      for (const file of incoming) {
-        const key = `${file.name}::${file.size}`;
-        if (seen.has(key)) {
-          ignored.push({ filename: file.name, reason: "duplicate", size: file.size });
-          continue;
-        }
-        if (file.size > MAX_FILE_BYTES) {
-          ignored.push({ filename: file.name, reason: "too_large", size: file.size });
-          continue;
-        }
-        seen.add(key);
-        accepted.push(file);
+    const ignored: IgnoredPickEntry[] = [];
+    for (const file of incoming) {
+      const key = `${file.name}::${file.size}`;
+      if (seen.has(key)) {
+        ignored.push({ filename: file.name, reason: "duplicate", size: file.size });
+        continue;
       }
-      return [...prev, ...accepted];
-    });
+      if (file.size > MAX_FILE_BYTES) {
+        ignored.push({ filename: file.name, reason: "too_large", size: file.size });
+        continue;
+      }
+      seen.add(key);
+      accepted.push(file);
+    }
+    if (accepted.length > 0) {
+      setFiles((prev) => [...prev, ...accepted]);
+    }
     if (ignored.length > 0) {
       const tooLarge = ignored.filter((e) => e.reason === "too_large");
       const duplicates = ignored.filter((e) => e.reason === "duplicate");
