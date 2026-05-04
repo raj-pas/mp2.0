@@ -95,12 +95,23 @@ def test_trigger_and_audit_typed_skip_emits_audit_returns_none(settings):
 
 @pytest.mark.django_db
 def test_trigger_and_audit_success_emits_portfolio_run_generated_audit():
-    """Per locked #16: success emits canonical `portfolio_run_generated` action."""
+    """Per locked #16: success emits canonical `portfolio_run_generated` action.
+
+    A5 note: load_synthetic_personas now auto-seeds a PortfolioRun with
+    source='synthetic_load'. Same-signature subsequent calls hit REUSED
+    path, not GENERATED. To exercise GENERATED path: load bootstrap, then
+    invalidate the existing run by mutating household risk so signature
+    differs.
+    """
     hh = _bootstrap_full_demo()
     user = _make_user()
+    # Mutate household_risk_score to force a new run_signature
+    hh.household_risk_score = 4 if hh.household_risk_score != 4 else 5
+    hh.save(update_fields=["household_risk_score"])
     result = _trigger_and_audit(hh, user, source="review_commit")
     assert isinstance(result, models.PortfolioRun)
     # Generated audit emitted with metadata.source captured per locked #16
+    # (Filter to only the latest run; synthetic_load also produced one.)
     generated_events = AuditEvent.objects.filter(
         action="portfolio_run_generated",
         entity_id=result.external_id,
