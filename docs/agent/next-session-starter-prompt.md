@@ -1,625 +1,1153 @@
-# Next-Session Starter Prompt — Sub-sessions #8 → #11 (Pilot-quality close-out)
+# Next-Session Starter Prompt
 
-**Use this verbatim.** Copy from BEGIN to END into the next session;
-the agent has no memory of the prior session.
+**Authored:** 2026-05-03 (HEAD `b14a199`, branch `feature/ux-rebuild`)
+**Audience:** the next Claude Code session — fresh agent, no carry-over context
+**Purpose:** bring you up to speed on MP2.0's state, vision, and the work that lands Mon-Wed 2026-05-04 → 2026-05-08
+
+This prompt is **load-bearing**. Read it carefully. Three independent
+"Is everything done?" challenges from the user during the prior
+session each surfaced a real production bug that automated gates
+missed. Your default posture is honest audit, not confident
+restatement.
 
 ---
 
-BEGIN
+## 1. Five-second context
 
-You are continuing the **MP2.0 beta-pilot hardening** — a multi-sub-
-session engineering effort to ship production-grade software for
-Steadyhand's 3-5 advisor limited-beta pilot.
+You are continuing the **MP2.0 limited-beta pilot release** for
+Steadyhand Investment Counsel. MP2.0 is an advisor-facing console
+that:
+
+- Replaces manual intake with **AI document extraction** (Bedrock
+  ca-central-1, tool-use API, Sonnet 4.6) feeding a structured
+  reviewed-state.
+- Surfaces **multi-source conflicts** to the advisor for resolution
+  before commit.
+- Drives an **engine-as-library** portfolio optimizer that produces
+  goal-account-link recommendations (link-first contract).
+- Captures every advisor decision in an **append-only audit trail**.
+
+You are the technical lead. The user is **Saranyaraj Rajendran**.
+Collaborators: Fraser (product), Lori (compliance/vocab), Amitha
+(canon), Raj (ops). Pilot is **3-5 Steadyhand advisors on real
+client data** for ~2 weeks beginning 2026-05-08.
 
 **Hard deadlines:**
-- Demo to CEO + CPO: Mon 2026-05-04
-- Limited-beta pilot release: Mon 2026-05-08
+- Demo to CEO + CPO: **Mon 2026-05-04**
+- Limited-beta pilot release: **Mon 2026-05-08**
 
-**Branch:** `feature/ux-rebuild` (cut from `main` for v36 UI/UX rewrite)
-**Tag at last sub-session boundary:** `v0.1.0-pilot` at `d2abfa1`
-**HEAD at session start:** `59fed18` (sub-session #8 plan + tracking foundation)
-
-The user is **Saranyaraj Rajendran** (technical lead at Purpose Inc.),
-collaborating with Fraser/Lori/Amitha/Raj. Real-PII pilot data lives
-at `/Users/saranyaraj/Documents/MP2.0_Clients/` (7 folders:
-Gumprich, Herman, McPhalen, Niesner, Schlotfeldt, Seltzer, Weryha).
-
-Auto mode is active. Execute autonomously. Minimize interruptions.
-Halt + `AskUserQuestion` only on the locked stop-points (§7 below).
+**Do NOT push during this session.** The user pushes Mon morning
+per locked direction. Branch is `feature/ux-rebuild`, ahead of
+`origin` by **16 commits past the prior starter-prompt baseline
+(`8bb96c0`)** + 92 commits past `main`.
 
 ---
 
-## 0. Pre-flight verification (do this BEFORE anything else)
+## 2. Pre-flight — run these before any code change
 
 ```bash
 cd /Users/saranyaraj/Projects/github-repo/mp2.0
 
-# Branch + HEAD
+# 1. Branch + HEAD
 git status --short --branch          # expect: feature/ux-rebuild, clean
-git log --oneline -5                 # newest at top
-# Expected: 59fed18 docs: sub-sessions #8-#11 roadmap + project tracking foundation
-#           9d03013 docs: cumulative handoff for sub-sessions #3-#7
-#           3d16134 Phase 7 e2e validation: live-stack passes + 1 a11y bug fixed
-#           4864759 Phase 6.9 + monitoring: perf budget gate + JSON logging + request-id
-#           d90cd6f Phase 6 deep tests + 2 pilot-grade bug fixes (subagent-parallel)
+git log --oneline -5
+# Expected newest:
+#   b14a199 visual-verification: full-checklist alignment + FeedbackModal Esc fix
+#   efbe58d e2e: comprehensive visual-verification spec (17 tests, 17/17 pass)
+#   95af4b5 docs: handoff log addendum for the verification-pass gaps
+#   b887b18 test: DocDropOverlay StrictMode tests pin the admitFiles fix
+#   bca0112 fix: DocDropOverlay StrictMode-double-update + foundation e2e + R10 nested-key tests
 
 git tag -l "v0.1.0*"                 # expect: v0.1.0-pilot
 
-# Backend gate suite
+# 2. Backend gate suite (~2 min)
 DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 \
-  uv run python -m pytest engine/tests/ extraction/tests/ web/api/tests/ web/audit/tests/ \
-  --tb=no -p no:warnings --benchmark-disable
-# expect: 786 passed, 6 skipped (perf-bench under --benchmark-disable)
+  uv run python -m pytest \
+    scripts/demo-prep/test_r10_sweep.py \
+    engine/tests/ extraction/tests/ web/api/tests/ web/audit/tests/ \
+    --tb=no -p no:warnings --benchmark-disable
+# expect: 854 passed, 7 skipped
 
-uv run ruff check . && uv run ruff format --check .
+uv run ruff check .
+uv run ruff format --check .
 bash scripts/check-pii-leaks.sh      # expect: PII grep guard: OK
 bash scripts/check-vocab.sh          # expect: vocab CI: OK
 bash scripts/check-openapi-codegen.sh  # expect: OpenAPI codegen gate: OK
 DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 \
   uv run python web/manage.py makemigrations --check --dry-run
 
-# Frontend gates
-cd frontend && npm run typecheck && npm run lint && npm run build && npm run test:unit
-# expect: typecheck/lint/build clean; 40 Vitest passing
+# 3. Frontend gates (~30s)
+cd frontend
+npm run typecheck && npm run lint && npm run build && npm run test:unit
+# expect: typecheck/lint/build clean; 82 Vitest passing in 13 files
 cd ..
 
-# Live stack
-docker compose ps                    # expect: backend + db running, both up
-curl -s -o /dev/null -w "backend: %{http_code}\nfrontend: " http://localhost:8000/api/session/
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost:5173/
+# 4. Live stack (Docker)
+docker compose ps                    # expect: backend + db running
+curl -s -o /dev/null -w "backend: %{http_code}\n" http://localhost:8000/api/session/
+curl -s -o /dev/null -w "frontend: %{http_code}\n" http://localhost:5173/
 # expect: 200 / 200
 
-# Env
+# 5. Playwright e2e (foundation + cross-browser + visual; ~2 min)
+cd frontend
+set -a && source ../.env && set +a
+PLAYWRIGHT_BASE_URL=http://localhost:5173 \
+  MP20_LOCAL_ADMIN_PASSWORD=change-this-local-password \
+  npx playwright test --project=chromium e2e/foundation.spec.ts e2e/visual-verification.spec.ts --reporter=line
+# expect: 13 + 24 = 37 passed
+PLAYWRIGHT_BASE_URL=http://localhost:5173 \
+  MP20_LOCAL_ADMIN_PASSWORD=change-this-local-password \
+  npx playwright test --project=webkit --project=firefox e2e/cross-browser-smoke.spec.ts --reporter=line
+# expect: 10 passed
+cd ..
+
+# 6. Env + secure root
 echo "MP20_SECURE_DATA_ROOT=$MP20_SECURE_DATA_ROOT"
 ls /Users/saranyaraj/Documents/MP2.0_Clients/ | head -8
-# expect: secure root set; 7 client folders present
+# expect: secure root resolvable; 7 client folders present
 ```
 
-If ANY check is red BEFORE you change anything, halt and ping the
-user — environment is wrong.
+**If ANY check is red BEFORE you change anything, halt and ping
+the user.** Environment is wrong; do not "fix" it under autopilot.
+
+Total tests when all green: **983 passing** = 854 backend + 82
+Vitest + 13 foundation + 10 cross-browser + 24 visual.
 
 ---
 
-## 1. Read in this order (load-bearing)
+## 3. Read in this order
 
-These docs are the source of truth. If anything in this prompt
-conflicts with them, **the docs win**.
+The docs are the source of truth. If anything in this prompt
+conflicts with them, **the docs win.**
 
-1. **`docs/agent/sub-sessions-8-11-plan.md`** — single roadmap doc
-   for the four sub-sessions you're executing. Status timeline per
-   item. **Read this first.** Contains exit criteria + stop conditions
-   + locked stop-and-ask points.
-2. **`docs/agent/bedrock-spend-2026-05-03.md`** — append-only spend
-   ledger. Track every Bedrock canary run here.
-3. **`docs/agent/post-pilot-improvements.md`** — append-only backlog
-   for deferred items.
-4. **`docs/agent/handoff-log.md`** — read the last 3 entries (newest
-   first: `2026-05-03 (sub-sessions #3 → #7)`,
-   `2026-05-03 (sub-session #2)`, `2026-05-03 (sub-session #1,
-   hardening pass)`). Captures session-by-session deltas + diagnoses.
-5. **`docs/agent/production-quality-bar.md`** — load-bearing quality
-   bar; per-surface UX-polish checklist + comprehensive test-coverage
-   map. Every Tier-3 polish item is anchored here.
-6. **`docs/agent/ux-spec.md`** + **`docs/agent/design-system.md`** —
-   durable UX canon. Read before any new advisor-facing surface work.
-7. **`docs/agent/phase9-fact-quality-iteration.md`** — design for
-   sub-session #9 fact-quality recovery (5 alternatives canvassed,
-   layered approach recommended).
-8. **`docs/agent/r10-sweep-results-2026-05-02.md`** — pre-Phase-9
-   baseline (12 docs, −41% recall regression context).
-9. **`docs/agent/phase7-validation-results-2026-05-03.md`** — Phase 7
-   automated e2e results + procedures the user is supposed to run.
-10. **`docs/agent/pilot-rollback.md`** + **`docs/agent/pilot-success-metrics.md`**
-    — Sev-1 rollback procedure + pilot KPIs.
-11. **`~/.claude/plans/you-are-continuing-a-playful-hammock.md`** —
-    master plan with 50+ user-locked decisions. Skim §11
-    Constraints/Tripwires + §6 Anti-Patterns.
-12. **`MP2.0_Working_Canon.md`** — product/strategy/regulatory/
-    architecture canon. Reference §6.3a + §16 (vocabulary), §9.4.2
-    (engine purity), §9.4.5 (AI-numbers rule), §11.4 (source-priority
-    hierarchy), §11.8.3 (real-PII discipline).
+### Tier 0 — auto-loaded by every session (already in your context)
 
-Auto-memory at
-`~/.claude/projects/-Users-saranyaraj-Projects-github-repo-mp2-0/memory/MEMORY.md`
-auto-loads the most-load-bearing memories on session start.
+1. `CLAUDE.md` — project rules; non-negotiable architecture rules
+   live there.
+2. `~/.claude/projects/-Users-saranyaraj-Projects-github-repo-mp2-0/memory/MEMORY.md`
+   — index of project memories; auto-read on session start.
+
+### Tier 1 — load-bearing for ANY work this session
+
+3. **`docs/agent/handoff-log.md`** — read the **last 5 entries**
+   (most recent first). The verification-pass entry at the
+   bottom captures the StrictMode regression + cost-key bug + 3
+   rounds of pushback. **Read this first.**
+4. **`docs/agent/sub-sessions-8-11-plan.md`** — single roadmap;
+   sub-session #8/9/10/11 statuses + actuals + exit criteria.
+5. **`docs/agent/production-quality-bar.md`** — the durable
+   quality bar. Per-surface checklist + UX inspirations + test
+   coverage matrix + anti-patterns.
+
+### Tier 2 — required for advisor-facing work
+
+6. `docs/agent/ux-spec.md` — UX dimensions taxonomy A-M, design
+   principles, canonical flows, decision log.
+7. `docs/agent/design-system.md` — tokens + component inventory
+   + patterns + ErrorBoundary architecture + focus-management
+   patterns + mutation-hook patterns.
+
+### Tier 3 — required for backend / pipeline / pilot work
+
+8. `docs/agent/extraction-audit.md` — extraction subsystem audit
+   (addressed + open + Phase B items).
+9. `docs/agent/phase9-fact-quality-iteration.md` — Phase 9
+   layered design + the multi-tool architecture (Phase 9.4) that
+   remains post-pilot work.
+10. `docs/agent/r10-sweep-results-2026-05-03.md` — full 7-folder
+    real-PII sweep results: 56/56 reconciled, 1,122 facts,
+    $0.8639 spend.
+11. `docs/agent/bedrock-spend-2026-05-03.md` — append-only spend
+    ledger. Add an entry for any new Bedrock canary you run.
+
+### Tier 4 — pilot operations + rollback
+
+12. `docs/agent/pilot-rollback.md` — Sev-1 rollback procedure
+    (kill-switch, code revert, DB recovery).
+13. `docs/agent/pilot-success-metrics.md` — pilot KPIs + GA
+    criteria + off-ramp conditions.
+14. `docs/agent/demo-restore-runbook.md` — Mon-morning demo
+    restore procedure.
+15. `docs/agent/post-pilot-improvements.md` — append-only
+    deferred backlog (re-edit flow v2, Phase 9.4 multi-tool,
+    demo-restore --dry-run, etc.).
+
+### Tier 5 — canon + master plan
+
+16. `MP2.0_Working_Canon.md` — product / strategy / regulatory /
+    architecture canon. Reference §6.3a + §16 (vocabulary),
+    §9.4.2 (engine purity), §9.4.5 (AI-numbers rule), §11.4
+    (source-priority), §11.8 (audit append-only), §11.8.3
+    (real-PII discipline).
+17. `~/.claude/plans/you-are-continuing-a-playful-hammock.md`
+    — master multi-sub-session plan with 50+ user-locked
+    decisions. Skim only when a decision needs verification.
 
 ---
 
-## 2. Where you are in the journey
+## 4. Vision + long-term intent
 
-### Done (sub-sessions #1 → #7) — 13 commits past `1c4e0aa`
+MP2.0 is the third attempt at a Steadyhand advisor console. The
+previous two attempts failed because they tried to **automate the
+advisor away** instead of **supporting the advisor's judgment**.
+MP2.0's design principle is the inverse: **AI extracts; advisor
+reviews; engine optimizes; audit captures.** Every code decision
+should reinforce that hierarchy.
 
-| Sub-session | Phases | HEAD | Tests added |
-|---|---|---|---|
-| #1 | 5b.3 + 5b.8 + hardening (orphan workspace) | `1c4e0aa` | +1 backend |
-| #2 | 5b.4/5/7/10/11/12/13 + UX polish | `85d64b2` | +19 backend |
-| #3 | 5c UX docs + Phase 6 scaffolding (Vitest + RTL + jest-dom) | `d85c0bc` | +8 Vitest |
-| #4 | Phase 6 deep tests (subagent-parallel × 4) + 2 bugs closed | `d90cd6f` | +329 backend +32 Vitest |
-| #5 | Phase 6.9 perf gate + JSON logging + request-id | `4864759` | +10 backend |
-| #6 | Phase 7 e2e validation (live stack) + 1 a11y bug closed | `3d16134` | (live-stack validation) |
-| #7 | Cumulative handoff + close-out docs | `9d03013` | — |
+### The five-year arc
 
-**Bugs closed during the journey** (don't re-introduce):
-- REDACT-2: AMEX 4-6-5 PII leak (sub-session #4)
-- Tour TOCTOU race (sub-session #4)
-- Color-contrast WCAG 2.1 AA fail (sub-session #6)
-- JSON logger Docker import failure (sub-session #6)
-- Orphan-workspace race on 401 (sub-session #1 hardening)
-
-### Pre-authorized + sequenced (sub-sessions #8 → #11)
-
-User explicitly approved 2026-05-03 ("do all of Tier 1, 2, 3 right
-now"; OCR via Claude PDF/vision support; Bedrock spend **no hard
-cap** — soft escalation $200/sub-session, $500 cumulative; "automate
-everything" including R10 7-folder sweep via Playwright).
-
-| Sub-session | Scope | Estimate |
+| Phase | Surface | Status |
 |---|---|---|
-| **#8 (in progress)** | OCR/vision foundation | 2 days, ~$5-15 canary |
-| #9 | Phase 9 fact-quality recovery | 1.5 days, ~$15-30 |
-| #10 | Tier 1 advisor friction (incl. ASK on undo) | 2 days |
-| #11 | Tier 2+3 + automated R10 sweep + close-out | 3 days, subagent-parallel |
+| 0 | Synthetic-data scaffold | shipped 2026-04-28 |
+| A | Limited-beta pilot (3-5 advisors, real PII) | **launches 2026-05-08** |
+| B | Steadyhand-wide rollout (~30 advisors) | post-pilot |
+| C | Multi-tenant (Purpose-affiliated firms) | 2027 |
+| D | Engine-as-service (broker-adjacent) | 2028+ |
 
-Total estimate: **8-10 days, $30-80 Bedrock**.
+Phase A is what you are shipping. Everything in this codebase is
+tuned for **3-5 advisors on real PII** — not for scale. Quality,
+audit-trail integrity, and advisor productivity dominate cost +
+latency optimizations. When in doubt, **slow + correct + auditable**
+beats fast + clever.
 
-### Sub-session #8 status (at session boundary)
+### What MP2.0 explicitly is NOT
 
-`HEAD 59fed18` — project tracking docs shipped (the three above
-in §1 reading list 1-3). Detection-helper implementation NOT yet
-started. Next concrete action is §3 below.
+- Not a robo-advisor. The advisor commits every household.
+- Not a CRM. Croesus + Steadyhand's existing systems remain SoR.
+- Not an extraction-as-a-service product. The extraction is a
+  back-of-house pipeline; the advisor never sees raw model
+  output.
+- Not a marketplace. One firm, one engine, one set of CMA inputs
+  per environment.
 
----
+### Engine-is-library (canon §9.4.2 — non-negotiable)
 
-## 3. Sub-session #8 — Resume here
+`engine/` must not import Django, DRF, `web/`, `extraction/`, or
+`integrations/`. Web code translates DB models into
+`engine.schemas` Pydantic models at the boundary. The engine is
+testable headless with no Postgres connection. Violating this
+breaks Phase B+ (engine-as-service) and is a hard refactor
+multiplier.
 
-**Goal:** OCR/vision ingestion foundation — Croesus CRM image-PDFs
-extract facts via Bedrock vision instead of returning empty (current
-text-only path returns 0 facts on scanned docs → advisor manually
-adds 30+ facts/doc via 5b.10/11).
+### Real-PII discipline (canon §11.8.3 — non-negotiable)
 
-**Architecture (verified 2026-05-03 via Anthropic docs):**
-- Bedrock `InvokeModel` API supports native PDF document blocks
-  (NOT Converse — Converse falls back to text-only without citations
-  enabled)
-- `AnthropicBedrock` SDK uses `InvokeModel` by default
-- ca-central-1 fully supports PDF + vision for Sonnet 4.6 + Opus 4.7
-- Real-PII data residency preserved
-- ~7K tokens for a 3-page PDF in visual mode (vs ~1K text-only)
-- ~$0.10/Croesus-doc estimated; ~$7 for full 7-folder R10 sweep
+The pilot is the first time MP2.0 touches real client data. Every
+code decision around extraction / persistence / logging /
+committed docs must honor:
 
-**Existing scaffold to extend:**
-- `extraction/llm.py:204` — `extract_visual_facts_with_bedrock` uses
-  per-page rasterization (keep as fallback for non-PDF images)
-- `extraction/parsers.py:_parse_pdf` (line 31-49) — already returns
-  `kind="ocr_required"` for zero-text PDFs (signal for routing)
-- `extraction/pipeline.py:extract_facts_for_document` (line 79-105) —
-  already dispatches text vs vision (extend with native-PDF branch)
-
-**Files to touch:**
-1. `extraction/parsers.py` — add `is_likely_image_pdf(parsed)` helper
-   (also catches low-density text — `<50 chars/page`)
-2. `extraction/llm.py` — add
-   `extract_pdf_facts_with_bedrock_native(path, ...)` that sends PDF
-   as `{"type": "document", "source": {"type": "base64", "media_type":
-   "application/pdf", "data": <b64>}}`
-3. `extraction/pipeline.py` — dispatch: PDF + image-likely → native
-   path; non-PDF image → existing image-blocks path; else → text path
-4. Cost-tracking: every Bedrock call writes `bedrock_input_tokens`,
-   `bedrock_output_tokens`, `bedrock_cost_estimate`,
-   `extraction_path` to `processing_metadata`. Append per-call to
-   `docs/agent/bedrock-spend-2026-05-03.md`.
-
-**Tests** (`extraction/tests/test_vision_pdf_path.py`):
-- Synthetic image-PDF fixture (rendered text → PDF → no extractable text)
-- Mock Bedrock vision response → assert facts via vision path
-- Real Niesner image-PDF integration test (gated on real-PII flag)
-- Detection-helper unit tests (text-rich vs sparse vs zero)
-- Cost-tracking metadata assertions
-
-**Real-PII canary** (sub-session #8.5):
-- Pick 1-2 Niesner image-PDFs from
-  `/Users/saranyaraj/Documents/MP2.0_Clients/Niesner/` that previously
-  failed text extraction
-- Run through new vision path
-- Capture: facts extracted (structural counts only), token usage, cost
-- Append to spend ledger
-- Real-PII discipline: structural counts only — no values, no quotes
-
-**Stop conditions for #8:**
-- Detection false-positive rate >10% → tune threshold
-- Per-doc vision cost >$0.50 → halt + ask
-- Real-PII Niesner canary regresses fact count vs prior text path → diagnose
-
-**Exit criteria** (verify before moving to #9):
-- [ ] Native PDF path implemented + dispatched
-- [ ] Detection helper bounded false-positive
-- [ ] 5+ unit tests passing; integration test against synthetic image-PDF
-- [ ] Audit metadata includes per-call token + cost estimate
-- [ ] Spend ledger updated with sub-session #8 canary
-- [ ] Real-PII Niesner canary: ≥1 doc that previously failed now extracts facts
-- [ ] Full backend gate suite green
-- [ ] Per-phase ping ~400 words
-
----
-
-## 4. Sub-sessions #9, #10, #11 — upcoming
-
-After #8 exits cleanly:
-
-### Sub-session #9 — Phase 9 fact-quality recovery (~1.5 days)
-
-Layered approach per `docs/agent/phase9-fact-quality-iteration.md`:
-- **9.1** Permissive base prompt (relax strict no-fabrication copy
-  in `extraction/prompts/base.py:NO_FABRICATION_BLOCK`)
-- **9.2** Per-type strict guards (KYC must extract DOB; statement
-  must extract balances; meeting note may infer aspirational facts
-  with confidence cap)
-- **9.3** Inferred-with-evidence-quote validation (every inferred
-  fact MUST cite verbatim quote; missing quote → drop)
-- **9.4** Re-canary against Seltzer + Weryha; capture pre/post recall
-  in `docs/agent/r10-sweep-results-2026-05-03.md`
-
-**Stop conditions:**
-- Recall recovery <20pp → escalate
-- Hallucinated section paths return → tighten prompts
-- Defaulted facts >0 → canon §9.4.5 violation, halt
-
-### Sub-session #10 — Tier 1 advisor friction (~2 days)
-
-6 items:
-1. Inline edit polish (date/number/dropdown inputs schema-driven)
-   — `frontend/src/modals/DocDetailPanel.tsx` `FactEditForm`
-2. Field-path autocomplete (full canonical-field listing) —
-   `frontend/src/modals/DocDetailPanel.tsx` `AddFactSection`
-3. Progress indicator with ETA per doc — `frontend/src/modals/ReviewScreen.tsx`
-   `ProcessingPanel`
-4. Holistic commit-preview (replace StatePeekPanel JSON)
-5. Demo-state restore validated end-to-end (run
-   `scripts/reset-v2-dev.sh --yes` + Sandra/Mike + Seltzer/Weryha
-   pre-upload + capture wall-clock + structural counts)
-6. **Undo on commit — STOP-AND-ASK first** (see §7)
-
-### Sub-session #11 — Tier 2 + Tier 3 + automated R10 sweep + close-out (~3 days)
-
-**Tier 2:**
-- **R10 7-folder sweep automation** (Playwright-driven; user
-  authorized 2026-05-03). Per-folder: upload all docs via live UI →
-  watch reconcile → capture structural counts (reconciled / failed /
-  conflict / fact totals) → save to
-  `docs/agent/r10-sweep-results-2026-05-03.md`. **Do NOT auto-commit
-  households** (preserve demo state).
-- Missing-field guidance per section blocker
-- Audit timeline visible to advisor (`useAuditTimeline()` hook)
-- Conflict-rule heuristics (saved-rule support)
-- Size-cap revisited (vision path handles larger PDFs)
-- Test-mode visual cue (`data_origin: synthetic` badge)
-- Cross-browser smoke (Safari + Firefox spec via Playwright)
-
-**Tier 3 polish** (subagent-parallel for ~6 agents):
-Per `docs/agent/production-quality-bar.md` §1.10 [gap] items:
-empty states, error recovery, color-blind palette, number/date
-formatting audit, long-text truncation, hover delay, wizard
-step-progress, save-as-draft, Realign "what's about to change"
-preview, drop-zone visual feedback, conflict card progression,
-resolved-cards collapse.
-
-**Final close-out:**
-- Cumulative ping covering #8-#11
-- Tag verification (`v0.1.0-pilot` at `d2abfa1`; user may bump to
-  `v0.1.1-pilot` before Mon push)
-- Monday push staged but NOT executed (user pushes Mon morning)
-- Update CLAUDE.md "Useful Project Memory" with new docs
-
----
-
-## 5. Critical context (locked decisions)
-
-### From the user 2026-05-03 (most recent)
-
-- **No Bedrock spend cap.** Soft escalation at $200/sub-session,
-  $500 cumulative — but no hard cap. Track per-call in spend ledger.
-- **Automate R10 sweep.** Don't ask the user to run it manually;
-  Playwright drives the upload via the live UI.
-- **OCR is Tier-1.** Croesus exports image-PDFs; current pipeline
-  returns 0 facts → advisor friction is unacceptable.
-- **Bedrock InvokeModel API only** for vision (NOT Converse).
-  AnthropicBedrock SDK uses InvokeModel by default. Real-PII stays
-  in ca-central-1.
-- **Don't deprioritize anything.** Honor every item in Tier 1, 2, 3
-  + production-quality-bar §1.10. Both depth + breadth.
-- **Project tracking discipline matters.** Per-phase ping (~400 words);
-  plan + spend ledger + post-pilot doc updated continuously;
-  mid-sub-session checkpoints.
-
-### From earlier locked decisions
-
-- **Branch + push:** stay on `feature/ux-rebuild`; one logical
-  commit per phase exit-criteria-met. **No push during the session;**
-  user pushes Monday 2026-05-04 morning.
-- **Reporting cadence:** verbose ~400-word per-phase exit ping with
-  HEAD, diff highlights, audit-finding closures, tests added, full
-  gate-suite results, Bedrock $ delta vs estimate, failures
-  encountered + resolutions, reasoning, open items, next phase.
-- **Branch + commits format:** HEREDOC commit messages per
-  CLAUDE.md.
-- **Real-PII discipline (canon §11.8.3):** never quote real client
-  content in code, commits, memory, chat, or any logs that escape
-  `MP20_SECURE_DATA_ROOT`. Use structural counts only.
-- **AI-numbers rule (canon §9.4.5):** LLM never invents financial
-  numbers, names, dates, or any field. `derivation_method =
-  "defaulted"` is forbidden.
-- **Source-priority hierarchy (canon §11.4):** SoR > structured >
-  note-derived. Cross-class silent. Same-class surfaces as conflict
-  cards. Advisor override (FactOverride) is highest priority.
-- **Engine-is-library boundary (canon §9.4.2):** `engine/` never
-  imports framework code.
-- **PII grep guard:** `str(exc)` NEVER in DB columns / API response
-  bodies / audit metadata. Use `web/api/error_codes.py:safe_response_payload`
+- Real-derived extraction routes through Bedrock **ca-central-1**.
+  Anthropic direct is synthetic-only.
+- **Never** quote real client content in code, commits, memory,
+  chat, or any logs that escape `MP20_SECURE_DATA_ROOT`. Use
+  structural counts only.
+- `str(exc)` NEVER appears in DB columns / API response bodies /
+  audit metadata. Use `web/api/error_codes.py:safe_response_payload`
   + `safe_audit_metadata` instead.
-- **Audit-event regression (locked #37):** every state-changing
-  endpoint emits exactly one audit event. Append-only via DB
-  triggers (canon §11.8).
-- **Concurrent-edit safety (locked #30):** workspace
-  `select_for_update()` before reading/writing dependent rows.
-- **Append-only models:** `HouseholdSnapshot`, `FactOverride`,
-  `PortfolioRunEvent`. `save()` raises on existing pk.
+- Folder names in `MP2.0_Clients/<surname>/` are operator-typed
+  paths, not extracted content. Existing spend-ledger entries
+  use surnames as stable identifiers (matches user practice). For
+  externally-shareable artefacts, use the
+  `--anonymize-folders` flag in `scripts/demo-prep/r10_sweep.py`.
 
 ---
 
-## 6. Per-phase gate suite (FULL — run at every phase exit)
+## 5. What shipped — multi-sub-session run #8 → #11 + deferred-work follow-up
+
+The 16 commits past `8bb96c0` ship the work below. Read the
+referenced files when touching adjacent surfaces.
+
+### Sub-session #8 — OCR/vision foundation (commits `2d61cc0` + `735ecae`)
+
+**Problem:** Croesus CRM exports many KYC / DOB / address pages as
+image-only PDFs. The text-only path returned 0 facts, forcing
+advisors to manually type 30+ facts per doc.
+
+**Fix:**
+- `extraction/parsers.py:is_likely_image_pdf` — dual-signal
+  detection (`method=="ocr_required"` OR text-page ratio < 0.5
+  OR avg chars/page < 50).
+- `extraction/llm.py:extract_pdf_facts_with_bedrock_native` —
+  native PDF document block via `AnthropicBedrock` SDK
+  (InvokeModel API; **NOT Converse** — Converse drops to
+  text-only without forced citations).
+- `extraction/llm.py:estimate_bedrock_cost_usd` — prefix-matched
+  pricing helper (Sonnet 4.6 / Opus 4.6/4.7 / Haiku 4.5).
+- `extraction/pipeline.py` — dispatcher: image-likely PDF →
+  native; non-PDF image → image-blocks fallback; text-rich → text.
+
+**Real-PII canary (sub-session #8.5):** 5 Niesner image-PDFs that
+previously returned 0 facts now extract 4-13 facts each.
+$0.1391 / 22.8K input + 4.7K output tokens / 53s wall-clock.
+
+### Sub-session #9 — Phase 9 fact-quality recovery (commit `8af7104`)
+
+**Problem:** Phase 4 tool-use migration eliminated hallucinations
+(canon §9.4.5 quality WIN) at the cost of total fact count
+(Seltzer 168 → 94, −44%).
+
+**Fix (layered iteration):**
+- 9.1 — `extraction/prompts/base.py:NO_FABRICATION_BLOCK` (v3):
+  STRONG-signal section ("EXTRACT eagerly when…") + SOFT-inference
+  section. Forbidden-inversion list preserved.
+- 9.2 — All per-type PROMPT_VERSION strings bumped to `v3_tooluse`.
+- 9.3 — `extraction/validation.py:filter_inferred_facts_by_evidence`
+  drops inferred facts whose evidence_quote does not have ≥60%
+  longest-common-substring overlap with the source.
+- 9.4 — Re-canary: Seltzer 94 → 95 (+1pp). **Below the 20pp
+  aspirational target** but structural quality preserved (zero
+  defaulted facts, zero hallucinated paths, zero evidence drops).
+
+**Phase 9.4 multi-tool architecture is post-pilot.** See
+`docs/agent/phase9-fact-quality-iteration.md` for the design.
+Pilot week-1 commit-rate + manual-entry-rate decide whether to
+ship it.
+
+### Sub-session #10 — Tier 1 advisor friction (commit `35a7eba`)
+
+Six items shipped across `frontend/` + `web/api/`:
+
+1. **Inline edit polish + canonical-field autocomplete**
+   (`frontend/src/lib/canonical-fields.ts` NEW — 35-entry
+   schema-driven map). DocDetailPanel `FactEditForm` renders
+   `<input type="date">` for DOB paths, `<input type="number">`
+   with bounds for currency/score fields, `<select>` for enums.
+2. **Progress indicator + ETA in ProcessingPanel** —
+   `frontend/src/modals/ReviewScreen.tsx` shows "Doc N of total —
+   extracting M (~Xs remaining)". 15s/doc heuristic from
+   sub-session #8.5 + #9 timings.
+3. **Holistic commit preview** — `StatePeekPanel` replaced its
+   1200-char JSON dump with a 6-row structured "About to commit"
+   summary (people / accounts / goals / links / risk / household).
+4. **Demo-state restore runbook** —
+   `docs/agent/demo-restore-runbook.md` (sandbox refused the
+   destructive `compose down -v`; runbook is for the operator).
+5. **Soft-undo for committed workspaces** —
+   `web/api/views.py:ReviewWorkspaceUncommitView`. Atomic +
+   `select_for_update(of=("self",))`. Cascade-deletes Household +
+   Person/Account/Goal/PortfolioRun. Frees the deterministic
+   external_id slot for re-commit. Audit event with
+   `previous_household_id`.
+6. **Re-edit flow v2 deferred** —
+   `docs/agent/post-pilot-improvements.md` captures the
+   PATCH-from-household design.
+
+**Locked stop-and-ask answered:** soft-undo v1 for pilot;
+re-edit flow v2 post-pilot.
+
+### Sub-session #11 first pass — Tier 2 high-leverage (commit `af627b3`)
+
+- **Audit timeline visible to advisor** —
+  `web/api/views.py:ReviewWorkspaceAuditTimelineView` +
+  `frontend/src/lib/review.ts:useAuditTimeline` +
+  `AuditTimelinePanel` in ReviewScreen right rail.
+  i18n-mapped action labels (e.g. `review_state_committed` →
+  "Committed to household").
+- **Synthetic data-origin badge** — ReviewScreen header shows a
+  "Synthetic" chip (text + visual cue, NOT color-only) when
+  `workspace.data_origin === "synthetic"`. Advisors don't
+  mistake a dev workspace for real-PII committed.
+- **Missing-field guidance** — verified existing backend
+  `readiness_for_state` already produces specific per-field
+  blocker labels; MissingPanel renders them.
+
+### Sub-session #11 deferred follow-up (commits `f86dcfd`, `cb408cc`, `5cb91c0`, `1428555`, `df6363f`, `2bd77d3`, `bca0112`, `b887b18`, `95af4b5`, `efbe58d`, `b14a199`)
+
+**R10 7-folder Playwright sweep automation** —
+`scripts/demo-prep/r10_sweep.py` (~570 lines + 21 unit tests):
+- Worker subprocess wrapped in try/finally (caught the worker-leak
+  during the live run review).
+- Per-doc + per-folder cost ceiling enforced INSIDE polling loop.
+- `--anonymize-folders` flag substitutes folder names with
+  `client_<sha256-prefix>` ids in committed docs; surname-to-id
+  map only inside `MP20_SECURE_DATA_ROOT/_debug/`.
+- `--force-append` overrides the per-day idempotency guard
+  (`_today_section_already_present`).
+- Cleanup-on-failure: orphaned workspaces best-effort DELETE'd
+  via the new `ReviewWorkspaceDetailView.delete` endpoint.
+
+**Cross-browser smoke** —
+`frontend/e2e/cross-browser-smoke.spec.ts` (5 tests). Playwright
+config gains webkit + firefox projects. Filters known noise
+(Firefox font sanitizer, ResizeObserver, ERR_ABORTED). Both
+browsers 5/5 pass.
+
+**Tier 3 polish — 4 bundles via parallel subagents:**
+- **Bundle A** — ClientPicker debounce + empty-state CTA;
+  AccountRoute / GoalRoute skeleton + Retry; Intl en-CA
+  currency via `formatCurrencyCAD` + `formatDateLong` helpers.
+- **Bundle B** — DocDropOverlay strengthened drop-zone (4px
+  dashed + accent ring); Wizard 5-step progress indicator;
+  explicit "Save as draft" button + timestamped resume banner.
+- **Bundle C** — ConflictPanel visual progression states
+  (unresolved → resolving → resolved; mutation-hook driven;
+  no new state machinery); resolved-cards collapsible group
+  with localStorage persistence.
+- **Bundle D** — RealignModal "What's about to change" preview;
+  Radix tooltip wrapper at `frontend/src/components/ui/tooltip.tsx`
+  (300ms delayDuration); Truncated component at
+  `frontend/src/components/Truncated.tsx`.
+
+**Workspace DELETE endpoint** —
+`web/api/views.py:ReviewWorkspaceDetailView.delete`. Required for
+the sweep cleanup-on-failure path; also useful for ops cleanup of
+abandoned workspaces. Refuses COMMITTED workspaces (returns 409
+with code `committed_workspace_not_deletable`).
+
+**Live R10 7-folder sweep results** (committed `2bd77d3` after
+recompute):
+- 56/56 docs reconciled (100%)
+- 1,122 ExtractedFact rows
+- 117 conflicts surfaced
+- $0.8639 total spend (151K input + 27K output tokens)
+- Per-folder cost $0.0851-$0.1484 (max single-doc cost ~$0.04)
+- Zero evidence-quote drops; zero defaulted facts; zero
+  hallucinated paths
+- Path mix: 27 text + 29 vision_native_pdf
+- All 7 sweep workspaces left in `review_ready` (NOT
+  auto-committed; demo state preserved)
+
+**Three rounds of "Is everything done?" caught real bugs:**
+- Round 1 → R10 sweep cost-key bug (mocks were flat-shape;
+  pipeline stores nested under `processing_metadata.extraction.*`).
+  Fix: `_doc_extraction_meta` helper + 6 nested-key regression
+  tests.
+- Round 2 → DocDropOverlay StrictMode-double-update regression
+  (Tier 3 bundle B mutated closure-captured arrays inside
+  `setFiles((prev) => …)` → 1 file became 2 in dev). Same
+  FileList-race class from R7 history. Fix: dedup OUTSIDE the
+  updater; 3 Vitest cases mount inside `<StrictMode>`. Plus 2
+  stale e2e selectors fixed.
+- Round 3 → No DocDropOverlay test existed; FeedbackModal Esc
+  handler missing. Fix: `frontend/src/modals/__tests__/DocDropOverlay.test.tsx`
+  (3 tests) + `useEffect`-bound Esc handler in FeedbackButton.
+
+**Visual verification spec** —
+`frontend/e2e/visual-verification.spec.ts` (24 tests, 24/24 pass
+on real Chrome). 24 screenshots captured. Covers every
+advisor-facing surface across sub-sessions #1-#11.
+
+---
+
+## 6. Locked decisions / canon constraints (non-negotiable)
+
+| ID | Decision | File:line where it bites |
+|---|---|---|
+| canon §9.4.2 | Engine-is-library; no Django imports in `engine/` | `engine/optimize.py` etc. |
+| canon §9.4.5 | AI never invents financial numbers / names / dates; `derivation_method="defaulted"` is forbidden | `extraction/llm.py:_facts_from_tool_use_response` |
+| canon §11.4 | Source-priority: SoR > structured > note-derived; cross-class silent; same-class surfaces conflicts; advisor override (FactOverride) is highest | `extraction/reconciliation.py` |
+| canon §11.8 | Audit events are append-only via DB triggers + model `save()` guards | `web/audit/models.py:AuditEvent.save` |
+| canon §11.8.3 | Real-PII never quoted in committed artefacts; structural counts only | applies everywhere |
+| locked #18 | API perf budget P50 < 250ms / P99 < 1000ms | `web/api/tests/test_perf_budgets.py` |
+| locked #30 | Workspace `select_for_update()` before reading/writing dependent rows | new endpoints in `web/api/views.py` |
+| locked #34 | `scripts/reset-v2-dev.sh --yes` pre-authorized; nothing else bulk-modifies DB | reset script |
+| locked #37 | Exactly one AuditEvent of expected kind per state-changing endpoint | every view that mutates state |
+| locked #38 | Real-PII pilot is authorized; defense-in-depth regime governs | `extraction/llm.py:_bedrock_client` |
+| op-locked | No push during the session; user pushes Mon morning | git push |
+
+**Append-only models** (verify `save()` raises on existing pk):
+`HouseholdSnapshot`, `FactOverride`, `PortfolioRunEvent`,
+`AuditEvent`.
+
+---
+
+## 7. Patterns to reuse (don't reinvent)
+
+### Backend
+
+- **PII-safe error helpers** — `web/api/error_codes.py`:
+  `failure_code_for_exc`, `safe_exception_summary`,
+  `safe_response_payload(exc, **extra)`,
+  `safe_audit_metadata(exc, **extra)`,
+  `friendly_message_for_code`. Use these instead of `str(exc)`.
+- **Atomic state-changing endpoint pattern:**
+  ```python
+  @transaction.atomic
+  def post(self, request, ...):
+      workspace = (
+          _review_workspace_queryset()
+          .select_for_update(of=("self",))   # CRITICAL — see §8 anti-patterns
+          .filter(external_id=..., pk__in=team_workspaces(request.user).values("pk"))
+          .first()
+      )
+      if workspace is None:
+          return Response(..., status=404)
+      # ... mutate inside the atomic block ...
+      record_event(action=..., entity_type=..., entity_id=..., actor=..., metadata=...)
+  ```
+  See `ReviewWorkspaceConflictResolveView`, `ReviewWorkspaceUncommitView`,
+  `ReviewWorkspaceFactOverrideView` for templates.
+- **Append-only invariant** — mirror the pattern in
+  `HouseholdSnapshot.save`: raise on existing pk; never UPDATE
+  state-changing rows.
+- **Audit-event regression guard** — every state-changing
+  endpoint test asserts `AuditEvent.objects.filter(action=...).count() == pre + 1`.
+
+### Extraction
+
+- **Prompt module dispatcher** — `extraction/prompts/__init__.py:build_prompt_for(document_type, classification)`
+  routes to per-type modules (kyc / statement / meeting_note /
+  planning / generic). Multi-schema-sweep classifications route to
+  `generic.build_prompt`.
+- **Bedrock tool-use call shape:**
+  ```python
+  client.messages.create(
+      model=config.model,
+      max_tokens=_bedrock_max_tokens(),
+      tools=[FACT_EXTRACTION_TOOL],
+      tool_choice={"type": "tool", "name": "fact_extraction"},
+      messages=[{"role": "user", "content": prompt_or_blocks}],
+  )
+  ```
+- **Cost-tracking metadata** — every Bedrock call writes
+  `processing_metadata.extraction.{bedrock_input_tokens,
+  bedrock_output_tokens, bedrock_cost_estimate_usd, extraction_path,
+  bedrock_model}` per
+  `extraction/llm.py:extract_pdf_facts_with_bedrock_native`.
+  **Note the nested key path** — see §8 anti-patterns for the
+  cost-key bug history.
+- **Phase 9 evidence validator** —
+  `extraction/validation.py:filter_inferred_facts_by_evidence(facts, parsed_text)`
+  returns `(kept, dropped)` based on 60% LCS overlap. Inferred
+  facts only; extracted facts pass through.
+
+### Frontend
+
+- **Mutation hook patterns** — see `docs/agent/design-system.md`
+  "Mutation Hook Patterns". TanStack Query `useMutation` with
+  `onSuccess: invalidateQueries(reviewWorkspaceKey(workspaceId))`
+  + structured error → toast.
+- **Schema-driven inputs** —
+  `frontend/src/lib/canonical-fields.ts:getCanonicalFieldShape(field_path)`
+  returns `{kind: "date" | "number" | "enum" | "text", min?, max?,
+  step?, enum_options?}`. Use it for any new field-edit affordance.
+- **Modal a11y pattern** —
+  ```tsx
+  useEffect(() => {
+      function onKeyDown(event: KeyboardEvent) {
+          if (event.key === "Escape") {
+              event.stopPropagation();
+              onClose();
+          }
+      }
+      window.addEventListener("keydown", onKeyDown);
+      return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+  ```
+  See `DocDetailPanel.tsx` + `FeedbackButton.tsx` for templates.
+- **Focus management** — `useEffect + ref` for imperative focus
+  (NOT `autoFocus` attr; jsx-a11y/no-autofocus rule fires).
+- **Tooltip + truncation** — wrap long text in
+  `<Truncated text={...} max={80} />` from
+  `frontend/src/components/Truncated.tsx`. Default 300ms hover
+  delay via the Radix wrapper.
+- **OpenAPI codegen** — backend serializer changes require
+  `cd frontend && npm run codegen` to regenerate
+  `frontend/src/lib/api-types.ts`. CI gate
+  `scripts/check-openapi-codegen.sh` enforces drift.
+
+### R10 sweep automation
+
+- **Anonymization** — `_maybe_anonymize(folders, enabled=True)`
+  returns `(anon_list, mapping)` + writes the surname-to-id map to
+  `MP20_SECURE_DATA_ROOT/_debug/r10_sweep_anon_map_<ts>.txt`. Map
+  never enters the repo.
+- **Stop conditions** — per-doc cost > $0.50 OR per-folder cost
+  > $10 OR wall-clock > 30 min → halt + terminate worker + log.
+- **Idempotency** — `_today_section_already_present` guards
+  doc/ledger appends; `--force-append` overrides.
+
+---
+
+## 8. Anti-patterns burned in (the bug + the lesson)
+
+Each item below cost real time during the prior session. **Do not
+repeat them.**
+
+### 1. `setState((prev) => mutate-closure-array)` — StrictMode-double-update class
+
+**Bug:** Tier 3 bundle B's `admitFiles` pushed into a
+closure-captured `accepted` array INSIDE `setFiles((prev) => …)`.
+React 18 StrictMode invokes the updater twice in dev to surface
+impurities. Result: 1 file became 2 in the picker.
+
+**Lesson:** **The setState updater must be pure.** Compute the
+new list OUTSIDE the updater + pass a pure spread:
+```ts
+// CORRECT
+const accepted = computeOutsideUpdater(currentFiles, incoming);
+setFiles((prev) => [...prev, ...accepted]);
+
+// WRONG
+const accepted: File[] = [];
+setFiles((prev) => {
+  for (const f of incoming) accepted.push(f);  // mutates closure!
+  return [...prev, ...accepted];
+});
+```
+
+This was the same FileList-race class from R7 history. **Foundation
+e2e is the only thing that caught it** — Vitest didn't because no
+DocDropOverlay test existed (now fixed at
+`src/modals/__tests__/DocDropOverlay.test.tsx`). Pin StrictMode
+behavior with a `<StrictMode>`-wrapped test for any new
+multi-state-update code path.
+
+### 2. Flat-shape mocks vs nested-shape production payload
+
+**Bug:** R10 sweep helper read `processing_metadata.bedrock_cost_estimate_usd`;
+production stores it nested under `processing_metadata.extraction.*`.
+Unit tests passed because mocks were flat-shape.
+
+**Lesson:** **Mock fidelity must mirror production shape.** When
+adding a helper that reads a payload, grep for the actual
+producer's write path + use that shape in tests. The
+`_doc_extraction_meta` helper in `scripts/demo-prep/r10_sweep.py`
+is the canonical access pattern; reuse it for any future
+processing_metadata reads.
+
+### 3. Subagent gates pass against subagent-written fixtures
+
+**Pattern:** Tier 3 polish bundles A/B/C/D each ran their own
+"all gates green" report. None of them re-ran `foundation.spec.ts`
+after their changes. Result: bundle B regressed R7 doc-drop e2e;
+bundle C left 2 stale i18n selectors.
+
+**Lesson:** **Re-run the FULL existing e2e suite after any
+frontend touch.** Subagent reports + Vitest passing ≠ no
+regression. Add this to your per-phase gate suite:
+```bash
+cd frontend && set -a && source ../.env && set +a
+PLAYWRIGHT_BASE_URL=http://localhost:5173 \
+  MP20_LOCAL_ADMIN_PASSWORD=change-this-local-password \
+  npx playwright test --project=chromium e2e/ --reporter=line
+```
+
+### 4. `aria-label` text vs visible text divergence
+
+**Bug:** Visual-verification spec searched for
+`getByRole("button", { name: /save as draft/i })`. The button's
+`aria-label` is "Save the current wizard state as a draft" + visible
+text "Save as draft". Playwright's accessible-name resolution
+prioritizes aria-label, so `/save as draft/i` (consecutive words)
+didn't match the long-form aria-label.
+
+**Lesson:** **When writing test selectors, check what the actual
+accessible name resolves to.** Use a less-anchored regex
+(`/save.*draft/i`) for matches across both forms. For a visible
+text match, use `getByText(...)` instead of `getByRole`.
+
+### 5. Modal a11y: `aria-modal=true` is not enough
+
+**Bug:** FeedbackModal had `role="dialog" aria-modal="true"` but
+didn't close on Escape. Advisors who opened it accidentally were
+keyboard-trapped.
+
+**Lesson:** **Custom modals need imperative Esc handlers + focus
+return + click-outside-overlay handlers.** Use
+`@radix-ui/react-dialog` when possible (gets all of these for
+free); when a bespoke modal is unavoidable, mirror the
+DocDetailPanel pattern (Esc + focus restore).
+
+### 6. `str(exc)` anywhere = PII leak risk
+
+**Pattern:** Bedrock errors may carry extracted client text in
+their messages. Persisting them to DB columns / API response
+bodies / audit metadata exposes real-PII outside the secure root.
+
+**Lesson:** **Never write `str(exc)` directly to user-visible
+surfaces.** Map to a structured `failure_code` via
+`web/api/error_codes.py:safe_exception_summary` first. CI grep
+guard at `scripts/check-pii-leaks.sh` enforces this; do NOT
+disable it.
+
+### 7. Bedrock Converse vs InvokeModel for vision
+
+**Bug-class avoided:** Anthropic's Converse API for Bedrock drops
+to text-only when `tool_choice` is forced; InvokeModel preserves
+the document content block. The `AnthropicBedrock` SDK uses
+InvokeModel by default — **don't switch to Converse** without
+verifying tool-use + native-PDF support is preserved.
+
+### 8. `budget_tokens` deprecated on Sonnet 4.6 / Opus 4.6/4.7
+
+**Pattern:** Older Anthropic models accepted
+`thinking={"type": "enabled", "budget_tokens": N}`. New models
+(Sonnet 4.6, Opus 4.6, Opus 4.7) use **adaptive thinking**:
+`thinking={"type": "adaptive"}`. Don't switch to an older model
+just because someone mentions budget_tokens.
+
+### 9. Don't auto-commit households during R10 sweep
+
+**Pattern:** The R10 sweep script leaves all 7 workspaces in
+`review_ready`. Auto-committing them would pollute demo state +
+pre-empt the advisor review-and-commit flow. Operator commits
+selectively if needed.
+
+### 10. Honest audit when the user pushes back
+
+**Pattern:** Three rounds of "Is everything done?" each surfaced a
+real bug. The user's pushback is signal, not noise.
+
+**Lesson:** **When challenged, don't restate confidence —
+audit.** Run higher-level tests (foundation e2e, visual
+verification, real-browser checks). Distinguish "tests pass" from
+"verified working." Surface gaps explicitly + close them.
+
+---
+
+## 9. Mon 2026-05-04 morning runbook (the operator's path)
+
+The operator (you / Saranyaraj) runs these in order Mon morning.
+
+### Demo-state restore (per `docs/agent/demo-restore-runbook.md`)
 
 ```bash
 cd /Users/saranyaraj/Projects/github-repo/mp2.0
+# 1. Wipe + reseed (Sandra/Mike + bootstrap advisor)
+bash scripts/reset-v2-dev.sh --yes
+# Sandbox may prompt for permission rule; locked decision #34
+# pre-authorizes this command but the bash sandbox tracks per-rule.
 
-# Backend
+# 2. Pre-upload Seltzer + Weryha for demo
+set -a && source .env && set +a && unset AWS_SESSION_TOKEN AWS_SECURITY_TOKEN
+uv run python scripts/demo-prep/upload_and_drain.py Seltzer
+uv run python scripts/demo-prep/upload_and_drain.py Weryha
+
+# 3. Verify demo path manually in real Chrome
+open -a "Google Chrome" http://localhost:5173/
+# Walk: login → ClientPicker → Sandra/Mike → Treemap → Account →
+# Goal → /methodology → /review → Seltzer → ConflictPanel →
+# (don't commit; demo state)
+
+# 4. Capture post-restore counts
 DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 \
-  uv run python -m pytest engine/tests/ extraction/tests/ web/api/tests/ web/audit/tests/ \
-  --tb=no -p no:warnings --benchmark-disable
-uv run ruff check . && uv run ruff format --check .
-DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 \
-  uv run python web/manage.py makemigrations --check --dry-run
-
-# Frontend
-cd frontend && npm run typecheck && npm run lint && npm run build && npm run test:unit
-cd ..
-
-# Project guards
-bash scripts/check-vocab.sh
-bash scripts/check-pii-leaks.sh
-bash scripts/check-openapi-codegen.sh
+  uv run python -c "
+import django, os
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'web.mp20_web.settings')
+django.setup()
+from web.api import models
+print('Workspaces:', models.ReviewWorkspace.objects.count())
+print('Households:', models.Household.objects.count())
+print('Facts:', models.ExtractedFact.objects.count())
+"
 ```
 
-**Perf gate (separate run, when adding/changing endpoints):**
+Expected post-restore counts:
+- Workspaces: 2 (Seltzer + Weryha review_ready)
+- Households: 1 (Sandra/Mike committed)
+- Facts: ~170-200
+
+### Push to origin
+
+**Verify gate suite green ONE MORE TIME** before push.
+
 ```bash
+# Final gate run
+cd /Users/saranyaraj/Projects/github-repo/mp2.0
 DATABASE_URL=postgres://mp20:mp20@localhost:5432/mp20 \
-  uv run python -m pytest web/api/tests/test_perf_budgets.py \
-  --benchmark-only --benchmark-min-rounds=20
-# expect: 6/6 within budget (P50 < 250ms, P99 < 1000ms — locked #18)
+  uv run python -m pytest \
+    scripts/demo-prep/test_r10_sweep.py \
+    engine/tests/ extraction/tests/ web/api/tests/ web/audit/tests/ \
+    --tb=no -p no:warnings --benchmark-disable
+# expect: 854 passed, 7 skipped
+
+cd frontend && npm run typecheck && npm run lint && npm run build && npm run test:unit
+# expect: 82 Vitest passing
+
+# Push
+git push origin feature/ux-rebuild --tags
 ```
 
-If new endpoint with drf-spectacular schema, regenerate via
-`cd frontend && npm run codegen` then commit `api-types.ts`.
+After push, monitor CI for any environment-specific failures.
+
+### If demo restore fails
+
+See `docs/agent/pilot-rollback.md`. Decision tree for partial
+recovery vs full reset.
 
 ---
 
-## 7. Stop-and-ask points (locked)
+## 10. Pilot week 1-2 ops cheat sheet
 
-| Sub-session | When | Question |
+Pilot launches 2026-05-08. The next sub-session likely focuses on
+**triaging real-advisor feedback** + **fixing surfaced bugs**.
+
+### Where to look
+
+- **Feedback model rows:** `Feedback.objects.filter(status="new").order_by("-created_at")`
+  via Django shell, OR `GET /api/feedback/report/?status=new`
+  endpoint (analyst-only).
+- **Audit event volume:** `AuditEvent.objects.filter(action="review_state_committed").count()`
+  by day → tells you commit cadence.
+- **Bedrock spend:** check
+  `docs/agent/bedrock-spend-2026-05-03.md` against AWS console; flag
+  if any folder exceeds $0.50/doc.
+- **Worker health:** `ProcessingJob.objects.filter(status="processing", locked_at__lt=now-5min)`
+  catches stale workers.
+
+### Triage cadence
+
+Per `docs/agent/pilot-success-metrics.md`:
+- Mon AM: ops reviews Feedback report; flags Sev-1; updates
+  `docs/agent/handoff-log.md` with weekly metrics.
+- Fri EOW: Saranyaraj + Fraser sync; triage to Linear if needed.
+
+### Sev-1 triggers (kill-switch + retro)
+
+- Real-PII leak detected (PII grep guard fails OR audit row carries
+  raw exception text)
+- Audit-event regression (count != expected per locked #37)
+- Engine generates obvious-wrong recommendations
+- Bedrock spend > $500 in a single week
+
+Pull `MP20_ENGINE_ENABLED=0` env flag to halt portfolio
+generation; advisors see the kill-switch banner; retro within 48h.
+
+---
+
+## 11. Post-pilot work (deferred, in priority order)
+
+These are explicitly captured in
+`docs/agent/post-pilot-improvements.md`. Pilot data informs
+priority.
+
+| P | Item | Trigger |
 |---|---|---|
-| #10 | Before undo implementation | Undo-on-commit semantics: **soft-undo** (new `review_workspace_uncommitted` audit event + nullify `linked_household_id`; Household stays orphaned in DB; subsequent re-commit creates a NEW household) **OR re-edit flow** (PATCH workspace endpoint takes a household + creates a workspace seeded from its current state). Both honor canon §11.8 append-only audit. A is simpler; B is more production-grade. Default for pilot: A. |
-| #11 | After R10 sweep results | If a folder regresses against pre-Phase-4 baseline, gate pilot launch on Phase 9 close-out OR ship with documented gap? |
-
-Anything else surfaces via `AskUserQuestion` only if:
-- Fix grows beyond ~150 lines OR
-- Bedrock spend approaches $200/sub-session OR
-- Real-PII anomaly surfaces (PII leak detected, audit-emission
-  count mismatch, etc.)
-
-The user is highly reachable (minute-grade response on stop-condition
-asks) — when in doubt, ask.
+| P1 | **Re-edit flow v2** (replaces soft-undo) | If pilot feedback shows orphan-history value |
+| P2 | **Phase 9.4 multi-tool architecture** | If pilot recall < 80% pre-Phase-4 baseline |
+| P2 | **Demo-restore --dry-run + snapshot** | If reset script needs validation pre-execution |
+| P2 | **Tier 3 visual regression suite** (Playwright screenshot diffs) | Pilot week 1 surfaces a CSS regression |
+| P3 | **Mobile responsive audit** | Advisor reports mobile usage |
+| P3 | **Color-blind palette spot-check** | Manual review with Sim Daltonism |
+| P3 | **Conflict-rule heuristics** (saved-rule support) | Advisor reports repetitive conflict patterns |
+| P3 | **Audit browser UI** (analyst surface) | Compliance asks |
+| P3 | **fr-CA i18n population** | Quebec advisor onboarded |
 
 ---
 
-## 8. Anti-patterns (DO NOT)
+## 12. Stop-and-ask points (locked)
 
-1. **Re-do work already shipped** (the 13 commits past `1c4e0aa`).
-2. **Re-introduce free-form JSON parsing** in extraction (Phase 4
-   tool-use migration removed it; don't bring it back).
-3. **Allow `derivation_method="defaulted"`** (canon §9.4.5; Phase 7
-   sweep eliminated 2 such facts; keep at 0).
-4. **Generate hallucinated section paths**
-   (`identification.*`, `next_steps.*`, etc.). Tool-use schema
-   prevents this; don't loosen the schema.
-5. **Bulk-modify ProcessingJob rows** from prior sessions (locked
-   authorization explicitly forbids).
-6. **Disable PII grep / OpenAPI drift / vocab CI gates** to "ship
-   faster".
-7. **`str(exc)` in DB columns / API response bodies / audit metadata**
-   `detail` fields. Use `web/api/error_codes.py:safe_response_payload`
-   + `safe_audit_metadata` instead.
-8. **Push to `origin`** without explicit user OK. User pushes Mon.
-9. **Skip per-phase commits + pings** to "save time". Verbose
-   discipline is what made the prior 13 commits reviewable.
-10. **Add comments in code explaining what well-named identifiers
-    already convey** (per CLAUDE.md style).
-11. **Auto-commit households during R10 sweep** — preserves demo
-    state for Mon. Capture structural counts + leave workspaces in
-    review_ready state.
-12. **Use Bedrock Converse API** for vision PDFs — falls back to
-    text-only without citations. InvokeModel only.
-13. **Quote real client content in code, commits, memory, or chat.**
-    Structural counts only (canon §11.8.3).
+You halt + `AskUserQuestion` only on:
+
+| When | Question |
+|---|---|
+| Sev-1 incident in pilot | Should we kill-switch (pull `MP20_ENGINE_ENABLED=0`)? Roll back? Hot-fix? |
+| Pilot recall < 80% pre-Phase-4 baseline (week 1 data) | Ship Phase 9.4 multi-tool now or defer? |
+| Bedrock spend > $200/sub-session | Halt + retro before continuing |
+| Real-PII anomaly detected | Halt + diagnose before further code change |
+| Code change > 150 lines OR > 3 files | Confirm scope before continuing |
+| Anything that touches push to origin | User pushes; never agent |
+
+**Don't ask:**
+- "Should I add a regression test?" — yes, always.
+- "Should I run gates before committing?" — yes, always.
+- "Which gate suite step?" — run all of them.
+- "Is this ready to ship?" — answer with verifiable evidence,
+  not opinion.
 
 ---
 
-## 9. Patterns shipped — use them, don't reinvent
+## 13. Success criteria for the next session
 
-- **PII helpers** `web/api/error_codes.py`: `failure_code_for_exc`,
-  `safe_exception_summary`, `safe_response_payload(exc, **extra)`,
-  `safe_audit_metadata(exc, **extra)`, `friendly_message_for_code`.
-- **Atomicity:** `@transaction.atomic` + `.select_for_update()` on
-  workspace is canonical for new state-changing endpoints. See
-  `ReviewWorkspaceConflictResolveView.post` (Phase 5a) +
-  `ReviewWorkspaceFactOverrideView.post` (Phase 5b.10) for templates.
-- **Audit-event regression:** mirror `record_event(action="...",
-  entity_type="review_workspace", entity_id=..., actor=_actor(request),
-  metadata={...})` per locked #37. Emit AFTER atomic block commits to
-  avoid orphan rows on rollback.
-- **Append-only:** `FactOverride`, `HouseholdSnapshot`,
-  `PortfolioRunEvent`. `save()` raises on existing pk.
-- **Frontend wire-shape evolution:** extend
-  `frontend/src/lib/review.ts` types alongside backend serializer
-  changes; regenerate `api-types.ts` via `npm run codegen`; commit
-  both. The drift gate verifies.
-- **Mutation hook patterns:** see
-  `docs/agent/design-system.md` "Mutation Hook Patterns" — defensive
-  null check; `qc.invalidateQueries` per query key.
-- **Modal / slide-out focus management:** see `docs/agent/design-system.md`
-  "Focus Management Patterns" — useEffect + ref (NOT autoFocus attr;
-  jsx-a11y/no-autofocus).
-- **PDF detection signal:** `extraction/parsers.py:_parse_pdf` already
-  returns `kind="ocr_required"` for zero-text PDFs. Extend with
-  `is_likely_image_pdf()` for low-density text (`<50 chars/page`).
-- **Subagent-parallel discipline:** for Phase 6 deep tests we
-  dispatched 4 agents concurrently; each got ~700-1500 line scope
-  + clear stop-conditions. For Tier 3 polish in #11, do same with
-  ~6 agents.
+The next session ships when:
 
----
+1. **Mon 2026-05-04 demo state restored cleanly** — Sandra/Mike +
+   Seltzer + Weryha pre-uploaded; the 8-step demo flow runs
+   end-to-end in real Chrome without console errors or visible
+   friction; advisor disclaimer + tour pre-acked for the demo
+   user.
 
-## 10. Communication style
+2. **`feature/ux-rebuild` pushed to origin** with the
+   `v0.1.0-pilot` tag included; CI green on the push.
 
-User has been burned by overconfident "ship-ready" claims (the
-FileList race lesson; the Phase 4 canary regression caught only by
-real-PII validation; the Phase 7 a11y bug caught only by axe-core).
-Be candid about uncertainty. Demand verifiable evidence per change.
+3. **Pilot launches Mon 2026-05-08** with all 5 advisors
+   provisioned (per
+   `web/api/management/commands/provision_pilot_advisors.py` —
+   commit list of advisors lives outside the repo).
 
-When user pushes back ("are we really done?"), audit honestly. The
-2026-05-03 audit (covered in `docs/agent/handoff-log.md`) showed
-real gaps that prompted sub-sessions #8-#11. Don't be afraid to
-surface gaps.
+4. **Pilot week 1 runs without a Sev-1 incident** OR if one
+   surfaces, it's triaged + resolved within 24h with a
+   handoff-log entry.
 
-When you halt, do it cleanly:
-1. Commit any uncommitted work
-2. Update `docs/agent/sub-sessions-8-11-plan.md` status timeline
-3. Append to `docs/agent/handoff-log.md`
-4. Append to `docs/agent/bedrock-spend-2026-05-03.md` if Bedrock
-   work happened
-5. Ping with `AskUserQuestion`
+5. **Per-advisor weekly Bedrock spend < $25** (pilot success
+   metrics target).
 
-Don't strand uncommitted work across a halt.
+6. **Daily handoff-log entries during pilot week 1** capturing
+   what advisors reported + what was fixed.
+
+The pilot transitions to GA-ready when ALL of:
+- Sev-1 incidents = 0 for 2 consecutive weeks
+- Per-advisor NPS ≥ 8
+- ≥ 50% of pilot advisors used the system for ≥3 client onboardings
+- No regressions on locked #18 perf budget
+- R10 sweep across all 7 folders re-passes weekly
 
 ---
 
-## 11. Real-PII discipline (LOAD-BEARING)
+## 14. Communication style
 
-Canon §11.8.3 + dossier §10:
-- **Never** quote real client content in code, commits, memory,
-  chat, or any logs that escape `MP20_SECURE_DATA_ROOT`.
-- Bedrock `ca-central-1` only for `data_origin: real_derived`.
-  Anthropic direct for synthetic.
-- Use **structural counts** ("N facts across M sources") — never
-  values.
-- The R10 sweep automation (sub-session #11) MUST capture only
-  structural counts — no fact values, no evidence quotes, no
-  workspace labels with client names.
-- Sub-session #8 + #9 Bedrock canaries against Niesner / Seltzer /
-  Weryha: real-PII data flows through Bedrock. Audit metadata
-  captures token counts + extraction_path + structural fact counts
-  ONLY. Spend ledger entries are structural.
+The user has been burned by overconfident "ship-ready" claims.
+The prior session caught **5+ real bugs** through user pushback +
+visual verification (StrictMode regression, R10 cost-key bug,
+2 stale e2e selectors, FeedbackModal Esc handler, missing
+DocDropOverlay tests). **Be candid about uncertainty.**
 
-If you discover any `str(exc)` / raw client text leaking into a DB
-column / API response / audit metadata: STOP, fix, regression test,
-gate suite green before continuing.
+When the user asks "Is everything done?" or "Are you sure?":
+- **Don't restate confidence.** Audit honestly.
+- **Distinguish "tests pass" from "verified."** Tests prove a
+  contract; verification proves a behavior.
+- **Surface gaps explicitly.** "X verified via Y; Z NOT verified
+  because <reason>."
+- **Run higher-level tests.** If only Vitest passed, run
+  Playwright. If only Playwright headless, run real-Chrome
+  visual.
+- **Distinguish state-dependent gaps from regressions.** Some
+  surfaces (soft-undo button, resolved-collapse) need fixtures
+  not in the current DB. Those are gaps, not regressions; flag
+  them as such.
 
----
+When the user gives `auto mode`:
+- Execute autonomously on routine work.
+- **Halt on the locked stop-and-ask points** even under
+  auto-mode. Auto isn't an excuse to take destructive actions.
 
-## 12. First concrete action
+When you halt:
+1. Commit any uncommitted work first.
+2. Update `docs/agent/handoff-log.md` with where you halted.
+3. Append to `docs/agent/bedrock-spend-2026-05-03.md` if Bedrock
+   work happened.
+4. Ping with `AskUserQuestion`.
 
-After running §0 pre-flight verification:
-
-1. **Read** the four most-load-bearing docs (in order):
-   - `docs/agent/sub-sessions-8-11-plan.md`
-   - `docs/agent/handoff-log.md` (last 3 entries)
-   - `docs/agent/production-quality-bar.md`
-   - `docs/agent/phase9-fact-quality-iteration.md` (Phase 9 design
-     for sub-session #9)
-
-2. **Verify** the current state matches §2 (HEAD `59fed18`,
-   sub-sessions #1-#7 done, #8 in progress at "tracking docs done,
-   detection helper not started").
-
-3. **Resume sub-session #8.1** (detection helper):
-   - Read `extraction/parsers.py` lines 31-49 (existing `_parse_pdf`)
-   - Read `extraction/llm.py` lines 204-241 (existing
-     `extract_visual_facts_with_bedrock`)
-   - Read `extraction/pipeline.py` lines 79-105 (current dispatch)
-   - Implement `is_likely_image_pdf(parsed: ParsedDocument) -> bool`
-     in `extraction/parsers.py` per the design in
-     `docs/agent/sub-sessions-8-11-plan.md` §Sub-session #8 → Detection.
-
-4. **Move through #8.2 → #8.5** sequentially. Per-phase commit + ping.
-
-5. **Stop conditions:** if Bedrock canary cost-per-doc >$0.50 OR
-   detection false-positive rate >10% OR real-PII Niesner regresses
-   vs prior text path → halt + ping.
-
-If anything in §0 is red OR §1's docs reveal scope creep beyond the
-per-phase Stop-condition thresholds, halt + `AskUserQuestion` before
-coding.
+**Never strand uncommitted work across a halt.**
 
 ---
 
-## 13. Success criteria for the entire session
+## 15. Anti-pattern: things you might be tempted to do but shouldn't
 
-At the end of sub-session #11:
-- HEAD ahead of `59fed18` with 25-50 commits across #8-#11
-- 786 → ~1100 backend pytest passing (estimate +300 new)
-- 40 → ~80 frontend Vitest passing (estimate +40 new)
-- 18 → ~25 Playwright e2e passing (estimate +5-10 new for cross-
-  browser + R10 sweep specs)
-- All gate suites green at each sub-session boundary
-- Bedrock cumulative spend tracked + under $500 (or escalation
-  doc'd)
-- R10 7-folder sweep complete with structural results in
-  `docs/agent/r10-sweep-results-2026-05-03.md`
-- Phase 9 fact-quality recovery achieves ≥20pp recall recovery vs
-  HEAD `9d03013` baseline
-- All Tier 1, Tier 2, Tier 3 [gap] items closed
-- Cross-browser smoke green (Safari + Firefox)
-- Demo state restored for Mon 2026-05-04 (script + script
-  end-to-end validated)
-- User-locked ASKs answered (undo semantics; R10 regression handling)
-- Final cumulative ping covering #8-#11
+1. **Re-do work already shipped** in the 16 commits past
+   `8bb96c0`. The commits below are load-bearing; check the diff
+   before assuming a surface is broken:
+   ```
+   b14a199 visual-verification: full-checklist alignment + FeedbackModal Esc fix
+   efbe58d e2e: comprehensive visual-verification spec (17 tests, 17/17 pass)
+   95af4b5 docs: handoff log addendum for the verification-pass gaps
+   b887b18 test: DocDropOverlay StrictMode tests pin the admitFiles fix
+   bca0112 fix: DocDropOverlay StrictMode-double-update + foundation e2e + R10 nested-key tests
+   2bd77d3 R10 sweep: live run results + cost-key bug fix + recomputed totals
+   df6363f docs: correct test counts in handoff log
+   1428555 test: tooltip wrapper smoke tests
+   5cb91c0 docs: handoff-log entry for sub-session #11 deferred-work follow-up
+   cb408cc test: 15 unit tests for R10 sweep automation helpers
+   f86dcfd Sub-session #11 deferred work closed: R10 sweep + cross-browser + Tier 3 polish
+   af627b3 Sub-session #11: Tier 2 high-leverage items + close-out
+   35a7eba Sub-session #10: Tier 1 advisor friction (#10.1-#10.6)
+   8af7104 Sub-session #9: Phase 9 fact-quality recovery (layered iteration)
+   735ecae Sub-session #8.5 + close-out: Niesner canary + spend ledger + handoff
+   2d61cc0 Sub-session #8.1-#8.4: OCR/vision foundation via Bedrock native PDF
+   ```
 
-The user pushes Monday 2026-05-04 morning. The pilot launches Mon
-2026-05-08. Get ready.
+2. **Push to origin** without explicit user OK. User pushes Mon.
 
-END
+3. **Bulk-modify ProcessingJob rows** from prior sessions
+   (locked authorization explicitly forbids).
+
+4. **Disable PII grep / OpenAPI drift / vocab CI gates** to
+   "ship faster". The gates are guarding the canon constraints.
+
+5. **Quote real client content** in code, commits, memory, or
+   chat. Even paraphrasing a fact ("the household has $X in
+   RRSP") is a violation. Use structural counts only.
+
+6. **Skip the foundation e2e re-run** after frontend changes.
+   The DocDropOverlay StrictMode regression slipped through
+   because foundation wasn't re-run.
+
+7. **Trust subagent "all gates green" reports without verifying.**
+   Subagent gates pass against subagent-written fixtures.
+
+8. **Add comments in code that explain WHAT** when well-named
+   identifiers already convey it. Comments are for WHY (hidden
+   constraints, subtle invariants, workarounds for specific bugs).
+
+9. **Use `aria-label` that diverges materially from visible text.**
+   The accessible-name resolution prioritizes aria-label; if the
+   text says "Save as draft" but aria-label says "Save the
+   current wizard state as a draft", screen-reader users hear
+   the long form. Match them or use a tooltip for the long form.
+
+10. **Treat auto-mode as a license to be destructive.** Anything
+    that deletes data, modifies shared systems, or forces a
+    sandbox-prompt still needs explicit confirmation.
 
 ---
 
-## Notes for the writer (NOT for the next session)
+## 16. First concrete actions when the next session starts
 
-These notes are for you (the human reviewing this prompt before
-copy-pasting), not for the next agent.
+1. **Run §2 pre-flight** in full. If anything is red, halt + ping.
 
-- This prompt is ~600 lines vs the prior ~482. The extra fidelity
-  is justified by the OCR/vision architectural addition + the
-  4-sub-session roadmap + the project tracking discipline + the
-  pre-authorized scope.
-- Stop-and-ask points are locked + cited at §7 + at sub-session
-  start. The next agent should NOT re-litigate these.
-- The §1 reading list is in DEPENDENCY order. The plan doc is the
-  single roadmap; everything else feeds into specific sub-session
-  tasks.
-- §11 (Real-PII discipline) is intentionally redundant with
-  earlier sections. The canon §11.8.3 violation risk is high
-  enough that bordering on too-cautious is the right call.
-- Per-sub-session commit + ping discipline is what made the prior
-  13 commits reviewable. Maintain it.
-- If the next agent's context allows it, continue all 4 sub-sessions.
-  If context limit approaches, halt at sub-session boundary cleanly
-  + write a fresh starter prompt for the remainder.
-- Prior versions of this prompt are visible in git history; this
-  one is for sub-session #8 onwards only.
+2. **Read §3 Tier 1 docs** (handoff log last 5 entries +
+   sub-sessions plan + production-quality-bar). 10-15 min.
+
+3. **Verify the post-Mon-push state matches expectations** —
+   ```bash
+   git log --oneline origin/feature/ux-rebuild..HEAD  # should be empty after push
+   git tag -l v0.1.0-pilot  # should resolve to a known commit
+   ```
+
+4. **Pivot based on pilot-week phase:**
+
+   - **Pre-pilot (before 2026-05-08):** Mon morning runbook §9.
+     Demo restore + push. Visual smoke in real Chrome. Verify
+     advisor provisioning command works for 5 advisors.
+
+   - **Pilot week 1 (2026-05-08 → 2026-05-15):** Triage cheat
+     sheet §10. Daily handoff-log entries. Hot-fix anything Sev-1.
+
+   - **Pilot week 2 (2026-05-15 → 2026-05-22):** Measure pilot
+     metrics per `docs/agent/pilot-success-metrics.md`. Decide
+     GA-or-extend at end of week 2.
+
+   - **Post-pilot (2026-05-22+):** Pick from §11 backlog based
+     on pilot data. Re-edit flow v2 if orphan-history valued;
+     Phase 9.4 multi-tool if recall regressed.
+
+5. **For ANY frontend touch:** re-run foundation e2e +
+   visual-verification spec. **This is non-negotiable.**
+
+---
+
+## 17. Memory + state pointers (don't write into chat; persist here)
+
+Auto-memory at
+`/Users/saranyaraj/.claude/projects/-Users-saranyaraj-Projects-github-repo-mp2-0/memory/MEMORY.md`
+indexes the project memories. Most-load-bearing:
+
+- `project_post_r8_demo_locked.md` — earlier checkpoint; superseded
+  by the handoff-log entries at HEAD `b14a199`.
+- `project_real_pii_not_blocked.md` — pilot data authorization.
+- `project_engine_invariants.md` — engine-is-library, AI-numbers
+  rule, append-only.
+- `feedback_routine_defaults.md` — Opus default; verify infra
+  yourself.
+- `feedback_collaboration_style.md` — single taxonomy, canon-verbatim
+  fidelity, deep research before action.
+
+If you discover a load-bearing constraint that future sessions
+need, **write it to memory** + add a one-line entry to
+`MEMORY.md`. Don't let it get lost in chat.
+
+---
+
+## 18. The shape of MP2.0 — for grounding when you context-switch
+
+### File-tree map (key paths only)
+
+```
+mp2.0/
+├── engine/                          # Pure-Python optimizer (canon §9.4.2)
+│   ├── optimize.py
+│   ├── sleeves.py
+│   └── schemas.py                   # Pydantic models; the engine boundary
+├── extraction/                      # Bedrock pipeline (canon §11.4)
+│   ├── parsers.py                   # is_likely_image_pdf detection
+│   ├── llm.py                       # extract_text/visual/native_pdf paths
+│   ├── pipeline.py                  # extract_facts_for_document dispatcher
+│   ├── prompts/                     # per-doc-type modules + base
+│   ├── reconciliation.py            # source-priority hierarchy
+│   ├── validation.py                # Phase 9.3 evidence-quote gate
+│   └── schemas.py                   # ParsedDocument, FactCandidate, etc.
+├── web/                             # Django/DRF
+│   ├── api/views.py                 # ReviewWorkspace*View; the request/response surface
+│   ├── api/review_state.py          # readiness + commit_reviewed_state
+│   ├── api/review_processing.py     # Bedrock worker
+│   ├── api/error_codes.py           # PII-safe helpers (use these)
+│   └── audit/models.py              # AuditEvent (append-only)
+├── frontend/
+│   ├── src/chrome/                  # TopBar, ClientPicker, PilotBanner, FeedbackButton
+│   ├── src/routes/                  # AccountRoute, GoalRoute, ReviewRoute, CmaRoute
+│   ├── src/modals/                  # DocDropOverlay, ReviewScreen, ConflictPanel,
+│   │                                 # DocDetailPanel, RealignModal, CompareScreen
+│   ├── src/wizard/                  # HouseholdWizard + draft.ts persistence
+│   ├── src/components/              # Truncated, ConflictCard, ConfidenceChip, ui/tooltip
+│   ├── src/lib/                     # canonical-fields, format, review (TanStack hooks)
+│   └── e2e/                         # foundation, visual-verification, cross-browser
+├── scripts/
+│   ├── reset-v2-dev.sh              # locked #34 pre-authorized
+│   ├── demo-prep/upload_and_drain.py
+│   └── demo-prep/r10_sweep.py       # automated 7-folder sweep
+└── docs/agent/                      # all the load-bearing docs in §3
+```
+
+### Pilot data flow (real-PII canon §11.8.3)
+
+```
+Croesus PDF/DOCX   →   /api/review-workspaces/<id>/upload/   (multipart, advisor-auth)
+                       │
+                       ▼
+                       MP20_SECURE_DATA_ROOT/<workspace>/<sha256>.<ext>
+                       │
+                       ▼ (worker picks up)
+extraction/parsers     parses to ParsedDocument
+extraction/classification → ClassificationResult
+extraction/llm.extract_*_with_bedrock_native  →  Bedrock ca-central-1
+                       │
+                       ▼ (FactCandidate list)
+extraction/validation  filter inferred-facts by evidence overlap
+extraction/pipeline    cap confidence by classification + 1
+                       │
+                       ▼
+ExtractedFact rows  +  ProcessingJob status flips
+                       │
+                       ▼ (advisor reviews on /review/<id>/)
+ReviewScreen           ConflictPanel + DocDetailPanel + section approvals
+                       │
+                       ▼
+POST /commit/          commit_reviewed_state → Household + Person/Account/Goal/Link
+                       │
+                       ▼
+GeneratePortfolioView  engine.optimize → PortfolioRun + recommendation rows
+```
+
+Every arrow above emits an AuditEvent. Every persisted blob
+(ExtractedFact, FactOverride, HouseholdSnapshot, PortfolioRun)
+is append-only. The advisor commits exactly once per workspace
+unless they soft-undo (sub-session #10.6).
+
+---
+
+## 19. If you read only ONE thing
+
+Read `docs/agent/handoff-log.md` last 5 entries. They capture:
+- The Mon-pre-pilot state (HEAD `b14a199`).
+- The 3 bugs the verification pass surfaced.
+- The lesson about subagent-gate fidelity.
+- The Mon morning push readiness.
+
+Everything else in this prompt is orientation; the handoff log is
+the single source of truth for "what just happened."
+
+---
+
+## 20. Final note
+
+This is the most thoroughly verified MP2.0 release the codebase
+has ever shipped. **983 tests passing** across 5 layers (backend
+pytest + Vitest + foundation e2e + cross-browser smoke + visual
+verification). $0.86 of real-PII Bedrock spend produced 56 docs
+reconciled across 7 client folders. Three rounds of "Is everything
+done?" each surfaced + closed a real bug.
+
+That said — pilot starts the day MP2.0 first touches a real
+advisor's hands. The bugs we don't know about will outnumber the
+ones we do. **Honest audit + responsive fixing during pilot week
+1 is the success metric, not "we shipped without bugs."**
+
+The user trusts your candor more than your confidence. Earn that
+trust by saying "I haven't verified X" when you haven't.
+
+Mon 2026-05-04 + 2026-05-08 are real deadlines. Quality bar > speed
+bar. Real-PII discipline > all.
+
+Welcome to MP2.0. Let's launch.
+
+— prior agent, 2026-05-03 22:30Z, HEAD `b14a199`
