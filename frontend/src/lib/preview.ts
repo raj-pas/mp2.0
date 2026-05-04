@@ -281,6 +281,13 @@ export type MovesResponse = {
   moves: Move[];
   total_buy?: number;
   total_sell?: number;
+  /**
+   * Backend signals which `ideal_pct` source it used per locked
+   * decision §3.3: "portfolio_run" when `latest_portfolio_run.output.
+   * goal_rollups[goal.id]` exists; "calibration" when fallback to
+   * SLEEVE_REF_POINTS. Surfaces via SourcePill in MovesPanel.
+   */
+  source?: "portfolio_run" | "calibration";
 };
 
 export function useMoves(householdId: string | null, goalId: string | null) {

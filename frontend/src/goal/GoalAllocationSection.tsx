@@ -1,46 +1,103 @@
 /**
  * Current vs ideal vs compare bars for a goal's fund mix.
  *
- * Pulls the ideal mix from `/api/preview/sleeve-mix/` (canon score
- * → fund pcts) and current mix by aggregating GoalAccountLink
- * legs across the goal's linked accounts. Locked decision #2 keeps
- * the math server-side; this component does layout + diff only.
+ * Source-decision tree (locked §3.1 — slider-drag UX):
+ *   - `isPreviewingOverride === true` (slider is being dragged for what-if):
+ *       → calibration_drag pill; ideal bars track the slider via `useSleeveMix`
+ *   - `latest_portfolio_run.output.goal_rollups[goal.id]` exists:
+ *       → engine pill with run signature; ideal bars from
+ *         `findGoalRollup(household, goal.id).allocations` (engine's
+ *         dollar-weighted, frontier-optimized blend per locked §3.5)
+ *   - Otherwise (no engine rollup, no drag):
+ *       → calibration pill; ideal bars from `useSleeveMix(effectiveScore)`
+ *
+ * Per locked decision §3.7: `isPreviewingOverride` is lifted from
+ * `RiskSlider.isOverrideDraft` to `GoalRoute` and passed down here.
  */
 import { useTranslation } from "react-i18next";
 
 import { Skeleton } from "../components/ui/skeleton";
 import { fundColor, fundDisplayName, canonizeFundId, type FundCanonId } from "../lib/funds";
-import { type Goal, type HouseholdDetail } from "../lib/household";
+import {
+  type Allocation,
+  type Goal,
+  type HouseholdDetail,
+  findGoalRollup,
+} from "../lib/household";
 import { useSleeveMix } from "../lib/preview";
 import { formatPct } from "../lib/format";
+import { SourcePill, type PillSource } from "./SourcePill";
 
 interface GoalAllocationSectionProps {
   goal: Goal;
   household: HouseholdDetail;
   /** Effective canon score (system or active override). */
   effectiveScore: 1 | 2 | 3 | 4 | 5;
+  /**
+   * True when the advisor is dragging the risk slider but hasn't yet
+   * saved the override. Per locked §3.1: in this state, ideal bars
+   * track the slider via calibration (live what-if), not the engine
+   * (which is fixed to the saved goal config).
+   */
+  isPreviewingOverride?: boolean;
 }
 
 export function GoalAllocationSection({
   goal,
   household,
   effectiveScore,
+  isPreviewingOverride = false,
 }: GoalAllocationSectionProps) {
   const { t } = useTranslation();
+
+  // Always call useSleeveMix so the calibration query is ready when we
+  // need it (no conditional hooks; React rules of hooks).
   const sleeveMix = useSleeveMix(effectiveScore);
+
+  const goalRollup = findGoalRollup(household, goal.id);
+  const useEnginePath = goalRollup !== null && !isPreviewingOverride;
+  const source: PillSource = isPreviewingOverride
+    ? "calibration_drag"
+    : goalRollup !== null
+      ? "engine"
+      : "calibration";
+  const runSignature = household.latest_portfolio_run?.run_signature ?? null;
 
   const currentMix = useMemo_currentMix(goal, household);
 
+  // Engine path: derive ideal mix from goal_rollup.allocations (no calibration query needed).
+  if (useEnginePath && goalRollup !== null) {
+    const idealMix = buildMixFromAllocations(goalRollup.allocations);
+    const fundOrder = orderFundsByIdeal(idealMix, currentMix);
+    return (
+      <Section title={t("goal_allocation.section_title")} pill={
+        <SourcePill source={source} runSignature={runSignature} />
+      }>
+        <AllocationTable
+          fundOrder={fundOrder}
+          currentMix={currentMix}
+          idealMix={idealMix}
+          t={t}
+        />
+      </Section>
+    );
+  }
+
+  // Calibration path (fallback or drag preview): use useSleeveMix.
   if (sleeveMix.isPending) {
     return (
-      <Section title={t("goal_allocation.section_title")}>
+      <Section title={t("goal_allocation.section_title")} pill={
+        <SourcePill source={source} runSignature={runSignature} />
+      }>
         <Skeleton className="h-32 w-full" />
       </Section>
     );
   }
   if (sleeveMix.isError || sleeveMix.data === undefined) {
     return (
-      <Section title={t("goal_allocation.section_title")}>
+      <Section title={t("goal_allocation.section_title")} pill={
+        <SourcePill source={source} runSignature={runSignature} />
+      }>
         <p role="alert" className="font-mono text-[10px] uppercase tracking-widest text-danger">
           {t("errors.preview_failed")}
         </p>
@@ -54,7 +111,29 @@ export function GoalAllocationSection({
   const fundOrder = orderFundsByIdeal(idealMix, currentMix);
 
   return (
-    <Section title={t("goal_allocation.section_title")}>
+    <Section title={t("goal_allocation.section_title")} pill={
+      <SourcePill source={source} runSignature={runSignature} />
+    }>
+      <AllocationTable
+        fundOrder={fundOrder}
+        currentMix={currentMix}
+        idealMix={idealMix}
+        t={t}
+      />
+    </Section>
+  );
+}
+
+interface AllocationTableProps {
+  fundOrder: string[];
+  currentMix: Map<string, number>;
+  idealMix: Map<string, number>;
+  t: (key: string) => string;
+}
+
+function AllocationTable({ fundOrder, currentMix, idealMix, t }: AllocationTableProps) {
+  return (
+    <>
       <table className="w-full table-fixed">
         <thead>
           <tr className="text-left">
@@ -118,8 +197,18 @@ export function GoalAllocationSection({
           {t("goal_allocation.no_holdings")}
         </p>
       )}
-    </Section>
+    </>
   );
+}
+
+function buildMixFromAllocations(allocations: Allocation[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const a of allocations) {
+    const canon = canonizeFundId(a.sleeve_id) ?? a.sleeve_id;
+    // Allocation.weight is 0..1 (per engine schema); BarCell consumes 0..100.
+    out.set(canon, (out.get(canon) ?? 0) + a.weight * 100);
+  }
+  return out;
 }
 
 function BarCell({ pct, fundId }: { pct: number; fundId: FundCanonId | string }) {
@@ -140,10 +229,21 @@ function BarCell({ pct, fundId }: { pct: number; fundId: FundCanonId | string })
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+  pill,
+}: {
+  title: string;
+  children: React.ReactNode;
+  pill?: React.ReactNode;
+}) {
   return (
     <section className="border border-hairline-2 bg-paper p-4 shadow-sm">
-      <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted">{title}</h3>
+      <header className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="font-mono text-[10px] uppercase tracking-widest text-muted">{title}</h3>
+        {pill !== undefined && pill !== null && pill}
+      </header>
       {children}
     </section>
   );

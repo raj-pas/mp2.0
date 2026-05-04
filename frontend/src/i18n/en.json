@@ -267,7 +267,11 @@
     "view_by_account": "By account",
     "no_holdings": "No holdings on file for this goal.",
     "loading": "Loading allocation…",
-    "diagnostics_title": "Allocation diagnostics"
+    "diagnostics_title": "Allocation diagnostics",
+    "from_run": "Engine recommendation",
+    "from_calibration": "Calibration preview",
+    "from_calibration_drag": "Calibration preview (drag mode)",
+    "run_source": "Run {{signature}}"
   },
   "optimizer_output": {
     "section_title": "Optimizer output",

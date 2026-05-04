@@ -2,28 +2,56 @@ import { useTranslation } from "react-i18next";
 
 import { Skeleton } from "../components/ui/skeleton";
 import { fundColor, fundDisplayName } from "../lib/funds";
+import { type HouseholdDetail } from "../lib/household";
 import { useMoves } from "../lib/preview";
 import { formatCad } from "../lib/format";
+import { SourcePill, type PillSource } from "./SourcePill";
 
 interface MovesPanelProps {
   householdId: string;
   goalId: string;
+  /**
+   * Optional household for the engine `run_signature` displayed alongside
+   * the engine pill. When undefined, falls back to no-signature display.
+   */
+  household?: HouseholdDetail;
+  /**
+   * True when slider is being dragged for what-if; pill flips to
+   * calibration_drag regardless of backend source. Per locked §3.1.
+   */
+  isPreviewingOverride?: boolean;
 }
 
-export function MovesPanel({ householdId, goalId }: MovesPanelProps) {
+export function MovesPanel({
+  householdId,
+  goalId,
+  household,
+  isPreviewingOverride = false,
+}: MovesPanelProps) {
   const { t } = useTranslation();
   const query = useMoves(householdId, goalId);
 
+  // Backend signals source via `query.data.source`; default to calibration.
+  // Slider-drag overrides backend signal per locked §3.1.
+  const backendSource = query.data?.source ?? "calibration";
+  const source: PillSource = isPreviewingOverride
+    ? "calibration_drag"
+    : backendSource === "portfolio_run"
+      ? "engine"
+      : "calibration";
+  const runSignature = household?.latest_portfolio_run?.run_signature ?? null;
+  const pill = <SourcePill source={source} runSignature={runSignature} />;
+
   if (query.isPending) {
     return (
-      <Section title={t("moves.section_title")}>
+      <Section title={t("moves.section_title")} pill={pill}>
         <Skeleton className="h-24 w-full" />
       </Section>
     );
   }
   if (query.isError || query.data === undefined) {
     return (
-      <Section title={t("moves.section_title")}>
+      <Section title={t("moves.section_title")} pill={pill}>
         <p role="alert" className="font-mono text-[10px] uppercase tracking-widest text-danger">
           {t("errors.preview_failed")}
         </p>
@@ -34,7 +62,7 @@ export function MovesPanel({ householdId, goalId }: MovesPanelProps) {
   const moves = query.data.moves;
   if (moves.length === 0) {
     return (
-      <Section title={t("moves.section_title")}>
+      <Section title={t("moves.section_title")} pill={pill}>
         <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
           {t("moves.no_moves")}
         </p>
@@ -48,7 +76,7 @@ export function MovesPanel({ householdId, goalId }: MovesPanelProps) {
   const totalSell = query.data.total_sell ?? sells.reduce((s, m) => s + Number(m.amount), 0);
 
   return (
-    <Section title={t("moves.section_title")}>
+    <Section title={t("moves.section_title")} pill={pill}>
       <p className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted">
         {t("moves.totals", { buys: formatCad(totalBuy), sells: formatCad(totalSell) })}
       </p>
@@ -100,10 +128,21 @@ function MoveColumn({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+  pill,
+}: {
+  title: string;
+  children: React.ReactNode;
+  pill?: React.ReactNode;
+}) {
   return (
     <section className="border border-hairline-2 bg-paper p-4 shadow-sm">
-      <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted">{title}</h3>
+      <header className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="font-mono text-[10px] uppercase tracking-widest text-muted">{title}</h3>
+        {pill !== undefined && pill !== null && pill}
+      </header>
       {children}
     </section>
   );

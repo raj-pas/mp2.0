@@ -55,6 +55,17 @@ interface RiskSliderProps {
   sizeShare?: number | null;
   /** Goal tier ("need" | "want" | "wish" | "unsure") for derivation copy. */
   tier?: "need" | "want" | "wish" | "unsure" | null;
+  /**
+   * Optional callback fired whenever `selectedScore !== systemScore`
+   * (i.e., advisor is previewing an override but hasn't saved yet).
+   *
+   * Per locked decision §3.7: lifts `isOverrideDraft` state to `GoalRoute`
+   * so `GoalAllocationSection` can flip its source pill to
+   * "calibration_drag" while the slider is being dragged. On save
+   * (override commits + engine auto-regenerates per locked #74), the
+   * pill flips back to "engine".
+   */
+  onPreviewChange?: (isPreviewing: boolean) => void;
 }
 
 export function RiskSlider({
@@ -66,6 +77,7 @@ export function RiskSlider({
   canEdit,
   sizeShare,
   tier,
+  onPreviewChange,
 }: RiskSliderProps) {
   const { t } = useTranslation();
   const [selectedScore, setSelectedScore] = useState<1 | 2 | 3 | 4 | 5>(effectiveScore);
@@ -77,6 +89,13 @@ export function RiskSlider({
   }, [effectiveScore]);
 
   const isOverrideDraft = selectedScore !== systemScore;
+
+  // Lift drag-preview state to the parent so GoalAllocationSection can
+  // flip its source pill to "calibration_drag" while the advisor is
+  // exploring (per locked §3.1 + §3.7).
+  useEffect(() => {
+    onPreviewChange?.(isOverrideDraft);
+  }, [isOverrideDraft, onPreviewChange]);
 
   const {
     register,

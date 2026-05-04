@@ -11,6 +11,7 @@
  * locked decision #19 fixture regeneration in R7 unblocks it. The
  * slider still saves overrides correctly without the breakdown.
  */
+import { useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -39,6 +40,12 @@ export function GoalRoute() {
   const householdQuery = useHousehold(rememberedId);
   const session = useSession();
   const overridesQuery = useOverrideHistory(goalId ?? null);
+
+  // Per locked §3.7: parent owns drag-preview state lifted from
+  // RiskSlider via `onPreviewChange`. GoalAllocationSection + MovesPanel
+  // both read this to flip their SourcePill to "calibration_drag" while
+  // the slider is being dragged.
+  const [isPreviewingOverride, setIsPreviewingOverride] = useState(false);
 
   if (rememberedId === null) {
     return (
@@ -194,18 +201,29 @@ export function GoalRoute() {
               ? Number(goal.target_amount) / household.total_assets
               : null
           }
+          onPreviewChange={setIsPreviewingOverride}
         />
       )}
 
       {effectiveScore !== null && (
-        <GoalAllocationSection goal={goal} household={household} effectiveScore={effectiveScore} />
+        <GoalAllocationSection
+          goal={goal}
+          household={household}
+          effectiveScore={effectiveScore}
+          isPreviewingOverride={isPreviewingOverride}
+        />
       )}
 
       <AdvisorSummaryPanel household={household} goalId={goal.id} />
 
       <div className="grid grid-cols-2 gap-3">
         <OptimizerOutputWidget householdId={household.id} goalId={goal.id} />
-        <MovesPanel householdId={household.id} goalId={goal.id} />
+        <MovesPanel
+          householdId={household.id}
+          goalId={goal.id}
+          household={household}
+          isPreviewingOverride={isPreviewingOverride}
+        />
       </div>
 
       {effectiveScore !== null && horizonYears !== null && tier !== null && (
