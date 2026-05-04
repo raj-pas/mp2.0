@@ -43,6 +43,17 @@ const accountSchema = z.object({
     .trim()
     .refine((s) => /^\d+(\.\d{1,2})?$/.test(s), "Use a number like 120000.00"),
   custodian: z.string().trim().default(""),
+  /**
+   * Advisor confirms "no fund-level holdings to track" for this account
+   * (e.g., GIC, single-fund, cash). When true, engine-readiness accepts
+   * the account without holdings; when false (default), the readiness
+   * check requires either holdings or this confirmation before
+   * portfolio generation can succeed.
+   *
+   * Per canon §9.4.5 + locked decision (this session): default false so
+   * the advisor consciously opts in — never silently mark missing.
+   */
+  missing_holdings_confirmed: z.boolean().default(false),
 });
 
 const goalLegSchema = z.object({
@@ -161,7 +172,14 @@ export function emptyWizardDraft(): WizardDraft {
     members: [{ name: "", dob: "" }],
     notes: "",
     risk_profile: { q1: 5, q2: "B", q3: [], q4: "B" },
-    accounts: [{ account_type: "RRSP", current_value: "", custodian: "" }],
+    accounts: [
+      {
+        account_type: "RRSP",
+        current_value: "",
+        custodian: "",
+        missing_holdings_confirmed: false,
+      },
+    ],
     goals: [
       {
         name: "",

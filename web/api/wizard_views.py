@@ -69,6 +69,15 @@ class WizardAccountSerializer(serializers.Serializer):
         min_value=Decimal("0"),
     )
     custodian = serializers.CharField(required=False, allow_blank=True, default="")
+    # When the wizard is the only data path (no doc-drop), the advisor often
+    # doesn't have fund-level holdings to enter. Setting this true marks the
+    # account as "no holdings to record" for engine-readiness purposes — the
+    # readiness check accepts it as a legitimate terminal state. Default
+    # false preserves backwards-compat (existing wizard payloads + tests).
+    # Per canon §9.4.5: never invent data; this is an EXPLICIT advisor
+    # confirmation, not a silent default. Frontend Step3 checkbox is the
+    # affordance.
+    missing_holdings_confirmed = serializers.BooleanField(required=False, default=False)
 
 
 class WizardGoalLegSerializer(serializers.Serializer):
@@ -408,6 +417,12 @@ class WizardCommitView(APIView):
                     regulatory_time_horizon="3-10y",
                     regulatory_risk_rating="medium",
                     current_value=raw["current_value"],
+                    # Per advisor's explicit choice in wizard Step3 checkbox.
+                    # Default false; advisor opts in by checking "no holdings
+                    # to track" affordance. Locked semantics: this is a
+                    # terminal-state acknowledgement, not a "data missing"
+                    # flag — the advisor is confirming completeness.
+                    missing_holdings_confirmed=raw.get("missing_holdings_confirmed", False),
                 )
                 account_objs.append(account)
 
@@ -464,12 +479,26 @@ class WizardCommitView(APIView):
         # Trigger #2 (per locked #14 + #74): auto-trigger sync-inline against
         # the wizard-created household. Outside the transaction.atomic block
         # so it sees the committed state. Failure never breaks the response.
+        from web.api.review_state import portfolio_generation_blockers_for_household
         from web.api.views import _trigger_and_audit
 
         _trigger_and_audit(household, request.user, source="wizard_commit")
 
+        # Compute readiness blockers post-commit so the frontend wizard can
+        # surface a "committed but not ready" warning to the advisor and
+        # navigate to the household route where the persistent blocker panel
+        # (HouseholdPortfolioPanel cold-start) renders the same list. Per
+        # locked #9, the auto-trigger above is silent for typed-skip; this
+        # response field is the advisor-facing signal for the same gap.
+        # Empty list means engine-ready + auto-trigger generated a run.
+        readiness_blockers = portfolio_generation_blockers_for_household(household)
+
         return Response(
-            {"household_id": household.external_id, "household_score_1_5": risk_result.score_1_5},
+            {
+                "household_id": household.external_id,
+                "household_score_1_5": risk_result.score_1_5,
+                "readiness_blockers": readiness_blockers,
+            },
             status=status.HTTP_201_CREATED,
         )
 

@@ -185,8 +185,8 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
         }
 
     def get_readiness_blockers(self, obj: models.Household) -> list[str]:
-        """Return the list of advisor-actionable blockers preventing portfolio
-        generation, OR an empty list if the household is engine-ready.
+        """Return advisor-actionable blockers preventing portfolio generation,
+        OR an empty list if the household is engine-ready.
 
         Backed by `portfolio_generation_blockers_for_household` in
         `web/api/review_state.py` — same function the helper trio uses to
@@ -196,14 +196,36 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
         skip path is silent per locked #9; before this field, advisors had
         no persistent signal of the gap).
 
-        Strings are PII-safe: the function f-string-interpolates internal
-        `external_id` UUIDs (not real client identifiers), goal display
-        names (advisor-set), and `account_type` enums. No raw exception
-        text, no extracted client content.
+        UUID `external_id` references in the raw blocker strings are
+        substituted with friendlier "<account_type> (<8-char prefix>)" form
+        so the advisor can identify which account each blocker applies to.
+        Synthetic external_ids (e.g., `acct_mike_rrsp`) don't match the
+        UUID regex and pass through unchanged.
+
+        Strings are PII-safe: internal external_ids only (not real client
+        identifiers), advisor-set goal names, and account_type enums. No
+        raw exception text, no extracted client content.
         """
+        import re
+
         from web.api.review_state import portfolio_generation_blockers_for_household
 
-        return portfolio_generation_blockers_for_household(obj)
+        raw = portfolio_generation_blockers_for_household(obj)
+        if not raw:
+            return []
+
+        # Build friendly-label map: external_id -> "RRSP (be3337bc)".
+        # Truncated UUID prefix is enough to disambiguate same-type accounts.
+        labels: dict[str, str] = {
+            acct.external_id: f"{acct.account_type or 'Account'} ({acct.external_id[:8]})"
+            for acct in obj.accounts.all()
+        }
+        uuid_re = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
+
+        def _humanize(blocker: str) -> str:
+            return uuid_re.sub(lambda m: labels.get(m.group(0), m.group(0)), blocker)
+
+        return [_humanize(b) for b in raw]
 
     def get_portfolio_runs(self, obj: models.Household) -> list[dict]:
         runs = obj.portfolio_runs.order_by("-created_at")[:10]

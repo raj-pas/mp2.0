@@ -55,6 +55,7 @@ export function Step3Goals() {
                 account_type: "Non-Registered",
                 current_value: "",
                 custodian: "",
+                missing_holdings_confirmed: false,
               })
             }
             aria-label={t("wizard.step3.add_account")}
@@ -63,40 +64,55 @@ export function Step3Goals() {
             <span>{t("wizard.step3.add_account")}</span>
           </Button>
         </div>
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           {accounts.fields.map((field, index) => (
-            <div key={field.id} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2">
-              <select
-                {...register(`accounts.${index}.account_type` as const)}
-                className="border border-hairline-2 bg-paper px-3 py-2 font-sans text-[12px] text-ink focus:border-accent focus:outline-none"
-              >
-                {ACCOUNT_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
-              <input
-                {...register(`accounts.${index}.current_value` as const)}
-                placeholder={t("wizard.step3.value_placeholder")}
-                inputMode="decimal"
-                className="border border-hairline-2 bg-paper px-3 py-2 font-sans text-[12px] text-ink focus:border-accent focus:outline-none"
-              />
-              <input
-                {...register(`accounts.${index}.custodian` as const)}
-                placeholder={t("wizard.step3.custodian_placeholder")}
-                className="border border-hairline-2 bg-paper px-3 py-2 font-sans text-[12px] text-ink focus:border-accent focus:outline-none"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => accounts.remove(index)}
-                aria-label={t("wizard.step3.remove_account")}
-                disabled={accounts.fields.length <= 1}
-              >
-                <Trash2 aria-hidden className="h-3.5 w-3.5" />
-              </Button>
+            <div key={field.id} className="flex flex-col gap-1.5 border border-hairline bg-paper-2 p-2">
+              <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2">
+                <select
+                  {...register(`accounts.${index}.account_type` as const)}
+                  className="border border-hairline-2 bg-paper px-3 py-2 font-sans text-[12px] text-ink focus:border-accent focus:outline-none"
+                >
+                  {ACCOUNT_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  {...register(`accounts.${index}.current_value` as const)}
+                  placeholder={t("wizard.step3.value_placeholder")}
+                  inputMode="decimal"
+                  className="border border-hairline-2 bg-paper px-3 py-2 font-sans text-[12px] text-ink focus:border-accent focus:outline-none"
+                />
+                <input
+                  {...register(`accounts.${index}.custodian` as const)}
+                  placeholder={t("wizard.step3.custodian_placeholder")}
+                  className="border border-hairline-2 bg-paper px-3 py-2 font-sans text-[12px] text-ink focus:border-accent focus:outline-none"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => accounts.remove(index)}
+                  aria-label={t("wizard.step3.remove_account")}
+                  disabled={accounts.fields.length <= 1}
+                >
+                  <Trash2 aria-hidden className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              {/* Per canon §9.4.5 + locked decision (this session): explicit
+                  advisor opt-in for "no fund-level holdings to track". When
+                  unchecked + no holdings entered, the engine-readiness check
+                  fires post-commit (advisor sees the blocker on the household
+                  route + commit response includes the warning). */}
+              <label className="flex items-center gap-2 px-1 font-sans text-[11px] text-muted">
+                <input
+                  type="checkbox"
+                  {...register(`accounts.${index}.missing_holdings_confirmed` as const)}
+                  className="h-3 w-3 border-hairline-2 accent-accent"
+                />
+                <span>{t("wizard.step3.missing_holdings_confirmed_label")}</span>
+              </label>
             </div>
           ))}
         </div>

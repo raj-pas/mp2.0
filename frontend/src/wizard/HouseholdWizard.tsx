@@ -134,7 +134,24 @@ export function HouseholdWizard() {
       onSuccess: (response) => {
         draftStore.clearDraft();
         setRememberedId(response.household_id);
-        toastSuccess(t("wizard.commit.success_title"), t("wizard.commit.success_body"));
+        // Per locked decision (this session): if the just-committed
+        // household has outstanding readiness blockers, surface a
+        // WARNING toast instead of plain success so the advisor knows
+        // to follow up. The persistent inline panel on the household
+        // route (HouseholdPortfolioPanel cold-start) renders the same
+        // list — toast is the in-flight signal; panel is the durable
+        // one. We still navigate (commit is non-reversible at this
+        // point + advisor needs to land on the household to fix gaps).
+        const blockers = response.readiness_blockers ?? [];
+        if (blockers.length > 0) {
+          toastError(t("wizard.commit.warn_blockers_title"), {
+            description: t("wizard.commit.warn_blockers_body", {
+              count: blockers.length,
+            }),
+          });
+        } else {
+          toastSuccess(t("wizard.commit.success_title"), t("wizard.commit.success_body"));
+        }
         navigate("/");
       },
       onError: (err) => {

@@ -7,6 +7,20 @@ import { type CommitPayload } from "./schema";
 export type WizardCommitResponse = {
   household_id: string;
   household_score_1_5: 1 | 2 | 3 | 4 | 5;
+  /**
+   * Server-computed list of advisor-actionable blockers preventing
+   * portfolio generation on the just-committed household. Empty list
+   * means engine-ready and the auto-trigger likely created a
+   * PortfolioRun. Non-empty means commit succeeded but the household
+   * needs further advisor attention before recommendations can be
+   * generated.
+   *
+   * Mirrors `HouseholdDetail.readiness_blockers` per locked decision
+   * (this session). Frontend onSubmit handler converts a non-empty
+   * list into a warning toast (instead of plain success) so the
+   * advisor knows to follow up.
+   */
+  readiness_blockers: string[];
 };
 
 /**
