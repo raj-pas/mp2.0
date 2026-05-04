@@ -21,12 +21,11 @@ import { useTranslation } from "react-i18next";
 import { type WizardDraft } from "./schema";
 import { formatCad } from "../lib/format";
 
-interface AccountAllocationIssue {
+interface AccountAllocationBlocker {
   index: number;
   account_label: string;
   account_value: number;
   allocated: number;
-  missing_holdings: boolean;
 }
 
 // Minimal shape of `useWatch` output we read from. react-hook-form
@@ -56,16 +55,27 @@ interface PreflightDraft {
   >;
 }
 
-function computePreflightIssues(draft: PreflightDraft): AccountAllocationIssue[] {
-  // Pre-flight only checks alignments that are pure-arithmetic +
-  // deterministic on the client. The full server-side check covers
-  // additional invariants (account_type enum, goal target_date present,
-  // etc.). Per canon §9.4.5: never invent semantics — if a check is
-  // ambiguous client-side (e.g., depends on Decimal precision), defer
-  // to server.
+/**
+ * Pre-flight check: ONLY surface true blockers (engine will refuse to
+ * generate). Currently that's the allocation-mismatch case — backend's
+ * `portfolio_generation_blockers_for_household` raises
+ * `ReviewedStateNotConstructionReady` when an account isn't fully
+ * assigned to goals.
+ *
+ * `missing_holdings_confirmed=false` is NOT a blocker: the engine
+ * succeeds and emits a `missing_current_holdings` warning instead. The
+ * Step3 checkbox + its explanatory label are the right affordance for
+ * that semantic; surfacing it again as a Step5 "issue" is misleading.
+ *
+ * Per canon §9.4.5: never invent semantics — if a check is ambiguous
+ * client-side (Decimal precision), defer to server. This client-side
+ * pre-flight is a HINT for the most common, deterministic blocker; the
+ * authoritative check still runs server-side.
+ */
+function computePreflightBlockers(draft: PreflightDraft): AccountAllocationBlocker[] {
   const accounts = draft.accounts ?? [];
   const goals = draft.goals ?? [];
-  const issues: AccountAllocationIssue[] = [];
+  const blockers: AccountAllocationBlocker[] = [];
   for (let i = 0; i < accounts.length; i++) {
     const acct = accounts[i];
     if (!acct) continue;
@@ -81,19 +91,16 @@ function computePreflightIssues(draft: PreflightDraft): AccountAllocationIssue[]
     }
     // 1-cent tolerance to absorb floating-point precision (matches the
     // Decimal("1.00") tolerance the server uses).
-    const mismatch = Math.abs(allocated - acctValue) > 0.01;
-    const missingHoldings = !(acct.missing_holdings_confirmed ?? false);
-    if (mismatch || missingHoldings) {
-      issues.push({
+    if (Math.abs(allocated - acctValue) > 0.01) {
+      blockers.push({
         index: i,
         account_label: `${acct.account_type ?? "Account"} #${i + 1}`,
         account_value: acctValue,
         allocated,
-        missing_holdings: missingHoldings,
       });
     }
   }
-  return issues;
+  return blockers;
 }
 
 export function Step5Review() {
@@ -103,7 +110,7 @@ export function Step5Review() {
 
   if (draft === undefined) return null;
 
-  const preflightIssues = computePreflightIssues(draft);
+  const preflightBlockers = computePreflightBlockers(draft);
 
   return (
     <section
@@ -120,7 +127,7 @@ export function Step5Review() {
         <p className="mt-1 text-[12px] text-muted">{t("wizard.step5.subtitle")}</p>
       </header>
 
-      {preflightIssues.length > 0 && (
+      {preflightBlockers.length > 0 && (
         <aside
           role="alert"
           aria-labelledby="wizard-preflight-title"
@@ -133,26 +140,14 @@ export function Step5Review() {
             {t("wizard.step5.preflight_title")}
           </p>
           <ul className="flex flex-col gap-1 list-disc list-inside font-sans text-[12px] text-ink">
-            {preflightIssues.map((issue) => (
-              <li key={issue.index}>
-                <strong className="font-medium">{issue.account_label}</strong>
+            {preflightBlockers.map((blocker) => (
+              <li key={blocker.index}>
+                <strong className="font-medium">{blocker.account_label}</strong>
                 {" — "}
-                {Math.abs(issue.allocated - issue.account_value) > 0.01 && (
-                  <span>
-                    {t("wizard.step5.preflight_allocation_mismatch", {
-                      account: formatCad(issue.account_value),
-                      allocated: formatCad(issue.allocated),
-                    })}
-                  </span>
-                )}
-                {issue.missing_holdings &&
-                  Math.abs(issue.allocated - issue.account_value) <= 0.01 && (
-                    <span>{t("wizard.step5.preflight_missing_holdings")}</span>
-                  )}
-                {issue.missing_holdings &&
-                  Math.abs(issue.allocated - issue.account_value) > 0.01 && (
-                    <span> · {t("wizard.step5.preflight_missing_holdings")}</span>
-                  )}
+                {t("wizard.step5.preflight_allocation_mismatch", {
+                  account: formatCad(blocker.account_value),
+                  allocated: formatCad(blocker.allocated),
+                })}
               </li>
             ))}
           </ul>

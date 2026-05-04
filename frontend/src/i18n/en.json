@@ -406,7 +406,6 @@
       "goal_horizon": "Target date {{date}}",
       "preflight_title": "Resolve before generating recommendation",
       "preflight_allocation_mismatch": "Account total {{account}} ≠ goal allocations {{allocated}}. Adjust legs in Step 3 so they sum to the account total.",
-      "preflight_missing_holdings": "Mark “No fund-level holdings to track” in Step 3 if there are no individual funds, otherwise add them via doc-drop or the review screen post-commit.",
       "preflight_footer": "These are advisor hints. The household will commit either way; you can resolve gaps after."
     }
   },

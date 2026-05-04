@@ -143,20 +143,90 @@ def test_wizard_commit_response_under_allocated_account_surfaces_blocker() -> No
 
 
 @pytest.mark.django_db
-def test_wizard_commit_response_no_holdings_unconfirmed_surfaces_blocker() -> None:
-    """Account fully allocated to goal but missing_holdings_confirmed=false →
-    typed-skip path was silent before this session; now blockers list
-    surfaces it via the response + the household-route panel."""
+def test_wizard_commit_response_missing_holdings_false_is_NOT_a_blocker() -> None:
+    """SEMANTIC INVARIANT (verified at HEAD by deep audit this session):
+
+    `portfolio_generation_blockers_for_household` (the household-level
+    readiness function) does NOT check holdings/missing_holdings_confirmed.
+    The engine optimizer handles 0-holdings accounts gracefully:
+      - missing_holdings_confirmed=true  → emits `confirmed_missing_current_holdings` warning
+      - missing_holdings_confirmed=false → emits `missing_current_holdings` warning
+    BOTH cases produce a valid PortfolioRun.
+
+    So this test pins: missing_holdings_confirmed=false on a fully-
+    allocated account does NOT show up as a readiness blocker. The Step5
+    pre-flight should not warn about it either (we removed that warning
+    after the deep audit; the Step3 checkbox + label is the right
+    affordance for this advisor signal).
+    """
     payload = _wizard_payload()
     payload["accounts"][0]["missing_holdings_confirmed"] = False
     response = _client().post(reverse("wizard-commit"), payload, format="json")
     assert response.status_code == 201
     body = response.json()
-    # The holdings blocker is one of the construction-readiness checks
-    # (`_full_assignment_blockers` and the holdings check). Specific
-    # message text varies across the readiness function; assert at least
-    # one blocker is present so the wizard's warning toast fires.
-    assert isinstance(body["readiness_blockers"], list)
+    # No blockers — engine succeeds (just with a warning in the run output).
+    assert body["readiness_blockers"] == [], (
+        f"missing_holdings_confirmed=false alone should NOT block; got {body['readiness_blockers']!r}"
+    )
+
+
+@pytest.mark.django_db
+def test_wizard_commit_with_active_cma_creates_portfolio_run() -> None:
+    """END-TO-END verification: empty readiness_blockers + active CMA →
+    auto-trigger ACTUALLY succeeds in creating a PortfolioRun. Empty
+    blockers alone aren't sufficient (engine could still raise
+    InvalidCMAUniverse or similar); this test pins the full happy path.
+    """
+    from django.core.management import call_command
+
+    call_command("seed_default_cma", "--force")
+    response = _client().post(reverse("wizard-commit"), _wizard_payload(), format="json")
+    assert response.status_code == 201
+    body = response.json()
+    assert body["readiness_blockers"] == []
+
+    hh = models.Household.objects.get(external_id=body["household_id"])
+    runs = list(hh.portfolio_runs.all())
+    assert len(runs) == 1, (
+        f"Auto-trigger should have created exactly 1 PortfolioRun for engine-ready "
+        f"wizard commit; got {len(runs)}"
+    )
+    output = runs[0].output
+    assert output is not None
+    # missing_holdings_confirmed=true → engine emits the "confirmed" warning.
+    warnings = output.get("warnings", []) or []
+    assert "confirmed_missing_current_holdings" in warnings, (
+        f"Engine should emit confirmed_missing_current_holdings; got {warnings!r}"
+    )
+    # Run has at least one link recommendation
+    link_recs = output.get("link_recommendations", []) or []
+    assert len(link_recs) >= 1
+
+
+@pytest.mark.django_db
+def test_wizard_commit_with_unchecked_holdings_emits_unconfirmed_warning() -> None:
+    """missing_holdings_confirmed=false → engine still creates run, just
+    without the `confirmed_missing_current_holdings` warning. This pins
+    the warning-semantic distinction at the engine layer.
+    """
+    from django.core.management import call_command
+
+    call_command("seed_default_cma", "--force")
+    payload = _wizard_payload()
+    payload["accounts"][0]["missing_holdings_confirmed"] = False
+    response = _client().post(reverse("wizard-commit"), payload, format="json")
+    assert response.status_code == 201
+    hh = models.Household.objects.get(external_id=response.json()["household_id"])
+    runs = list(hh.portfolio_runs.all())
+    assert len(runs) == 1
+    output = runs[0].output
+    warnings = output.get("warnings", []) or []
+    # Engine emits the un-confirmed warning…
+    assert "missing_current_holdings" in warnings
+    # …but NOT the confirmed one (advisor didn't check the box).
+    assert "confirmed_missing_current_holdings" not in warnings, (
+        f"Engine should NOT emit confirmed_missing when checkbox unchecked; got {warnings!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
