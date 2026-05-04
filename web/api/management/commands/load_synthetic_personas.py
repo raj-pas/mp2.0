@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
+from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone
+from engine.risk_profile import RiskProfileInput, compute_risk_profile
 
 from web.api import models
+
+# Hardcoded to match frontend/src/lib/auth.ts DISCLAIMER_VERSION constant.
+# Update both together when bumping the disclaimer text.
+_DISCLAIMER_VERSION = "v1"
 
 
 class Command(BaseCommand):
@@ -18,11 +26,13 @@ class Command(BaseCommand):
         )
         data = json.loads(fixture_path.read_text())
         with transaction.atomic():
-            _load_household(data)
+            household = _load_household(data)
+            _load_risk_profile(household, data)
+            _load_advisor_pre_ack(self, data)
         self.stdout.write(self.style.SUCCESS("Loaded synthetic Sandra/Mike Chen persona."))
 
 
-def _load_household(data: dict) -> None:
+def _load_household(data: dict) -> models.Household:
     models.Household.objects.filter(external_id=data["id"]).delete()
     household = models.Household.objects.create(
         external_id=data["id"],
@@ -104,3 +114,69 @@ def _load_household(data: dict) -> None:
                 allocated_amount=link_data.get("allocated_amount"),
                 allocated_pct=link_data.get("allocated_pct"),
             )
+
+    return household
+
+
+def _load_risk_profile(household: models.Household, data: dict) -> None:
+    """Persist the household's RiskProfile from fixture inputs (per A1)."""
+    rp_data = data.get("risk_profile")
+    if rp_data is None:
+        return
+    rp_inputs = RiskProfileInput(
+        q1=rp_data["q1"],
+        q2=rp_data["q2"],
+        q3=rp_data.get("q3", []),
+        q4=rp_data["q4"],
+    )
+    rp_result = compute_risk_profile(rp_inputs)
+    models.RiskProfile.objects.create(
+        household=household,
+        q1=rp_inputs.q1,
+        q2=rp_inputs.q2,
+        q3=rp_inputs.q3,
+        q4=rp_inputs.q4,
+        tolerance_score=rp_result.tolerance_score,
+        capacity_score=rp_result.capacity_score,
+        tolerance_descriptor=rp_result.tolerance_descriptor,
+        capacity_descriptor=rp_result.capacity_descriptor,
+        household_descriptor=rp_result.household_descriptor,
+        score_1_5=rp_result.score_1_5,
+        anchor=rp_result.anchor,
+        flags=rp_result.flags,
+    )
+
+
+def _load_advisor_pre_ack(command: BaseCommand, data: dict) -> None:
+    """Mark the local advisor as having pre-acked disclaimer + tour (per A1).
+
+    Drives `load_synthetic_personas` so a fresh demo state via
+    `reset-v2-dev.sh --yes` doesn't pop PilotBanner / WelcomeTour on the
+    advisor's first login. Fails silently if the advisor user doesn't
+    exist yet (bootstrap_local_advisor hasn't run); reset-v2-dev.sh
+    invokes bootstrap before this command, so this is the normal path.
+    """
+    pre_ack = data.get("advisor_pre_ack") or {}
+    if not (pre_ack.get("disclaimer") or pre_ack.get("tour")):
+        return
+    email = os.getenv("MP20_LOCAL_ADMIN_EMAIL")
+    if not email:
+        return
+    User = get_user_model()
+    try:
+        advisor = User.objects.get(email=email)
+    except User.DoesNotExist:
+        return
+    profile, _ = models.AdvisorProfile.objects.get_or_create(user=advisor)
+    now = timezone.now()
+    if pre_ack.get("disclaimer"):
+        profile.disclaimer_acknowledged_at = now
+        profile.disclaimer_acknowledged_version = _DISCLAIMER_VERSION
+    if pre_ack.get("tour"):
+        profile.tour_completed_at = now
+    profile.save()
+    command.stdout.write(
+        command.style.SUCCESS(
+            f"Pre-acked disclaimer ({_DISCLAIMER_VERSION}) + tour for advisor {email}."
+        )
+    )

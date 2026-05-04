@@ -46,7 +46,9 @@ fi
 
 uv run python web/manage.py migrate
 uv run python web/manage.py seed_default_cma --force
-uv run python web/manage.py load_synthetic_personas
+# Bootstrap advisor BEFORE load_synthetic_personas so the persona's
+# advisor_pre_ack JSON marker can write into AdvisorProfile (per A1).
 uv run python web/manage.py bootstrap_local_advisor --skip-if-missing
+uv run python web/manage.py load_synthetic_personas
 
 echo "V2 dev DB reset and reseed complete."
