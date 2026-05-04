@@ -54,8 +54,8 @@ export function RecommendationBanner({
   const lastSurfacedRef = useRef<string | null>(null);
   useEffect(() => {
     if (failure && failure.occurred_at !== lastSurfacedRef.current) {
-      toastError(t("goal.generation_failed_title"), {
-        description: t("goal.generation_failed_body", { reason: failure.reason_code }),
+      toastError(t("routes.goal.generation_failed_title"), {
+        description: t("routes.goal.generation_failed_body", { reason: failure.reason_code }),
       });
       lastSurfacedRef.current = failure.occurred_at;
     }
@@ -70,7 +70,7 @@ export function RecommendationBanner({
         className="flex items-center justify-between gap-3 border border-danger bg-paper-2 px-4 py-2"
       >
         <span className="font-mono text-[11px] uppercase tracking-widest text-danger">
-          {t("goal.generation_failed_inline", {
+          {t("routes.goal.generation_failed_inline", {
             reason: failure.reason_code,
             when: formatRelativeTime(failure.occurred_at),
           })}
@@ -82,7 +82,7 @@ export function RecommendationBanner({
           onClick={() => generate.mutate()}
           disabled={generate.isPending}
         >
-          {generate.isPending ? t("goal.regenerating") : t("goal.retry")}
+          {generate.isPending ? t("routes.goal.regenerating") : t("routes.goal.retry")}
         </Button>
       </div>
     );
@@ -97,7 +97,7 @@ export function RecommendationBanner({
         className="flex items-center justify-between gap-3 border border-hairline bg-paper-2 px-4 py-2"
       >
         <span className="font-mono text-[11px] uppercase tracking-widest text-muted">
-          {t("goal.no_recommendation_yet")}
+          {t("routes.goal.no_recommendation_yet")}
         </span>
         <Button
           type="button"
@@ -106,7 +106,7 @@ export function RecommendationBanner({
           onClick={() => generate.mutate()}
           disabled={generate.isPending}
         >
-          {generate.isPending ? t("goal.regenerating") : t("goal.generate")}
+          {generate.isPending ? t("routes.goal.regenerating") : t("routes.goal.generate")}
         </Button>
       </div>
     );
@@ -121,7 +121,7 @@ export function RecommendationBanner({
       className="flex items-center justify-between gap-3 border border-hairline bg-paper-2 px-4 py-2"
     >
       <span className="font-mono text-[11px] uppercase tracking-widest text-muted">
-        {t("goal.recommendation_banner", {
+        {t("routes.goal.recommendation_banner", {
           signature,
           when: formatRelativeTime(run.created_at),
         })}
@@ -133,7 +133,7 @@ export function RecommendationBanner({
         onClick={() => generate.mutate()}
         disabled={generate.isPending}
       >
-        {generate.isPending ? t("goal.regenerating") : t("goal.regenerate")}
+        {generate.isPending ? t("routes.goal.regenerating") : t("routes.goal.regenerate")}
       </Button>
     </div>
   );
