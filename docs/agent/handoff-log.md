@@ -2,6 +2,66 @@
 
 ---
 
+## 2026-05-04 AM (sub-sessions #2+#3 close-out) — Engine→UI Display COMPLETE backend + frontend wiring
+
+**HEAD:** `303e378`. 5 commits past sub-session #1 close-out (`74e20ce`).
+
+### What changed (sub-sessions #2 + #3 + test-fix)
+
+**Sub-session #2 (commit `1462988`)**:
+- **A2b**: 4 workspace-level triggers wired (`_trigger_and_audit_for_workspace`):
+  Trigger #5 ConflictResolveView (single + bulk variants)
+  Trigger #6 ConflictDeferView
+  Trigger #7 FactOverrideView
+  Trigger #8 SectionApprovalView
+  All gated on `workspace.linked_household_id is None` per locked #27.
+- **A3a**: MovesPreviewView now reads `ideal_pct` from `latest_portfolio_run.output.goal_rollups[goal_id]` when run exists; SLEEVE_REF_POINTS calibration as fallback. Response includes `source: "portfolio_run" | "calibration"` per locked #5+#6.
+
+**Sub-session #3 (commits `12a972d`, `303e378`)**:
+- **A1+A5 follow-up**: `load_synthetic_personas` auto-seeds initial PortfolioRun for Sandra/Mike at end of fixture load (skips on typed exceptions; warns on unexpected). Demo-ready state via `reset-v2-dev.sh --yes`.
+- **A3.1 frontend types** (`lib/household.ts`): Added Allocation, Rollup, ProjectionPoint, EngineOutput, FanChartPoint, CurrentPortfolioComparison; LinkRecommendation matches engine schema (sleeve_id/sleeve_name/asset_class_weights, advisor_summary, projection); PortfolioRun.output typed as EngineOutput|null; HouseholdDetail.latest_portfolio_failure typed; 3 new helpers: findGoalRollup / findHouseholdRollup / findGoalLinkRecommendations; renamed orphan `findLinkRecommendation` → `findLinkRecommendationRow`.
+- **A3.5 new components**:
+  - `frontend/src/goal/RecommendationBanner.tsx` (140 LoC) — 3 states (run / no-run+failure / no-run+cold-start); aria-live="polite" per #109; Sonner toast on failure per #9.
+  - `frontend/src/goal/AdvisorSummaryPanel.tsx` (61 LoC) — engine narrative per LinkRecommendation.
+  - `frontend/src/routes/HouseholdPortfolioPanel.tsx` (150 LoC) — expected_return + volatility + top 4 funds; mirrors Banner failure pattern per #19.
+- **A3.6** `useGeneratePortfolio` mutation hook in `lib/preview.ts`.
+- **A3.7** ~24 new i18n keys under existing namespaces (`routes.household.*`, `routes.goal.*`) per locked #75.
+- **A3.8 / A4** RecommendationBanner + AdvisorSummaryPanel composed into GoalRoute; HouseholdPortfolioPanel composed into HouseholdRoute between modals + treemap per locked #10.
+
+### What was tested
+- **Backend pytest**: 869 passed, 7 skipped (was 854 baseline; +15 net new — 4 A1 smoke + 8 A2a auto-trigger + 3 A3a moves source)
+- **Static gates**: ruff/format/PII/vocab/OpenAPI/migrations all clean
+- **Frontend**: typecheck + lint + build (267.21 kB gzipped — under 290 kB threshold per locked #85) + Vitest 82/82 in 13 files
+- **Foundation e2e**: 13/13 passed (no regressions from frontend changes)
+- **Visual-verification**: 18/24 passed (6 ReviewScreen/ConflictPanel tests fail because DB reset wiped Niesner R10 sweep state; would pass after `upload_and_drain.py Niesner`)
+- **Engine probe live**: 200, 314ms wall (REUSED via signature match); HouseholdDetail.latest_portfolio_run.run_signature[:8]=`62f8cf06`; household_rollup expected_return=5.85% / volatility=6.90% / 6 allocations; advisor_summary populated
+
+### What didn't ship (open items for sub-sessions #4-#5)
+- **Sub-session #4** (5-7 hr): A6 round 1 Hypothesis property suites + Vitest comprehensive (60-80 unit tests for new components per locked #17); A6 round 2 concurrency stress (100 parallel per trigger; pool 150 per #80) + auth/RBAC matrix updates + perf benchmarks (P50<250ms / P99<1000ms validated; sync-inline locked at A0.2) + integration tests (full advisor lifecycle per #96; pre-A2 backwards-compat per #97).
+- **Sub-session #5** (4-6 hr): A6 round 3 visual regression baselines for new components (extending visual-verification.spec.ts per #82); A6.9 design-system update; A6.10 tag bump `v0.1.2-engine-display`; A6.11 real-PII Niesner smoke (per #79); A6.12 cross-browser; A6.13 CHANGELOG + ops-runbook; A6.13b pilot-rollback runbook; A6.13c rollback smoke per #103; A6.14 code-reviewer subagent; A6.15 demo dress rehearsal per #95 (full reset + re-upload Seltzer/Weryha/Niesner); A6.16 decisions migration to `decisions.md` per #91.
+- **A3.2 / A3.3** GoalAllocationSection + OptimizerOutputWidget refactor to consume `findGoalRollup` (currently fall back to calibration) — calibration fallback works correctly + the engine canonical render is exposed via the new RecommendationBanner + AdvisorSummaryPanel + HouseholdPortfolioPanel surfaces.
+- **Triggers #5-#8 audit-event tests** in test_phase5* files — current tests don't assert audit count at a level affected by the new silent-skip events (locked household None gate); broader coverage deferred to A6.4 Hypothesis suite per #99.
+
+### What's next
+- **Pause point**. Plan #46 must-pass gate at end of A2a was met after sub-session #1; sub-sessions #2+#3 added more shipped work. Demo (Mon 2026-05-04 today) can be exercised against current HEAD.
+- Recommended next sub-session: A6 round 1 (Hypothesis + Vitest comprehensive in parallel via 2 sub-agents per locked #20). Estimated 5-7 hr.
+
+### Risk
+- **R10 sweep state regression**: visual-verification.spec.ts's 6 ReviewScreen tests need Niesner workspace + conflicts. Currently DB was reset; restoring requires `upload_and_drain.py` for Niesner. Locked #95 schedules full demo-state restore in A6.15 (sub-session #5).
+- **Engine output rendering** on production-grade households (10+ accounts/6+ goals): A4 HouseholdPortfolioPanel renders top 4 funds; A3.5 AdvisorSummaryPanel multi-link goals not yet using Radix Accordion (deferred to sub-session #4 Vitest pass per locked #78).
+
+### Bedrock $ delta
+- **$0** — synthetic only across both sub-sessions; engine.optimize() pure Python.
+
+### Locked decisions honored
+A2b: #14, #16, #27 (linked_household gate). A3a: #5, #6 (single source of truth for moves). A3.1: #55, #82, #84, #101. A3.5: #9, #18, #19, #68, #109. A3.6: #74. A3.7: #75. A3.8/A4: #10. A5: #7, #13. Test fix: #16 audit naming.
+
+### Continuity check
+- session-state.md headline: refreshing (this commit) to HEAD `303e378` + sub-session #1+#2+#3 complete.
+- handoff-log: this entry + the prior A0 + sub-session #1 entries serve as the dossier per locked #43.
+
+---
+
 ## 2026-05-04 AM (sub-session #1 close-out) — Engine→UI Display A1+A2a: Sandra/Mike refresh + helper + 4 trigger points
 
 **HEAD:** `f003ed6`. 3 commits past sub-session #1 entry (`8bf774b`).
