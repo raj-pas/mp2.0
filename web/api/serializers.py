@@ -4,6 +4,7 @@ from rest_framework import serializers
 
 from web.api import models
 from web.audit.models import AuditEvent
+from web.audit.writer import record_event
 
 
 class PersonSerializer(serializers.ModelSerializer):
@@ -146,7 +147,7 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
 
     def get_latest_portfolio_run(self, obj: models.Household) -> dict | None:
         run = obj.portfolio_runs.order_by("-created_at").first()
-        return PortfolioRunSerializer(run).data if run else None
+        return PortfolioRunSerializer(run, context=self.context).data if run else None
 
     def get_latest_portfolio_failure(self, obj: models.Household) -> dict | None:
         """Most recent portfolio_generation_*_failed AuditEvent newer than the
@@ -229,7 +230,7 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
 
     def get_portfolio_runs(self, obj: models.Household) -> list[dict]:
         runs = obj.portfolio_runs.order_by("-created_at")[:10]
-        return PortfolioRunSummarySerializer(runs, many=True).data
+        return PortfolioRunSummarySerializer(runs, many=True, context=self.context).data
 
 
 class PortfolioRunLinkSerializer(serializers.ModelSerializer):
@@ -287,7 +288,49 @@ class PortfolioRunSummarySerializer(serializers.ModelSerializer):
         return obj.generated_by.email if obj.generated_by else "system"
 
     def get_status(self, obj: models.PortfolioRun) -> str:
-        return _portfolio_run_status(obj)
+        status = _portfolio_run_status(obj)
+        if status == "hash_mismatch":
+            self._maybe_emit_integrity_alert(obj)
+        return status
+
+    def _maybe_emit_integrity_alert(self, obj: models.PortfolioRun) -> None:
+        """Emit `portfolio_run_integrity_alert` AuditEvent on first
+        observation per (run, advisor) when status resolves to
+        `hash_mismatch`.
+
+        Per locked decision §3.5: integrity issues route to engineering
+        via the audit trail; the advisor sees `IntegrityAlertOverlay`
+        on the frontend (no Regenerate button — engineering action
+        required). Dedup mirrors the pattern at
+        `views._record_current_run_invalidations` (events.filter(...).
+        exists()) so the audit table doesn't inflate per GET.
+        """
+        request = self.context.get("request")
+        actor = "system"
+        if request is not None:
+            user = getattr(request, "user", None)
+            if user is not None and getattr(user, "is_authenticated", False):
+                actor = getattr(user, "email", None) or getattr(user, "username", "system") or "system"
+        already_emitted = AuditEvent.objects.filter(
+            action="portfolio_run_integrity_alert",
+            entity_type="portfolio_run",
+            entity_id=obj.external_id,
+            actor=actor,
+        ).exists()
+        if already_emitted:
+            return
+        record_event(
+            action="portfolio_run_integrity_alert",
+            entity_type="portfolio_run",
+            entity_id=obj.external_id,
+            actor=actor,
+            metadata={
+                "run_external_id": obj.external_id,
+                "household_id": obj.household.external_id,
+                "status": "hash_mismatch",
+                "engine_version": obj.engine_version,
+            },
+        )
 
     def get_warnings(self, obj: models.PortfolioRun) -> list[str]:
         return list((obj.output or {}).get("warnings") or [])

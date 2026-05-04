@@ -548,7 +548,7 @@ class ClientDetailView(APIView):
             entity_id=household.external_id,
             actor=_actor(request),
         )
-        return Response(HouseholdDetailSerializer(household).data)
+        return Response(HouseholdDetailSerializer(household, context={"request": request}).data)
 
 
 class GeneratePortfolioView(APIView):

@@ -209,6 +209,87 @@ def test_household_with_failure_renders_latest_portfolio_failure(settings) -> No
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Locked decision §3.16 — pre-tag households render correctly under new
+# stale-state + integrity-alert UX
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_pre_tag_household_with_invalidated_status_renders_via_serializer() -> None:
+    """A pre-tag household (committed before v0.1.3-engine-display-polish)
+    with INVALIDATED_BY_CMA event renders `status='invalidated'` via the
+    HouseholdDetailSerializer without a JSON-shape error.
+
+    Per locked decision §3.16: the new stale-state UX (Phase A4) reads
+    `status` from the same serialization path; this test pins that pre-
+    tag PortfolioRun shapes don't break the new consumer.
+    """
+    hh = _bootstrap_full_demo()
+    run = hh.portfolio_runs.order_by("-created_at").first()
+    assert run is not None
+    # Insert INVALIDATED_BY_CMA event (mirrors what CMA-publish would do
+    # to a pre-tag run after the new CMA snapshot becomes ACTIVE).
+    models.PortfolioRunEvent.objects.create(
+        portfolio_run=run,
+        event_type=models.PortfolioRunEvent.EventType.INVALIDATED_BY_CMA,
+        reason_code="pre_tag_compat",
+        actor="system",
+    )
+
+    client = _advisor_client()
+    response = client.get(reverse("client-detail", args=[hh.external_id]))
+    assert response.status_code == 200
+    body = response.json()
+
+    # Status surfaces correctly + JSON shape preserved.
+    assert body["latest_portfolio_run"]["status"] == "invalidated"
+    # Pin: schema_version is still v2 even with stale event (events are
+    # metadata; schema_version is a property of the engine output).
+    assert body["latest_portfolio_run"]["output"]["schema_version"] == "engine_output.link_first.v2"
+
+
+@pytest.mark.django_db
+def test_pre_tag_household_with_hash_mismatch_emits_integrity_alert() -> None:
+    """A pre-tag household with HASH_MISMATCH event triggers the new
+    `portfolio_run_integrity_alert` audit emission AND renders status
+    correctly. Pre-tag runs aren't grandfathered out of the new
+    integrity contract.
+
+    Per locked decision §3.16 + §3.5.
+    """
+    hh = _bootstrap_full_demo()
+    run = hh.portfolio_runs.order_by("-created_at").first()
+    assert run is not None
+    models.PortfolioRunEvent.objects.create(
+        portfolio_run=run,
+        event_type=models.PortfolioRunEvent.EventType.HASH_MISMATCH,
+        reason_code="pre_tag_integrity",
+        actor="system",
+    )
+
+    before = AuditEvent.objects.filter(action="portfolio_run_integrity_alert").count()
+    client = _advisor_client()
+    response = client.get(reverse("client-detail", args=[hh.external_id]))
+    assert response.status_code == 200
+
+    # Status flips + audit emitted.
+    assert response.json()["latest_portfolio_run"]["status"] == "hash_mismatch"
+    after = AuditEvent.objects.filter(action="portfolio_run_integrity_alert").count()
+    assert after - before == 1, (
+        f"Pre-tag household integrity alert MUST emit on first GET; "
+        f"got delta {after - before}"
+    )
+
+    # Dedup on second GET still works (per §3.5).
+    response2 = client.get(reverse("client-detail", args=[hh.external_id]))
+    assert response2.status_code == 200
+    final = AuditEvent.objects.filter(action="portfolio_run_integrity_alert").count()
+    assert final == after, (
+        f"Second GET must dedup; got delta {final - after} on repeat GET"
+    )
+
+
 _EXPECTED_TOP_LEVEL_KEYS = {
     "id",
     "display_name",
@@ -316,4 +397,97 @@ def test_household_detail_response_shape_pinned() -> None:
     assert not missing_run_keys, f"latest_portfolio_run missing keys: {sorted(missing_run_keys)}"
     assert not extra_run_keys, (
         f"latest_portfolio_run surfaced UNEXPECTED keys: {sorted(extra_run_keys)}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Locked decision §3.21 — JSON snapshot regression for 4 status states
+# ---------------------------------------------------------------------------
+
+
+def _seed_run_event(
+    hh: models.Household, event_type: models.PortfolioRunEvent.EventType, reason_code: str
+) -> models.PortfolioRunEvent:
+    run = hh.portfolio_runs.order_by("-created_at").first()
+    assert run is not None
+    return models.PortfolioRunEvent.objects.create(
+        portfolio_run=run,
+        event_type=event_type,
+        reason_code=reason_code,
+        actor="system",
+    )
+
+
+@pytest.mark.django_db
+def test_household_detail_snapshot_status_invalidated() -> None:
+    """Pin the response shape for `status='invalidated'` (per §3.21)."""
+    hh = _bootstrap_full_demo()
+    _seed_run_event(
+        hh, models.PortfolioRunEvent.EventType.INVALIDATED_BY_CMA, "snapshot_invalidated"
+    )
+    client = _advisor_client()
+    response = client.get(reverse("client-detail", args=[hh.external_id]))
+    assert response.status_code == 200
+    body = response.json()
+
+    # Shape pinned: top-level keys unchanged.
+    assert set(body.keys()) == _EXPECTED_TOP_LEVEL_KEYS
+    # Status flips; all other run fields preserved.
+    run = body["latest_portfolio_run"]
+    assert run is not None
+    assert run["status"] == "invalidated"
+    # JSON shape preserved (catches accidental field-name changes
+    # under non-current statuses).
+    assert run["output"]["schema_version"] == "engine_output.link_first.v2"
+    assert isinstance(run["output"]["link_recommendations"], list)
+    assert isinstance(run["output"]["goal_rollups"], list)
+    assert isinstance(run["output"]["household_rollup"], dict)
+
+
+@pytest.mark.django_db
+def test_household_detail_snapshot_status_declined() -> None:
+    """Pin the response shape for `status='declined'` (per §3.21)."""
+    hh = _bootstrap_full_demo()
+    _seed_run_event(
+        hh, models.PortfolioRunEvent.EventType.ADVISOR_DECLINED, "snapshot_declined"
+    )
+    client = _advisor_client()
+    response = client.get(reverse("client-detail", args=[hh.external_id]))
+    assert response.status_code == 200
+    body = response.json()
+
+    assert set(body.keys()) == _EXPECTED_TOP_LEVEL_KEYS
+    run = body["latest_portfolio_run"]
+    assert run is not None
+    assert run["status"] == "declined"
+    assert run["output"]["schema_version"] == "engine_output.link_first.v2"
+
+
+@pytest.mark.django_db
+def test_household_detail_snapshot_status_hash_mismatch() -> None:
+    """Pin the response shape for `status='hash_mismatch'` (per §3.21).
+
+    Also verifies that the new `portfolio_run_integrity_alert` audit
+    emission (per §3.5) doesn't accidentally surface in the JSON
+    response payload.
+    """
+    hh = _bootstrap_full_demo()
+    _seed_run_event(
+        hh, models.PortfolioRunEvent.EventType.HASH_MISMATCH, "snapshot_hash_mismatch"
+    )
+    client = _advisor_client()
+    response = client.get(reverse("client-detail", args=[hh.external_id]))
+    assert response.status_code == 200
+    body = response.json()
+
+    assert set(body.keys()) == _EXPECTED_TOP_LEVEL_KEYS
+    run = body["latest_portfolio_run"]
+    assert run is not None
+    assert run["status"] == "hash_mismatch"
+    # The integrity-alert audit should NOT leak into the response payload
+    # (it lives in audit_auditevent table; serializer reads from
+    # PortfolioRunEvent only).
+    response_str = response.content.decode()
+    assert "portfolio_run_integrity_alert" not in response_str, (
+        "integrity-alert audit action must not surface in the API response"
     )
