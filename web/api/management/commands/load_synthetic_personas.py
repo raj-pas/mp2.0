@@ -71,9 +71,7 @@ class Command(BaseCommand):
             )
         except Exception as exc:  # noqa: BLE001 — never break load on engine surprise
             self.stdout.write(
-                self.style.WARNING(
-                    f"PortfolioRun seed failed: {safe_exception_summary(exc)}"
-                )
+                self.style.WARNING(f"PortfolioRun seed failed: {safe_exception_summary(exc)}")
             )
 
 
