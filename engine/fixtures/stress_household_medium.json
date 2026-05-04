@@ -1,0 +1,533 @@
+{
+  "id": "hh_stress_medium",
+  "type": "couple",
+  "members": [
+    {
+      "id": "hh_stress_medium_p1",
+      "household_id": "hh_stress_medium",
+      "name": "Alice",
+      "dob": "1965-01-01",
+      "marital_status": "married",
+      "blended_family_flag": false,
+      "citizenship": "Canada",
+      "residency": "Canada",
+      "health_indicators": {},
+      "longevity_assumption": null,
+      "employment": {},
+      "pensions": [],
+      "investment_knowledge": "medium",
+      "trusted_contact_person": "",
+      "poa_status": "",
+      "will_status": "",
+      "beneficiary_designations": []
+    },
+    {
+      "id": "hh_stress_medium_p2",
+      "household_id": "hh_stress_medium",
+      "name": "Bob",
+      "dob": "1968-01-01",
+      "marital_status": "married",
+      "blended_family_flag": false,
+      "citizenship": "Canada",
+      "residency": "Canada",
+      "health_indicators": {},
+      "longevity_assumption": null,
+      "employment": {},
+      "pensions": [],
+      "investment_knowledge": "medium",
+      "trusted_contact_person": "",
+      "poa_status": "",
+      "will_status": "",
+      "beneficiary_designations": []
+    }
+  ],
+  "goals": [
+    {
+      "id": "hh_stress_medium_g0",
+      "household_id": "hh_stress_medium",
+      "name": "Goal 0",
+      "target_amount": 600000.0,
+      "target_date": "2032-06-30",
+      "necessity_score": 3,
+      "current_funded_amount": 300000.0,
+      "contribution_plan": {},
+      "account_allocations": [
+        {
+          "id": "hh_stress_medium_g0_l0",
+          "goal_id": "hh_stress_medium_g0",
+          "account_id": "hh_stress_medium_a0",
+          "allocated_amount": 100000.0,
+          "allocated_pct": null
+        },
+        {
+          "id": "hh_stress_medium_g0_l1",
+          "goal_id": "hh_stress_medium_g0",
+          "account_id": "hh_stress_medium_a1",
+          "allocated_amount": 100000.0,
+          "allocated_pct": null
+        },
+        {
+          "id": "hh_stress_medium_g0_l2",
+          "goal_id": "hh_stress_medium_g0",
+          "account_id": "hh_stress_medium_a2",
+          "allocated_amount": 100000.0,
+          "allocated_pct": null
+        }
+      ],
+      "goal_risk_score": 3,
+      "status": "watch",
+      "notes": ""
+    },
+    {
+      "id": "hh_stress_medium_g1",
+      "household_id": "hh_stress_medium",
+      "name": "Goal 1",
+      "target_amount": 700000.0,
+      "target_date": "2033-06-30",
+      "necessity_score": 3,
+      "current_funded_amount": 350000.0,
+      "contribution_plan": {},
+      "account_allocations": [
+        {
+          "id": "hh_stress_medium_g1_l0",
+          "goal_id": "hh_stress_medium_g1",
+          "account_id": "hh_stress_medium_a1",
+          "allocated_amount": 116666.66666666667,
+          "allocated_pct": null
+        },
+        {
+          "id": "hh_stress_medium_g1_l1",
+          "goal_id": "hh_stress_medium_g1",
+          "account_id": "hh_stress_medium_a2",
+          "allocated_amount": 116666.66666666667,
+          "allocated_pct": null
+        },
+        {
+          "id": "hh_stress_medium_g1_l2",
+          "goal_id": "hh_stress_medium_g1",
+          "account_id": "hh_stress_medium_a3",
+          "allocated_amount": 116666.66666666667,
+          "allocated_pct": null
+        }
+      ],
+      "goal_risk_score": 3,
+      "status": "watch",
+      "notes": ""
+    },
+    {
+      "id": "hh_stress_medium_g2",
+      "household_id": "hh_stress_medium",
+      "name": "Goal 2",
+      "target_amount": 800000.0,
+      "target_date": "2034-06-30",
+      "necessity_score": 3,
+      "current_funded_amount": 400000.0,
+      "contribution_plan": {},
+      "account_allocations": [
+        {
+          "id": "hh_stress_medium_g2_l0",
+          "goal_id": "hh_stress_medium_g2",
+          "account_id": "hh_stress_medium_a2",
+          "allocated_amount": 133333.33333333334,
+          "allocated_pct": null
+        },
+        {
+          "id": "hh_stress_medium_g2_l1",
+          "goal_id": "hh_stress_medium_g2",
+          "account_id": "hh_stress_medium_a3",
+          "allocated_amount": 133333.33333333334,
+          "allocated_pct": null
+        },
+        {
+          "id": "hh_stress_medium_g2_l2",
+          "goal_id": "hh_stress_medium_g2",
+          "account_id": "hh_stress_medium_a4",
+          "allocated_amount": 133333.33333333334,
+          "allocated_pct": null
+        }
+      ],
+      "goal_risk_score": 3,
+      "status": "watch",
+      "notes": ""
+    },
+    {
+      "id": "hh_stress_medium_g3",
+      "household_id": "hh_stress_medium",
+      "name": "Goal 3",
+      "target_amount": 900000.0,
+      "target_date": "2035-06-30",
+      "necessity_score": 3,
+      "current_funded_amount": 450000.0,
+      "contribution_plan": {},
+      "account_allocations": [
+        {
+          "id": "hh_stress_medium_g3_l0",
+          "goal_id": "hh_stress_medium_g3",
+          "account_id": "hh_stress_medium_a3",
+          "allocated_amount": 150000.0,
+          "allocated_pct": null
+        },
+        {
+          "id": "hh_stress_medium_g3_l1",
+          "goal_id": "hh_stress_medium_g3",
+          "account_id": "hh_stress_medium_a4",
+          "allocated_amount": 150000.0,
+          "allocated_pct": null
+        },
+        {
+          "id": "hh_stress_medium_g3_l2",
+          "goal_id": "hh_stress_medium_g3",
+          "account_id": "hh_stress_medium_a5",
+          "allocated_amount": 150000.0,
+          "allocated_pct": null
+        }
+      ],
+      "goal_risk_score": 3,
+      "status": "watch",
+      "notes": ""
+    }
+  ],
+  "accounts": [
+    {
+      "id": "hh_stress_medium_a0",
+      "household_id": "hh_stress_medium",
+      "owner_person_id": "hh_stress_medium_p1",
+      "type": "RRSP",
+      "regulatory_objective": "growth_and_income",
+      "regulatory_time_horizon": "3-10y",
+      "regulatory_risk_rating": "medium",
+      "current_value": 200000.0,
+      "current_holdings": [
+        {
+          "sleeve_id": "sh_builders",
+          "sleeve_name": "SH Builders",
+          "weight": 0.25,
+          "market_value": 50000.0
+        },
+        {
+          "sleeve_id": "sh_equity",
+          "sleeve_name": "SH Equity",
+          "weight": 0.25,
+          "market_value": 50000.0
+        },
+        {
+          "sleeve_id": "sh_founders",
+          "sleeve_name": "SH Founders",
+          "weight": 0.25,
+          "market_value": 50000.0
+        },
+        {
+          "sleeve_id": "sh_global_equity",
+          "sleeve_name": "SH Global Equity",
+          "weight": 0.25,
+          "market_value": 50000.0
+        }
+      ],
+      "contribution_room": null,
+      "contribution_history": [],
+      "is_held_at_purpose": true,
+      "missing_holdings_confirmed": false,
+      "cash_state": "invested"
+    },
+    {
+      "id": "hh_stress_medium_a1",
+      "household_id": "hh_stress_medium",
+      "owner_person_id": "hh_stress_medium_p2",
+      "type": "TFSA",
+      "regulatory_objective": "growth_and_income",
+      "regulatory_time_horizon": "3-10y",
+      "regulatory_risk_rating": "medium",
+      "current_value": 250000.0,
+      "current_holdings": [
+        {
+          "sleeve_id": "sh_builders",
+          "sleeve_name": "SH Builders",
+          "weight": 0.25,
+          "market_value": 62500.0
+        },
+        {
+          "sleeve_id": "sh_equity",
+          "sleeve_name": "SH Equity",
+          "weight": 0.25,
+          "market_value": 62500.0
+        },
+        {
+          "sleeve_id": "sh_founders",
+          "sleeve_name": "SH Founders",
+          "weight": 0.25,
+          "market_value": 62500.0
+        },
+        {
+          "sleeve_id": "sh_global_equity",
+          "sleeve_name": "SH Global Equity",
+          "weight": 0.25,
+          "market_value": 62500.0
+        }
+      ],
+      "contribution_room": null,
+      "contribution_history": [],
+      "is_held_at_purpose": true,
+      "missing_holdings_confirmed": false,
+      "cash_state": "invested"
+    },
+    {
+      "id": "hh_stress_medium_a2",
+      "household_id": "hh_stress_medium",
+      "owner_person_id": "hh_stress_medium_p1",
+      "type": "RRSP",
+      "regulatory_objective": "growth_and_income",
+      "regulatory_time_horizon": "3-10y",
+      "regulatory_risk_rating": "medium",
+      "current_value": 300000.0,
+      "current_holdings": [
+        {
+          "sleeve_id": "sh_builders",
+          "sleeve_name": "SH Builders",
+          "weight": 0.25,
+          "market_value": 75000.0
+        },
+        {
+          "sleeve_id": "sh_equity",
+          "sleeve_name": "SH Equity",
+          "weight": 0.25,
+          "market_value": 75000.0
+        },
+        {
+          "sleeve_id": "sh_founders",
+          "sleeve_name": "SH Founders",
+          "weight": 0.25,
+          "market_value": 75000.0
+        },
+        {
+          "sleeve_id": "sh_global_equity",
+          "sleeve_name": "SH Global Equity",
+          "weight": 0.25,
+          "market_value": 75000.0
+        }
+      ],
+      "contribution_room": null,
+      "contribution_history": [],
+      "is_held_at_purpose": true,
+      "missing_holdings_confirmed": false,
+      "cash_state": "invested"
+    },
+    {
+      "id": "hh_stress_medium_a3",
+      "household_id": "hh_stress_medium",
+      "owner_person_id": "hh_stress_medium_p2",
+      "type": "TFSA",
+      "regulatory_objective": "growth_and_income",
+      "regulatory_time_horizon": "3-10y",
+      "regulatory_risk_rating": "medium",
+      "current_value": 350000.0,
+      "current_holdings": [
+        {
+          "sleeve_id": "sh_builders",
+          "sleeve_name": "SH Builders",
+          "weight": 0.25,
+          "market_value": 87500.0
+        },
+        {
+          "sleeve_id": "sh_equity",
+          "sleeve_name": "SH Equity",
+          "weight": 0.25,
+          "market_value": 87500.0
+        },
+        {
+          "sleeve_id": "sh_founders",
+          "sleeve_name": "SH Founders",
+          "weight": 0.25,
+          "market_value": 87500.0
+        },
+        {
+          "sleeve_id": "sh_global_equity",
+          "sleeve_name": "SH Global Equity",
+          "weight": 0.25,
+          "market_value": 87500.0
+        }
+      ],
+      "contribution_room": null,
+      "contribution_history": [],
+      "is_held_at_purpose": true,
+      "missing_holdings_confirmed": false,
+      "cash_state": "invested"
+    },
+    {
+      "id": "hh_stress_medium_a4",
+      "household_id": "hh_stress_medium",
+      "owner_person_id": "hh_stress_medium_p1",
+      "type": "RRSP",
+      "regulatory_objective": "growth_and_income",
+      "regulatory_time_horizon": "3-10y",
+      "regulatory_risk_rating": "medium",
+      "current_value": 400000.0,
+      "current_holdings": [
+        {
+          "sleeve_id": "sh_builders",
+          "sleeve_name": "SH Builders",
+          "weight": 0.25,
+          "market_value": 100000.0
+        },
+        {
+          "sleeve_id": "sh_equity",
+          "sleeve_name": "SH Equity",
+          "weight": 0.25,
+          "market_value": 100000.0
+        },
+        {
+          "sleeve_id": "sh_founders",
+          "sleeve_name": "SH Founders",
+          "weight": 0.25,
+          "market_value": 100000.0
+        },
+        {
+          "sleeve_id": "sh_global_equity",
+          "sleeve_name": "SH Global Equity",
+          "weight": 0.25,
+          "market_value": 100000.0
+        }
+      ],
+      "contribution_room": null,
+      "contribution_history": [],
+      "is_held_at_purpose": true,
+      "missing_holdings_confirmed": false,
+      "cash_state": "invested"
+    },
+    {
+      "id": "hh_stress_medium_a5",
+      "household_id": "hh_stress_medium",
+      "owner_person_id": "hh_stress_medium_p2",
+      "type": "TFSA",
+      "regulatory_objective": "growth_and_income",
+      "regulatory_time_horizon": "3-10y",
+      "regulatory_risk_rating": "medium",
+      "current_value": 450000.0,
+      "current_holdings": [
+        {
+          "sleeve_id": "sh_builders",
+          "sleeve_name": "SH Builders",
+          "weight": 0.25,
+          "market_value": 112500.0
+        },
+        {
+          "sleeve_id": "sh_equity",
+          "sleeve_name": "SH Equity",
+          "weight": 0.25,
+          "market_value": 112500.0
+        },
+        {
+          "sleeve_id": "sh_founders",
+          "sleeve_name": "SH Founders",
+          "weight": 0.25,
+          "market_value": 112500.0
+        },
+        {
+          "sleeve_id": "sh_global_equity",
+          "sleeve_name": "SH Global Equity",
+          "weight": 0.25,
+          "market_value": 112500.0
+        }
+      ],
+      "contribution_room": null,
+      "contribution_history": [],
+      "is_held_at_purpose": true,
+      "missing_holdings_confirmed": false,
+      "cash_state": "invested"
+    },
+    {
+      "id": "hh_stress_medium_a6",
+      "household_id": "hh_stress_medium",
+      "owner_person_id": "hh_stress_medium_p1",
+      "type": "RRSP",
+      "regulatory_objective": "growth_and_income",
+      "regulatory_time_horizon": "3-10y",
+      "regulatory_risk_rating": "medium",
+      "current_value": 500000.0,
+      "current_holdings": [
+        {
+          "sleeve_id": "sh_builders",
+          "sleeve_name": "SH Builders",
+          "weight": 0.25,
+          "market_value": 125000.0
+        },
+        {
+          "sleeve_id": "sh_equity",
+          "sleeve_name": "SH Equity",
+          "weight": 0.25,
+          "market_value": 125000.0
+        },
+        {
+          "sleeve_id": "sh_founders",
+          "sleeve_name": "SH Founders",
+          "weight": 0.25,
+          "market_value": 125000.0
+        },
+        {
+          "sleeve_id": "sh_global_equity",
+          "sleeve_name": "SH Global Equity",
+          "weight": 0.25,
+          "market_value": 125000.0
+        }
+      ],
+      "contribution_room": null,
+      "contribution_history": [],
+      "is_held_at_purpose": true,
+      "missing_holdings_confirmed": false,
+      "cash_state": "invested"
+    },
+    {
+      "id": "hh_stress_medium_a7",
+      "household_id": "hh_stress_medium",
+      "owner_person_id": "hh_stress_medium_p2",
+      "type": "TFSA",
+      "regulatory_objective": "growth_and_income",
+      "regulatory_time_horizon": "3-10y",
+      "regulatory_risk_rating": "medium",
+      "current_value": 550000.0,
+      "current_holdings": [
+        {
+          "sleeve_id": "sh_builders",
+          "sleeve_name": "SH Builders",
+          "weight": 0.25,
+          "market_value": 137500.0
+        },
+        {
+          "sleeve_id": "sh_equity",
+          "sleeve_name": "SH Equity",
+          "weight": 0.25,
+          "market_value": 137500.0
+        },
+        {
+          "sleeve_id": "sh_founders",
+          "sleeve_name": "SH Founders",
+          "weight": 0.25,
+          "market_value": 137500.0
+        },
+        {
+          "sleeve_id": "sh_global_equity",
+          "sleeve_name": "SH Global Equity",
+          "weight": 0.25,
+          "market_value": 137500.0
+        }
+      ],
+      "contribution_room": null,
+      "contribution_history": [],
+      "is_held_at_purpose": true,
+      "missing_holdings_confirmed": false,
+      "cash_state": "invested"
+    }
+  ],
+  "external_assets": [],
+  "household_risk_score": 3,
+  "risk_input": {
+    "household_score": 3,
+    "goals": {
+      "hh_stress_medium_g0": 3,
+      "hh_stress_medium_g1": 3,
+      "hh_stress_medium_g2": 3,
+      "hh_stress_medium_g3": 3
+    }
+  },
+  "created_at": "2026-05-04T04:58:29.022903Z",
+  "updated_at": "2026-05-04T04:58:29.022903Z"
+}

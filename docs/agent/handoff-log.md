@@ -1,5 +1,67 @@
 # MP2.0 Handoff Log
 
+---
+
+## 2026-05-03 PM (sub-session #1) — Engine→UI Display Phase A0: Pre-flight baseline
+
+**HEAD:** `8bf774b`. 1 commit past `081cfc8` (engine-ui-display-starter-prompt extraction).
+
+### What changed
+- **A0.0** Extracted §Z verbatim from `~/.claude/plans/i-want-you-to-jolly-beacon.md` to `docs/agent/engine-ui-display-starter-prompt.md` (226 lines; commit `8bf774b`). Mode-aware boot loader for sub-sessions #2-#5; deletion at A6.16 close-out per locked decision #11.
+- **A0.2** Synthesized stress fixtures persisted: `engine/fixtures/stress_household_medium.json` (15.3 kB; 8 accts/4 goals/12 links/32 holdings) + `engine/fixtures/stress_household_large.json` (22.2 kB; 12 accts/6 goals/18 links/48 holdings) per locked decision #77. Use canonical sh_* fund_ids matching CMA fixture.
+
+### What was tested (A0.1 full pre-flight)
+- **Backend pytest**: 854 passed, 7 skipped (108s) — matches plan baseline ✓
+- **ruff/format/PII/vocab/OpenAPI/migrations**: all clean ✓
+- **Frontend**: typecheck + lint + build + Vitest (82 passed in 13 files, 4.77s) ✓
+- **Playwright**: chromium foundation + visual-verification 37 passed (30.9s) + webkit + firefox cross-browser 10 passed (8.3s) ✓
+- **Total: 983 tests green** at HEAD `081cfc8` (matches plan §3 baseline exactly) ✓
+- **Engine probe** (POST `/api/clients/hh_sandra_mike_chen/generate-portfolio/`): status 200, wall=861ms HTTP; pure-engine P50=238ms / P99=240ms (10 iter); schema=engine_output.link_first.v2; 6 link_recs; 3 goal_rollups; warnings=['review_rebalance','synthetic_or_seeded_missing_provenance'] (synthetic-data expected) ✓
+
+### A0.2 latency probe results (CRITICAL — locks threading decision per #87)
+| Household | Accounts | Goals | Links | Holdings | P50 | P99 |
+|---|---|---|---|---|---|---|
+| Small (Sandra/Mike) | 4 | 3 | 6 | 11 | 239ms | 258ms |
+| Medium (synthetic stress) | 8 | 4 | 12 | 32 | 235ms | 239ms |
+| Large (synthetic stress) | 12 | 6 | 18 | 48 | 233ms | 235ms |
+
+**All P99 ≤ 260ms; threshold per locked #56 is 1000ms. DECISION: A2 ships SYNC-INLINE variant (locked #74 default path). Sub-session #1 budget locked at 5-6 hr (per #76).** Surprising finding: medium/large faster than small — optimizer cost scales sub-linearly with link count when goals share fund universe.
+
+### A0.3 commit_reviewed_state line-number verification (per locked #93)
+At HEAD `081cfc8` in `web/api/review_state.py`:
+- Function `commit_reviewed_state` at line **495** (plan said 495 ✓ exact match)
+- `record_event(action="review_state_committed", ...)` at line **529** (plan said ~522; 7-line drift ✓ acceptable)
+- `return household` at line **536** (plan said ~529; 7-line drift ✓ acceptable)
+- **Trigger #1 insertion point**: between line 535 (after record_event close paren) and line 536 (return household). No structural change from Phase 4+4.5; helper insertion will work cleanly.
+
+### A0.4 comprehensive test-impact grep audit (per locked #111)
+~17 affected test files (broader than plan §A2.3's named 8): test_api.py, test_append_only_invariants.py, test_audit_timeline.py, test_auth_boundaries.py, test_auth_rbac_matrix.py, test_concurrency_stress.py, test_db_invariants_extended.py, test_db_state_integrity.py, test_perf_budgets.py, test_phase3_atomicity.py, test_phase5a_conflict_resolve.py, test_phase5b_bulk_conflict_resolve.py, test_phase5b_defer_conflict.py, test_phase5b_fact_override.py, test_r1_audit_emission.py, test_r1_preview_endpoints.py, test_review_ingestion.py + scripts/demo-prep/test_r10_sweep.py. Plan §A2.3 estimate (~30-50 test updates) likely accurate; plan files list to be expanded in sub-session #2 implementation.
+
+### What didn't ship (open items)
+- Stress fixture management command (`load_stress_fixtures`) — deferred to A6 perf benchmark setup; fixtures exist as JSON, mgmt command can load them when needed
+- Niesner reset authorization runtime check — locked #86 already pre-authorizes; A6.11 will execute
+
+### What's next
+- **A1** Sandra/Mike fixture refresh (RiskProfile + canonical sh_* 8-fund holdings + advisor pre-ack JSON marker; ~60-90 min)
+- Estimated A1 scope: edit `personas/sandra_mike_chen/client_state.json` + extend `web/api/management/commands/load_synthetic_personas.py` + add 4 regression tests in `engine/tests/test_sandra_mike_fixture_smoke.py`
+
+### Risk
+- Sandra/Mike fixture changes might surface regressions in tests that hard-code persona-seed fund_ids — A1 regression test suite + A2.3 ~50-test-update churn catches drift
+- Phase 4 tool-use migration (HEAD `7a2e252`) and OpenAPI codegen (HEAD `413fd02`) didn't shift commit-flow contract — A0.3 verify confirmed line-number drift is benign
+
+### Bedrock $ delta
+- **$0** — engine.optimize() is pure Python; no Bedrock spend in A0
+
+### Locked decisions honored
+#42 (dedicated starter-prompt), #65 (verification-pass-gaps reading), #66 (visual-verification.spec.ts reading), #69 (session-state.md refresh enforcement), #70 (comprehensive pre-flight), #72 (A0 full pre-flight), #73 (A0.2 latency probe), #74 (sync-inline auto-trigger — DECISION LOCKED), #76 (sub-session #1 budget), #77 (stress fixtures synthesized), #87 (threading conditional — sync path locked), #93 (commit_reviewed_state line numbers), #111 (test-impact grep audit).
+
+### Continuity check
+- session-state.md headline: refreshing to HEAD `8bf774b` + Phase A0 complete (this commit)
+- engine-ui-display-handoff-2026-05-03.md §3: this entry IS the dossier per locked #43
+- MEMORY.md: not yet updated (will refresh at sub-session #1 end per #45)
+
+---
+
 ## 2026-04-28 — Phase 1 Scaffold Started
 
 - User approved implementation of the Phase 1 runnable MVP scaffold.
