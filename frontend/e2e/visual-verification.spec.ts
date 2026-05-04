@@ -718,3 +718,262 @@ test.describe("Visual verification — synthetic workspace badge (sub-session #1
     await snapshot(page, "17-synthetic-badge-active");
   });
 });
+
+test.describe("Visual verification — engine→UI display surfaces (v0.1.2-engine-display)", () => {
+  /**
+   * Visual baselines for the 3 NEW components shipped in
+   * sub-sessions #1-#4 (RecommendationBanner, AdvisorSummaryPanel,
+   * HouseholdPortfolioPanel) AGAINST the auto-seeded Sandra/Mike Chen
+   * synthetic persona, which has an engine-generated PortfolioRun out
+   * of the box.
+   *
+   * Locked decisions referenced:
+   *   #82  visual-verification spec is the canonical full-checklist
+   *        regression; A6 Round 3 EXTENDS rather than replaces it.
+   *   #63  per-PR visual-baseline maintenance — operator regenerates
+   *        with `--update-snapshots` when an intentional UI change
+   *        lands; otherwise diffs gate.
+   *   #19  HouseholdPortfolioPanel mirrors RecommendationBanner
+   *        failure pattern (aria-live=polite + role=status + inline
+   *        retry).
+   *   #109 aria-live="polite" on banner + panel for SR announcements.
+   *   #71  Playwright getByRole({ name }) resolves to aria-label NOT
+   *        visible text — use getByText for visible-text matching.
+   *
+   * Scope decision (post-pilot deferred):
+   *   Cold-start + failure states are NOT visual-baselined here.
+   *   Vitest unit tests at:
+   *     frontend/src/goal/__tests__/RecommendationBanner.test.tsx
+   *     frontend/src/goal/__tests__/AdvisorSummaryPanel.test.tsx
+   *     frontend/src/routes/__tests__/HouseholdPortfolioPanel.test.tsx
+   *   already cover those states with comprehensive assertions.
+   *   Visual regression for non-default states is post-pilot scope
+   *   (locked #82 spec authority).
+   *
+   * Sandra/Mike auto-seed signature varies between runs — assertions
+   * check the structural pattern (8-char hex), never a hardcoded
+   * value. Sandra/Mike has:
+   *   - goal_retirement_income (3 account links — multi-link path)
+   *   - goal_emma_education (1 account link — single-link path)
+   *   - household-level rollup with expected_return + volatility
+   *
+   * Real-PII discipline: Sandra/Mike Chen is fully synthetic
+   * (`personas/sandra_mike_chen/client_state.json`); screenshots are
+   * safe to commit under
+   * `frontend/e2e/visual-verification.spec.ts-snapshots/`
+   * (Playwright's default-suffix convention for per-spec baselines).
+   */
+
+  async function pickSandraMike(page: Page) {
+    await page.getByRole("button", { name: /select client/i }).first().click();
+    const sandra = page.getByRole("option", { name: /Sandra/i }).first();
+    await expect(sandra).toBeVisible({ timeout: 5000 });
+    await sandra.click();
+  }
+
+  async function settle(page: Page) {
+    // Wait for network + a short tick so React Query renders the run.
+    await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+    // Disable CSS animations + transitions for baseline determinism.
+    await page.addStyleTag({
+      content: `
+        *, *::before, *::after {
+          animation-duration: 0s !important;
+          animation-delay: 0s !important;
+          transition-duration: 0s !important;
+          transition-delay: 0s !important;
+          caret-color: transparent !important;
+        }
+      `,
+    });
+  }
+
+  test("Goal route — RecommendationBanner shows run signature + Regenerate CTA", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+    await pickSandraMike(page);
+    await page.goto("/goal/goal_emma_education");
+    // The banner is the first role="status" with a Regenerate button.
+    // Match by visible text — i18n key
+    // routes.goal.recommendation_banner produces "Recommendation
+    // <8hex> • <relative_time>".
+    const banner = page
+      .locator('[role="status"]')
+      .filter({ hasText: /Recommendation [0-9a-f]{8}/i })
+      .first();
+    await expect(banner).toBeVisible({ timeout: 15_000 });
+    // Aria-live must be polite (locked #109).
+    await expect(banner).toHaveAttribute("aria-live", "polite");
+    // Regenerate button visible inside the banner.
+    await expect(
+      banner.getByRole("button", { name: /regenerate/i }),
+    ).toBeVisible();
+    await settle(page);
+    await expect(banner).toHaveScreenshot("engine-display-banner-run-present.png", {
+      maxDiffPixelRatio: 0.02,
+    });
+  });
+
+  test("Goal route — AdvisorSummaryPanel renders single-link goal (Emma education)", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+    await pickSandraMike(page);
+    await page.goto("/goal/goal_emma_education");
+    // Heading "Why this recommendation" — i18n
+    // routes.goal.advisor_summary_title — uniquely identifies the
+    // AdvisorSummaryPanel section.
+    const heading = page.getByRole("heading", {
+      name: /why this recommendation/i,
+    });
+    await expect(heading).toBeVisible({ timeout: 15_000 });
+    // The enclosing <section> is the screenshot scope.
+    const panel = page
+      .locator("section")
+      .filter({ has: heading })
+      .first();
+    await expect(panel).toBeVisible();
+    await settle(page);
+    await expect(panel).toHaveScreenshot(
+      "engine-display-advisor-summary-single-link.png",
+      { maxDiffPixelRatio: 0.02 },
+    );
+  });
+
+  test("Goal route — AdvisorSummaryPanel renders 3 sections for multi-link goal (retirement)", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+    await pickSandraMike(page);
+    await page.goto("/goal/goal_retirement_income");
+    const heading = page.getByRole("heading", {
+      name: /why this recommendation/i,
+    });
+    await expect(heading).toBeVisible({ timeout: 15_000 });
+    const panel = page
+      .locator("section")
+      .filter({ has: heading })
+      .first();
+    // Multi-link panel renders 3 link blocks; idx>0 carry border-t.
+    // Smoke-check that the panel contains content for >1 link by
+    // counting paragraphs with the "<account_type> · <amount>" header
+    // (font-mono uppercase paragraphs, one per link).
+    const linkHeaders = panel.locator(
+      "p.font-mono.uppercase.tracking-wider",
+    );
+    await expect(linkHeaders.first()).toBeVisible({ timeout: 5000 });
+    const linkCount = await linkHeaders.count();
+    expect(linkCount).toBeGreaterThanOrEqual(2);
+    await settle(page);
+    await expect(panel).toHaveScreenshot(
+      "engine-display-advisor-summary-multi-link.png",
+      { maxDiffPixelRatio: 0.02 },
+    );
+  });
+
+  test("Household route — HouseholdPortfolioPanel renders rollup + top funds", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+    await pickSandraMike(page);
+    await page.goto("/");
+    // The panel heading "Portfolio recommendation" — i18n
+    // routes.household.portfolio_panel_title — uniquely identifies it.
+    const heading = page.getByRole("heading", {
+      name: /portfolio recommendation/i,
+    });
+    await expect(heading).toBeVisible({ timeout: 15_000 });
+    const panel = page
+      .locator("section")
+      .filter({ has: heading })
+      .first();
+    await expect(panel).toBeVisible();
+    // Aria-live polite (locked #19 + #109).
+    await expect(panel).toHaveAttribute("aria-live", "polite");
+    await expect(panel).toHaveAttribute("role", "status");
+    // Expected return + Volatility labels visible inside the panel.
+    await expect(panel.getByText(/expected return/i).first()).toBeVisible();
+    await expect(panel.getByText(/volatility/i).first()).toBeVisible();
+    await settle(page);
+    await expect(panel).toHaveScreenshot(
+      "engine-display-household-portfolio-panel.png",
+      { maxDiffPixelRatio: 0.02 },
+    );
+  });
+
+  test("Goal route — full-page screenshot captures Banner + KPI + Allocation + AdvisorSummary", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+    await pickSandraMike(page);
+    await page.goto("/goal/goal_retirement_income");
+    // Wait for the engine surfaces to render: banner + advisor summary.
+    await expect(
+      page
+        .locator('[role="status"]')
+        .filter({ hasText: /Recommendation [0-9a-f]{8}/i })
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(
+      page.getByRole("heading", { name: /why this recommendation/i }),
+    ).toBeVisible({ timeout: 5000 });
+    await settle(page);
+    // Full-page baseline catches layout shifts across sections.
+    await expect(page).toHaveScreenshot(
+      "engine-display-goal-route-full.png",
+      { fullPage: true, maxDiffPixelRatio: 0.04 },
+    );
+  });
+
+  test("Household route — full-page screenshot captures HouseholdPortfolioPanel + treemap", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+    await pickSandraMike(page);
+    await page.goto("/");
+    await expect(
+      page.getByRole("heading", { name: /portfolio recommendation/i }),
+    ).toBeVisible({ timeout: 15_000 });
+    // Treemap SVG is also part of the household stage layout.
+    await expect(page.locator("svg").first()).toBeVisible({ timeout: 8000 });
+    await settle(page);
+    await expect(page).toHaveScreenshot(
+      "engine-display-household-route-full.png",
+      { fullPage: true, maxDiffPixelRatio: 0.04 },
+    );
+  });
+
+  test("RecommendationBanner has aria-live=polite + role=status (locked #109)", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+    await pickSandraMike(page);
+    await page.goto("/goal/goal_emma_education");
+    const banner = page
+      .locator('[role="status"]')
+      .filter({ hasText: /Recommendation [0-9a-f]{8}/i })
+      .first();
+    await expect(banner).toBeVisible({ timeout: 15_000 });
+    await expect(banner).toHaveAttribute("aria-live", "polite");
+    await expect(banner).toHaveAttribute("role", "status");
+  });
+
+  test("HouseholdPortfolioPanel has aria-live=polite + role=status (locked #19 + #109)", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+    await pickSandraMike(page);
+    await page.goto("/");
+    const heading = page.getByRole("heading", {
+      name: /portfolio recommendation/i,
+    });
+    await expect(heading).toBeVisible({ timeout: 15_000 });
+    const panel = page
+      .locator("section")
+      .filter({ has: heading })
+      .first();
+    await expect(panel).toHaveAttribute("aria-live", "polite");
+    await expect(panel).toHaveAttribute("role", "status");
+  });
+});
