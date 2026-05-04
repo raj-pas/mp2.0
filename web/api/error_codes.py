@@ -79,6 +79,31 @@ _FRIENDLY_MESSAGES: dict[str, str] = {
     "WorkerStalled": (
         "Worker stalled mid-job. Auto-recovery will retry; check back in 60 seconds."
     ),
+    # Engine→UI display typed exceptions (v0.1.2-engine-display).
+    # Frontend renders Banner inline error + Sonner toast on these; the
+    # message must be advisor-actionable WITHOUT leaking PII (the original
+    # blocker text often interpolates account_id/goal_id).
+    "EngineKillSwitchBlocked": (
+        "Recommendation generation is temporarily disabled. "
+        "Engineering has been notified; check back shortly."
+    ),
+    "NoActiveCMASnapshot": (
+        "An analyst needs to publish the latest CMA before recommendations can be generated."
+    ),
+    "InvalidCMAUniverse": (
+        "The active CMA snapshot has a configuration issue. "
+        "Notify a financial analyst to publish a corrected snapshot."
+    ),
+    "ReviewedStateNotConstructionReady": (
+        "This household isn't ready for portfolio generation yet. "
+        "Open the household and resolve the outstanding readiness items "
+        "(holdings, goal-account allocations, missing sections) before "
+        "retrying."
+    ),
+    "MissingProvenance": (
+        "Some facts on this household are missing source provenance. "
+        "Re-run extraction on the affected documents, or contact ops."
+    ),
     # Generic catch-all for un-mapped exception class names
     "_default": "Something went wrong. Please retry, or contact ops if it persists.",
 }
