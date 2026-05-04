@@ -19,10 +19,12 @@ import { useRememberedClientId } from "../chrome/ClientPicker";
 import { RiskBandTrack } from "../charts/RiskBandTrack";
 import { Skeleton } from "../components/ui/skeleton";
 import { RiskSlider } from "../components/ui/RiskSlider";
+import { AdvisorSummaryPanel } from "../goal/AdvisorSummaryPanel";
 import { GoalAllocationSection } from "../goal/GoalAllocationSection";
 import { GoalProjectionsSection } from "../goal/GoalProjectionsSection";
 import { MovesPanel } from "../goal/MovesPanel";
 import { OptimizerOutputWidget } from "../goal/OptimizerOutputWidget";
+import { RecommendationBanner } from "../goal/RecommendationBanner";
 import { isAdvisorRole, useSession } from "../lib/auth";
 import { type Goal, findGoal, useHousehold } from "../lib/household";
 import { useOverrideHistory } from "../lib/preview";
@@ -143,6 +145,12 @@ export function GoalRoute() {
         </div>
       </header>
 
+      <RecommendationBanner
+        run={household.latest_portfolio_run}
+        failure={household.latest_portfolio_failure}
+        householdId={household.id}
+      />
+
       <section
         className="grid grid-cols-4 gap-3 border border-hairline-2 bg-paper-2 px-5 py-4 shadow-sm"
         aria-label={t("routes.goal.kpi_target")}
@@ -192,6 +200,8 @@ export function GoalRoute() {
       {effectiveScore !== null && (
         <GoalAllocationSection goal={goal} household={household} effectiveScore={effectiveScore} />
       )}
+
+      <AdvisorSummaryPanel household={household} goalId={goal.id} />
 
       <div className="grid grid-cols-2 gap-3">
         <OptimizerOutputWidget householdId={household.id} goalId={goal.id} />

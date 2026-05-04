@@ -56,7 +56,100 @@ export type Member = {
   pensions: number | null;
 };
 
+// Hand-synchronized with web/api/serializers.py + engine/schemas.py.
+// Migration to OpenAPI codegen (api-types.ts) is post-pilot scope —
+// HouseholdDetailSerializer + PortfolioRunSerializer lack @extend_schema
+// decorators; drf-spectacular cannot infer SerializerMethodField return
+// shapes. See scripts/check-openapi-codegen.sh header for the contract.
+
+export type Allocation = {
+  sleeve_id: string;
+  sleeve_name: string;
+  weight: number;
+  fund_type: "building_block" | "whole_portfolio";
+  asset_class_weights: Record<string, number>;
+  geography_weights: Record<string, number>;
+};
+
+export type Rollup = {
+  id: string;
+  name: string;
+  allocated_amount: number;
+  allocations: Allocation[];
+  expected_return: number;
+  volatility: number;
+};
+
+export type ProjectionPoint = {
+  year: number;
+  p10: number;
+  p50: number;
+  p90: number;
+  optimized_percentile_value: number;
+};
+
+export type CurrentPortfolioComparison = {
+  missing_holdings: boolean;
+  status: string;
+  reason: string;
+  expected_return: number | null;
+  volatility: number | null;
+  allocations: Allocation[];
+  deltas: Array<{ sleeve_id: string; sleeve_name: string; weight_delta: number }>;
+  holdings_diagnostics: Array<Record<string, unknown>>;
+  unmapped_holdings: Array<Record<string, unknown>>;
+  warnings: string[];
+};
+
 export type LinkRecommendation = {
+  link_id: string;
+  goal_id: string;
+  goal_name: string;
+  account_id: string;
+  account_type: string;
+  allocated_amount: number;
+  horizon_years: number;
+  goal_risk_score: 1 | 2 | 3 | 4 | 5;
+  frontier_percentile: number;
+  allocations: Allocation[];
+  expected_return: number;
+  volatility: number;
+  projected_value: number;
+  projection: ProjectionPoint[];
+  current_comparison: CurrentPortfolioComparison;
+  drift_flags: string[];
+  warnings: string[];
+  explanation: Record<string, unknown>;
+  advisor_summary: string;
+  technical_trace: Record<string, unknown>;
+};
+
+export type FanChartPoint = {
+  link_id: string;
+  goal_id: string;
+  year: number;
+  p10: number;
+  p50: number;
+  p90: number;
+};
+
+export type EngineOutput = {
+  schema_version: "engine_output.link_first.v2";
+  household_id: string;
+  link_recommendations: LinkRecommendation[];
+  goal_rollups: Rollup[];
+  account_rollups: Rollup[];
+  household_rollup: Rollup;
+  fan_chart: FanChartPoint[];
+  audit_trace: Record<string, unknown>;
+  advisor_summary: string;
+  technical_trace: Record<string, unknown>;
+  run_manifest: { run_signature?: string; [k: string]: unknown };
+  warnings: string[];
+};
+
+// Persisted PortfolioRunLinkRecommendation rows (DB shape; subset of engine LinkRecommendation).
+export type PortfolioRunLinkRow = {
   link_external_id: string;
   goal_external_id: string;
   account_external_id: string;
@@ -64,8 +157,8 @@ export type LinkRecommendation = {
   frontier_percentile: number | null;
   expected_return: number | null;
   volatility: number | null;
-  allocations: { fund_id: string; weight: number }[];
-  current_comparison: Record<string, unknown> | null;
+  allocations: Allocation[];
+  current_comparison: CurrentPortfolioComparison | null;
   explanation: string | null;
   warnings: string[];
 };
@@ -80,8 +173,24 @@ export type PortfolioRun = {
   advisor_summary: string | null;
   warnings: string[];
   created_at: string;
-  link_recommendation_rows?: LinkRecommendation[];
-  output?: Record<string, unknown>;
+  run_signature: string;
+  output: EngineOutput | null;
+  technical_trace: Record<string, unknown> | null;
+  link_recommendation_rows?: PortfolioRunLinkRow[];
+  events?: Array<{
+    event_type: string;
+    reason_code: string;
+    note: string;
+    metadata: Record<string, unknown>;
+    created_at: string;
+  }>;
+};
+
+export type PortfolioGenerationFailure = {
+  action: string;
+  reason_code: string;
+  exception_summary: string;
+  occurred_at: string | null;
 };
 
 /**
@@ -110,6 +219,7 @@ export type HouseholdDetail = {
   goals: Goal[];
   accounts: Account[];
   latest_portfolio_run: PortfolioRun | null;
+  latest_portfolio_failure: PortfolioGenerationFailure | null;
   portfolio_runs: PortfolioRun[];
 };
 
@@ -151,11 +261,11 @@ export function householdExternalAum(household: HouseholdDetail): number {
   );
 }
 
-export function findLinkRecommendation(
+export function findLinkRecommendationRow(
   household: HouseholdDetail | undefined,
   goalId: string,
   accountId: string,
-): LinkRecommendation | null {
+): PortfolioRunLinkRow | null {
   const run = household?.latest_portfolio_run;
   if (!run?.link_recommendation_rows) return null;
   return (
@@ -163,4 +273,26 @@ export function findLinkRecommendation(
       (link) => link.goal_external_id === goalId && link.account_external_id === accountId,
     ) ?? null
   );
+}
+
+export function findGoalRollup(
+  household: HouseholdDetail | undefined,
+  goalId: string,
+): Rollup | null {
+  const run = household?.latest_portfolio_run;
+  if (!run?.output?.goal_rollups) return null;
+  return run.output.goal_rollups.find((r) => r.id === goalId) ?? null;
+}
+
+export function findHouseholdRollup(household: HouseholdDetail | undefined): Rollup | null {
+  return household?.latest_portfolio_run?.output?.household_rollup ?? null;
+}
+
+export function findGoalLinkRecommendations(
+  household: HouseholdDetail | undefined,
+  goalId: string,
+): LinkRecommendation[] {
+  const run = household?.latest_portfolio_run;
+  if (!run?.output?.link_recommendations) return [];
+  return run.output.link_recommendations.filter((rec) => rec.goal_id === goalId);
 }

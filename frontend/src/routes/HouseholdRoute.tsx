@@ -16,6 +16,7 @@ import { RealignModal } from "../modals/RealignModal";
 import { type RealignmentResponse, useRestoreSnapshot } from "../lib/realignment";
 import { toastSuccess } from "../lib/toast";
 import { Treemap } from "../treemap/Treemap";
+import { HouseholdPortfolioPanel } from "./HouseholdPortfolioPanel";
 
 const STORAGE_GROUP_BY = "mp20_group_by";
 
@@ -144,6 +145,8 @@ export function HouseholdRoute() {
         }}
         reverting={restoreSnapshot.isPending}
       />
+
+      <HouseholdPortfolioPanel household={household} />
 
       <section className="flex flex-1 overflow-hidden border border-hairline-2 shadow-sm">
         {treemapQuery.isPending && (

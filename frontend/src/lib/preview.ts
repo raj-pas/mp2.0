@@ -358,3 +358,35 @@ export function useCreateOverride(goalId: string | null) {
     },
   });
 }
+
+// A3.6: Manual generate-portfolio mutation (used by RecommendationBanner +
+// HouseholdPortfolioPanel). Auto-trigger fires synchronously on commit/wizard/
+// override/realignment per locked decision #74; this mutation is the explicit
+// "Regenerate" / "Generate" button. Backend returns the freshly-created OR
+// reused PortfolioRun in the response payload (no on_commit race per #74).
+import type { PortfolioRun } from "./household";
+import { householdQueryKey } from "./household";
+import { toastError, toastSuccess } from "./toast";
+
+export function useGeneratePortfolio(householdId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation<PortfolioRun, Error>({
+    mutationFn: () => {
+      if (householdId === null) {
+        return Promise.reject(new Error("household id required"));
+      }
+      return apiFetch<PortfolioRun>(
+        `/api/clients/${encodeURIComponent(householdId)}/generate-portfolio/`,
+        { method: "POST", body: {} },
+      );
+    },
+    onSuccess: () => {
+      if (householdId === null) return;
+      queryClient.invalidateQueries({ queryKey: householdQueryKey(householdId) });
+      toastSuccess("Recommendation refreshed.");
+    },
+    onError: (err) => {
+      toastError("Couldn't refresh recommendation.", { description: err.message });
+    },
+  });
+}

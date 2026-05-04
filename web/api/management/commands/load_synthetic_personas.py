@@ -31,6 +31,51 @@ class Command(BaseCommand):
             _load_advisor_pre_ack(self, data)
         self.stdout.write(self.style.SUCCESS("Loaded synthetic Sandra/Mike Chen persona."))
 
+        # A5: auto-seed initial PortfolioRun for demo readiness so a fresh
+        # `reset-v2-dev.sh --yes` produces a Sandra/Mike Chen state that's
+        # ready to demo (Goal route + Household route immediately have
+        # engine recommendations to render). Helper raises typed exceptions
+        # for known states (no active CMA, kill-switch); we silent-skip.
+        from web.api.error_codes import safe_exception_summary
+        from web.api.views import (
+            EngineKillSwitchBlocked,
+            InvalidCMAUniverse,
+            MissingProvenance,
+            NoActiveCMASnapshot,
+            ReviewedStateNotConstructionReady,
+            _trigger_portfolio_generation,
+        )
+
+        household_obj = data["id"]
+        from web.api import models
+
+        try:
+            household = models.Household.objects.get(external_id=household_obj)
+            run = _trigger_portfolio_generation(household, user=None, source="synthetic_load")
+            if run is not None:
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f"Generated initial PortfolioRun {run.external_id[:8]} "
+                        f"for {household.display_name}."
+                    )
+                )
+        except (
+            EngineKillSwitchBlocked,
+            NoActiveCMASnapshot,
+            InvalidCMAUniverse,
+            ReviewedStateNotConstructionReady,
+            MissingProvenance,
+        ) as exc:
+            self.stdout.write(
+                self.style.WARNING(f"PortfolioRun seed skipped: {type(exc).__name__}")
+            )
+        except Exception as exc:  # noqa: BLE001 — never break load on engine surprise
+            self.stdout.write(
+                self.style.WARNING(
+                    f"PortfolioRun seed failed: {safe_exception_summary(exc)}"
+                )
+            )
+
 
 def _load_household(data: dict) -> models.Household:
     models.Household.objects.filter(external_id=data["id"]).delete()

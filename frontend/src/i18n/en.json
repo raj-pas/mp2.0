@@ -124,7 +124,19 @@
       "risk_score_label": "Household risk",
       "risk_score_unset": "Not yet assessed",
       "goals_label": "Goals",
-      "accounts_label": "Accounts"
+      "accounts_label": "Accounts",
+      "portfolio_panel_title": "Portfolio recommendation",
+      "portfolio_no_run": "No recommendation generated yet",
+      "expected_return": "Expected return",
+      "volatility": "Volatility",
+      "top_funds": "Top funds",
+      "generate": "Generate",
+      "regenerate": "Regenerate",
+      "regenerating": "Regenerating…",
+      "retry": "Retry",
+      "generation_failed_title": "Recommendation generation failed",
+      "generation_failed_body": "Reason: {{reason}}. Click Retry to attempt regeneration.",
+      "generation_failed_inline": "Generation failed ({{reason}})"
     },
     "account": {
       "back_to_household": "Back to household",
@@ -159,7 +171,17 @@
       "risk_track_label": "Goal risk band",
       "blended_view_title": "Blended view",
       "linked_accounts_title": "Linked accounts",
-      "advanced_panels_pending": "Allocation, projections, optimizer output, and rebalance moves arrive in Phase R4."
+      "advanced_panels_pending": "Allocation, projections, optimizer output, and rebalance moves arrive in Phase R4.",
+      "recommendation_banner": "Recommendation {{signature}} • {{when}}",
+      "no_recommendation_yet": "No recommendation generated yet",
+      "regenerate": "Regenerate",
+      "regenerating": "Regenerating…",
+      "retry": "Retry",
+      "generate": "Generate",
+      "advisor_summary_title": "Why this recommendation",
+      "generation_failed_title": "Recommendation generation failed",
+      "generation_failed_body": "Reason: {{reason}}. Click Retry to attempt regeneration.",
+      "generation_failed_inline": "Generation failed ({{reason}}) • {{when}}"
     },
     "review": {
       "placeholder_title": "Review queue",
