@@ -72,8 +72,14 @@ export function HouseholdPortfolioPanel({ household }: HouseholdPortfolioPanelPr
     );
   }
 
-  // No run + no failure (cold start) → Generate CTA
+  // No run + no failure (cold start) → Generate CTA. If the household has
+  // outstanding readiness blockers (account under-allocated, missing
+  // holdings, unsupported account type, etc.), surface them inline so the
+  // advisor sees what to fix BEFORE clicking Generate. Per locked #9 the
+  // typed-skip path is silent, so without this list there's no persistent
+  // signal of what's blocking generation.
   if (rollup === null) {
+    const blockers = household.readiness_blockers ?? [];
     return (
       <section
         role="status"
@@ -94,13 +100,25 @@ export function HouseholdPortfolioPanel({ household }: HouseholdPortfolioPanelPr
             variant="outline"
             size="sm"
             onClick={() => generate.mutate()}
-            disabled={generate.isPending}
+            disabled={generate.isPending || blockers.length > 0}
           >
             {generate.isPending
               ? t("routes.household.regenerating")
               : t("routes.household.generate")}
           </Button>
         </div>
+        {blockers.length > 0 && (
+          <div className="mt-3 border-t border-hairline pt-3">
+            <p className="font-mono text-[10px] uppercase tracking-widest text-warning mb-2">
+              {t("routes.household.readiness_blockers_title")}
+            </p>
+            <ul className="space-y-1 list-disc list-inside font-sans text-[12px] text-ink">
+              {blockers.map((b, i) => (
+                <li key={i}>{b}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
     );
   }

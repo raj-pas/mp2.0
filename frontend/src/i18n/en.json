@@ -136,7 +136,8 @@
       "retry": "Retry",
       "generation_failed_title": "Recommendation generation failed",
       "generation_failed_body": "Reason: {{reason}}. Click Retry to attempt regeneration.",
-      "generation_failed_inline": "Generation failed ({{reason}})"
+      "generation_failed_inline": "Generation failed ({{reason}})",
+      "readiness_blockers_title": "Resolve before generating"
     },
     "account": {
       "back_to_household": "Back to household",

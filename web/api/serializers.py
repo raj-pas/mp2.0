@@ -115,6 +115,7 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
     accounts = AccountSerializer(many=True)
     latest_portfolio_run = serializers.SerializerMethodField()
     latest_portfolio_failure = serializers.SerializerMethodField()
+    readiness_blockers = serializers.SerializerMethodField()
     portfolio_runs = serializers.SerializerMethodField()
 
     class Meta:
@@ -133,6 +134,7 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
             "accounts",
             "latest_portfolio_run",
             "latest_portfolio_failure",
+            "readiness_blockers",
             "portfolio_runs",
         ]
 
@@ -181,6 +183,27 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
             "exception_summary": failure_code,  # alias for back-compat
             "occurred_at": failure.created_at.isoformat() if failure.created_at else None,
         }
+
+    def get_readiness_blockers(self, obj: models.Household) -> list[str]:
+        """Return the list of advisor-actionable blockers preventing portfolio
+        generation, OR an empty list if the household is engine-ready.
+
+        Backed by `portfolio_generation_blockers_for_household` in
+        `web/api/review_state.py` — same function the helper trio uses to
+        decide whether to raise `ReviewedStateNotConstructionReady`. Surfacing
+        this list on the household payload lets the advisor see WHY they
+        can't generate without having to click Generate first (the typed-
+        skip path is silent per locked #9; before this field, advisors had
+        no persistent signal of the gap).
+
+        Strings are PII-safe: the function f-string-interpolates internal
+        `external_id` UUIDs (not real client identifiers), goal display
+        names (advisor-set), and `account_type` enums. No raw exception
+        text, no extracted client content.
+        """
+        from web.api.review_state import portfolio_generation_blockers_for_household
+
+        return portfolio_generation_blockers_for_household(obj)
 
     def get_portfolio_runs(self, obj: models.Household) -> list[dict]:
         runs = obj.portfolio_runs.order_by("-created_at")[:10]

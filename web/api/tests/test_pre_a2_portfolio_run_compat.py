@@ -223,6 +223,7 @@ _EXPECTED_TOP_LEVEL_KEYS = {
     "accounts",
     "latest_portfolio_run",
     "latest_portfolio_failure",
+    "readiness_blockers",
     "portfolio_runs",
 }
 

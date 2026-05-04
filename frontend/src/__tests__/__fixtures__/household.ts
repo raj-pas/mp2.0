@@ -357,6 +357,7 @@ export function mockHousehold(
     accounts: [mockAccount()],
     latest_portfolio_run: mockPortfolioRun(),
     latest_portfolio_failure: null,
+    readiness_blockers: [],
     portfolio_runs: [
       {
         ...mockPortfolioRun(),

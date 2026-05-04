@@ -220,6 +220,19 @@ export type HouseholdDetail = {
   accounts: Account[];
   latest_portfolio_run: PortfolioRun | null;
   latest_portfolio_failure: PortfolioGenerationFailure | null;
+  /**
+   * Advisor-actionable list of blockers preventing portfolio generation,
+   * OR an empty list if the household is engine-ready. Computed server-
+   * side via `portfolio_generation_blockers_for_household` (same function
+   * the auto-trigger helper uses to decide whether to raise
+   * `ReviewedStateNotConstructionReady`).
+   *
+   * Surfacing this on the household payload lets the advisor see WHY
+   * generation is blocked without having to click Generate first — the
+   * typed-skip path is silent per locked #9, so before this field there
+   * was no persistent UI signal of unmet readiness.
+   */
+  readiness_blockers: string[];
   portfolio_runs: PortfolioRun[];
 };
 
