@@ -322,3 +322,86 @@ Why:
   Sandra/Mike persona.
 
 ---
+
+## Engine output consumption (v0.1.2-engine-display)
+
+The advisor sees engine recommendations through three derived
+helpers in `frontend/src/lib/household.ts`:
+
+- `findGoalRollup(household, goalId) → Rollup | null` — per-goal
+  dollar-weighted blend (engine pre-computed via
+  `EngineOutput.goal_rollups`).
+- `findHouseholdRollup(household) → Rollup | null` —
+  household-level rollup.
+- `findGoalLinkRecommendations(household, goalId) →
+  LinkRecommendation[]` — per-account-link recommendations for a
+  goal.
+
+All three are **null-safe** for the cold-start case (no
+PortfolioRun yet) and the failure case (`latest_portfolio_failure
+!== null`).
+
+### Components
+
+- `frontend/src/goal/RecommendationBanner.tsx` — run signature +
+  freshness + Regenerate CTA. 3 states: run-present /
+  cold-start / failure. `aria-live="polite"` per locked #109.
+  Sonner toast on failure mount with `lastSurfacedRef` dedup per
+  locked #9. Inline render INSIDE route-level ErrorBoundary
+  (locked #108).
+- `frontend/src/goal/AdvisorSummaryPanel.tsx` — engine
+  `link_recommendation.advisor_summary` per goal-account link.
+  Multi-link goals render multiple sections.
+- `frontend/src/routes/HouseholdPortfolioPanel.tsx` — household
+  rollup with expected_return, volatility, top 4 funds by weight.
+  Mirrors Banner failure pattern per locked #19.
+
+### State precedence (when both run + failure exist)
+
+1. Run exists → render run signature + freshness; ignore failure.
+2. No run + recent failure → render failure inline + Retry.
+3. No run + no failure → render cold-start + Generate.
+
+Enforced in `HouseholdDetailSerializer.get_latest_portfolio_failure`
+(returns None when latest_run.created_at >= failure.occurred_at).
+Frontend trusts the serializer.
+
+### useGeneratePortfolio mutation hook
+
+`frontend/src/lib/preview.ts` exports `useGeneratePortfolio(
+householdId)` for manual CTAs. On success: invalidates
+`householdQueryKey(householdId)` + `toastSuccess`. On error:
+`toastError` with normalized message. Auto-trigger paths (commit
+/ wizard / override / etc.) DON'T use this hook — they fire
+synchronously inside the mutation transaction per locked #74.
+
+### Backend pattern
+
+`web/api/views.py:621-968` houses the helper trio:
+
+- `_trigger_portfolio_generation(household, user, *, source) →
+  PortfolioRun` — engine.optimize() inline; helper-managed
+  atomic per locked #81; raises 5 typed exceptions or
+  unexpected propagates.
+- `_trigger_and_audit(...)` — typed-skip + unexpected-failure
+  audit paths per locked #9; commit always succeeds.
+- `_trigger_and_audit_for_workspace(...)` — workspace-scoped
+  variant per locked #27 with `linked_household_id` gate.
+
+### Calibration fallback
+
+`useSleeveMix(score)` + `useOptimizerOutput` remain as the
+calibration what-if surface for slider drag + cold-start case.
+Engine output is canonical; calibration is the teaching anchor
+(per locked #5 + #6).
+
+### mockHousehold byte-fidelity (locked #55)
+
+`frontend/src/__tests__/__fixtures__/household.ts` defaults match
+the live `/api/clients/hh_sandra_mike_chen/` payload byte-for-byte.
+Allocation weights are full-precision (including scientific
+notation for tiny weights). Per-test customization via
+`mockHousehold({ ... })`. Pre-A2 compat exercised by
+`web/api/tests/test_pre_a2_portfolio_run_compat.py`.
+
+---

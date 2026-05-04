@@ -260,3 +260,102 @@ operational:
 6. **Don't disable PII grep / OpenAPI drift / vocab CI gates**
    to "ship faster" — those gates exist because regressions in
    their domains were costly historically.
+
+---
+
+## Engine→UI Display Rollback (v0.1.2-engine-display)
+
+Sub-sessions #1-#5 shipped engine recommendations on Goal route +
+Household route + 8-trigger auto-trigger + failure-state UX.
+Rollback procedure if pilot surfaces engine-display Sev-1 bugs.
+
+### Detection signals
+
+- Advisors report **blank** `Portfolio recommendation` panels on
+  Goal or Household routes.
+- 5xx surge on `POST /api/clients/<hh>/generate-portfolio/`.
+- Audit-log spike: `> 5 portfolio_run_failed` events / hour with
+  `failure_code` not seen before.
+- Cross-browser smoke red on Safari / Firefox post-deploy.
+- RecommendationBanner shows literal i18n keys
+  ("goal.no_recommendation_yet" instead of rendered copy) — i18n
+  namespace regression.
+- Auto-trigger fires + `engine.optimize()` exceeds 5s wall-time
+  (locked #56 strict P99<1000ms violated → Sev-2 perf incident).
+
+### Rollback decision tree
+
+#### Option 1 (preferred): Kill-switch only
+
+When the issue is the engine code path (engine.optimize bad output,
+helper bug, etc.):
+
+```bash
+ssh ec2-user@<pilot-host>
+cd /opt/mp20
+docker compose exec backend sh -c 'export MP20_ENGINE_ENABLED=false'
+docker compose restart backend
+```
+
+Effect: all auto-triggers + manual `/generate-portfolio/` calls
+emit `portfolio_generation_skipped_post_<source>` audit with
+`reason_code=EngineKillSwitchBlocked` + return None / 503. Existing
+PortfolioRuns remain visible. Household commits CONTINUE to
+succeed. Recovery: investigate + fix → re-deploy → flip kill-switch
+back on.
+
+#### Option 2: Frontend-only rollback (Banner / Panel issue)
+
+When the issue is i18n / ARIA / display logic in the new components.
+The components render INSIDE the existing route-level ErrorBoundary
+per locked #108. Rollback to commit before the buggy frontend
+change; redeploy frontend only. Backend auto-trigger continues to
+work; advisors don't see the new display surfaces until fix lands.
+
+#### Option 3 (full): Revert to v0.1.0-pilot
+
+When the issue is fundamental:
+
+```bash
+ssh ec2-user@<pilot-host>
+cd /opt/mp20
+git fetch --tags origin
+git reset --hard v0.1.0-pilot
+docker compose build && docker compose up -d
+```
+
+Existing PortfolioRun rows persist (append-only + schema-compatible).
+No DB recovery needed.
+
+### Database state (non-destructive rollback)
+
+- No destructive migrations in v0.1.2-engine-display.
+- `AdvisorProfile`, `PortfolioRun`, `AuditEvent`, `HouseholdSnapshot`
+  all append-only.
+- Rollback is FULLY non-destructive.
+
+### Verification
+
+```bash
+git tag -l "v0.1*"   # confirm rollback target
+
+curl -s http://localhost:8000/api/session/ -o /dev/null -w "%{http_code}\n"  # 200
+
+# In actual Chrome (NOT headless):
+# 1. Navigate to localhost:5173/
+# 2. Login advisor → pick Sandra/Mike Chen
+# 3. v0.1.0 expected: AUM strip + treemap; NO portfolio-recommendation panel.
+```
+
+### Communication
+
+1. Notify advisors within 15min: "Recommendation generation
+   temporarily disabled while we investigate. Existing committed
+   households + review workflows unaffected."
+2. Update `pilot-success-metrics.md`.
+3. Post-incident audit within 48h.
+
+### Validated by
+
+- A6.13c rollback smoke test (sub-session #5; documented in
+  `handoff-log.md`).

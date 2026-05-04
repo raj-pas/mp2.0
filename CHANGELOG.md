@@ -5,6 +5,162 @@ adheres to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions follow `vMAJOR.MINOR.PATCH-pre`. The current pilot is
 tagged `v0.1.0-pilot`.
 
+## v0.1.2-engine-display — 2026-05-04
+
+Engine→UI display integration. Closes the gap between the engine's
+`PortfolioRun` output and the advisor's eyes. Sub-sessions #1-#5
+across 4 days; 111 locked decisions captured in
+`~/.claude/plans/i-want-you-to-jolly-beacon.md`.
+
+### Added
+
+- **Engine recommendations on the Goal route** — every committed
+  household with an active CMA snapshot now displays a
+  `RecommendationBanner` with run signature + freshness, an
+  `AdvisorSummaryPanel` with engine `link_recommendation.advisor_summary`
+  per goal-account link, and `useGeneratePortfolio` mutation hook
+  for the Regenerate / Retry / Generate CTAs. ARIA `aria-live="polite"`
+  per locked #109; Sonner toast on failure with `lastSurfacedRef`
+  dedup per locked #9.
+- **Household-level rollup panel** — `HouseholdPortfolioPanel` between
+  AUM strip and treemap (per locked #10) with expected return,
+  volatility, top 4 funds. Mirrors Banner failure pattern per locked #19.
+- **Auto-trigger on every committed-state mutation** — synchronous
+  invocation of `_trigger_portfolio_generation` inside
+  `transaction.atomic` (per locked #74; helper-managed atomic per #81)
+  on 8 trigger points: review_commit, wizard_commit, override,
+  realignment, conflict_resolve, defer_conflict, fact_override,
+  section_approve. The 4 workspace-level triggers gate on
+  `linked_household_id is None` per locked #27 — silent-skip with
+  `portfolio_generation_skipped_post_<source>` audit when the
+  workspace is not yet linked.
+- **5 typed exceptions** for known engine states:
+  `EngineKillSwitchBlocked`, `NoActiveCMASnapshot`,
+  `InvalidCMAUniverse`, `ReviewedStateNotConstructionReady`,
+  `MissingProvenance`. Caller emits skip audit + returns None per
+  locked #9 typed-skip path.
+- **Failure surfacing for unexpected exceptions** —
+  `HouseholdDetailSerializer.latest_portfolio_failure`
+  SerializerMethodField returns `{action, reason_code,
+  exception_summary, occurred_at}` (sanitized via
+  `safe_audit_metadata`). RecommendationBanner reads + shows inline
+  error + Retry CTA + Sonner toast on mount; HouseholdPortfolioPanel
+  mirrors the same pattern.
+- **`/api/preview/moves/` reads from `goal_rollups`** when a
+  PortfolioRun exists for the household; `SLEEVE_REF_POINTS`
+  calibration as fallback. Response includes `source: "portfolio_run"
+  | "calibration"` so the frontend can label the source per locked #6.
+- **Sandra/Mike Chen synthetic auto-seeded with PortfolioRun** —
+  `load_synthetic_personas` invokes `_trigger_portfolio_generation(
+  source="synthetic_load")` after persona load. Demo-ready state via
+  `bash scripts/reset-v2-dev.sh --yes` (which now bootstraps the
+  advisor user BEFORE loading the persona; previously the order was
+  reversed and AdvisorProfile pre-ack was silently skipped).
+- **RiskProfile + canonical sh_* fund holdings on Sandra/Mike** —
+  RiskProfile inputs (Q1=5, Q2=B, Q3=["career"], Q4=B) yield
+  household score 3 / Balanced / anchor=22.5 per Hayes worked example.
+  7 canonical funds (sh_income, sh_equity, sh_global_equity,
+  sh_builders, sh_founders, sh_savings, sh_small_cap_equity) totaling
+  $1,308,000 across 4 accounts.
+- **Advisor disclaimer + tour pre-acked on synthetic load** —
+  `advisor_pre_ack: {disclaimer: true, tour: true}` in
+  `personas/sandra_mike_chen/client_state.json` populates
+  `AdvisorProfile.disclaimer_acknowledged_at` (v1) +
+  `tour_completed_at` so PilotBanner + WelcomeTour don't interrupt
+  demo flow.
+- **`mockHousehold` test factory** at
+  `frontend/src/__tests__/__fixtures__/household.ts` per locked #84 —
+  defaults match the live `/api/clients/hh_sandra_mike_chen/` payload
+  byte-for-byte (including allocation weights with full precision /
+  scientific notation for tiny weights). Per locked #55: locks the
+  cost-key bug class at `2bd77d3` (fixture / payload shape drift).
+- **Comprehensive test coverage** — 3 Hypothesis property suites
+  (auto-trigger idempotency / audit metadata invariants /
+  workspace trigger gate per locked #99); 7 Vitest test files
+  including StrictMode double-invoke tests per locked #64 and
+  expectTypeOf compile-time contract tests per locked #104; pool
+  capacity regression at 120 concurrent connections per locked #80
+  + #102; full advisor lifecycle integration test per locked #96;
+  pre-A2 backwards compat + HouseholdDetail JSON-shape snapshot
+  per locked #97 + #101; visual regression baselines via Playwright
+  per locked #82 (extending `frontend/e2e/visual-verification.spec.ts`).
+- **Perf benchmarks for the auto-trigger path** (per locked #56) —
+  P50 / P99 budgets enforced. Measured: typed-skip 311us; REUSED
+  path 266ms; cold first-run 530ms. All within budget; locked #56
+  strict P99<1000ms preserved.
+
+### Changed
+
+- **HouseholdDetailSerializer** — added `latest_portfolio_failure`
+  field. Pre-existing PortfolioRun consumers continue to work (null
+  is the default; no breaking change).
+- **Frontend `LinkRecommendation` type** in `frontend/src/lib/household.ts`
+  now matches `engine.schemas.LinkRecommendation` exactly (was
+  drifted: previously had `{fund_id, weight}[]`; engine sends
+  `Allocation[]` with sleeve_id / sleeve_name / asset_class_weights /
+  geography_weights / fund_type). 4 helpers added: `findGoalRollup`,
+  `findHouseholdRollup`, `findGoalLinkRecommendations`,
+  `findLinkRecommendationRow`.
+- **`scripts/reset-v2-dev.sh`** — `bootstrap_local_advisor` now runs
+  BEFORE `load_synthetic_personas` so AdvisorProfile pre-ack from the
+  fixture lands successfully.
+
+### Tests
+
+- Backend pytest: ~913 tests in isolation (was 854 baseline at
+  `081cfc8`; +59 net new across A1 fixture smoke + auto-trigger
+  regression + Hypothesis property suites + concurrency stress +
+  RBAC matrix + connection pool capacity + perf benchmarks +
+  full lifecycle integration + pre-A2 compat + HouseholdDetail
+  JSON-shape snapshot).
+- Frontend Vitest: 177 tests in 19 files (was 82 in 13; +95
+  comprehensive engine→UI display coverage).
+- Foundation e2e: 13/13 chromium passing (unchanged).
+- Visual-verification e2e: extended with engine→UI surfaces
+  per A6 Round 3.
+- Cross-browser: webkit + firefox spot-check on engine→UI
+  surfaces per A6.12.
+- Bundle size: 267.21 kB gzipped (under 290 kB threshold per
+  locked #85).
+
+### Architecture
+
+- Helper trio at `web/api/views.py:621-968`:
+  `_trigger_portfolio_generation`,
+  `_trigger_and_audit`,
+  `_trigger_and_audit_for_workspace`.
+- Sync-inline auto-trigger per locked #74 (response IS truth;
+  no `transaction.on_commit`; no polling). PostgreSQL pool to 150
+  + max_connections to 200 supports 100-parallel concurrent commits
+  per locked #80.
+- Helper-managed `transaction.atomic` per locked #81 — uses
+  savepoints under nested-atomic semantics so request-context
+  callers (via Django's per-request atomic) and management-command
+  callers (load_synthetic_personas, upload_and_drain.py) both work
+  without per-callsite atomic boilerplate.
+
+### Audit
+
+- 111 user-locked decisions documented in this work; migrated to
+  `docs/agent/decisions.md` "Engine→UI Display Integration
+  (2026-05-03/04)" section per locked #91. Distilled to 1-line
+  entries grouped by dimension (architecture / UX / operational /
+  testing / documentation / continuity / meta).
+- 5 sub-sessions over 4 days. Sub-session boundaries documented in
+  `docs/agent/handoff-log.md` with per-phase verbose ~400-word
+  entries per `production-quality-bar.md` §9.
+
+### Deferred to a later release
+
+- Dual-line fan chart (engine canonical + calibration what-if)
+  per locked #24 + #90 — AdvisorSummaryPanel covers the engine
+  recommendation explanation; fan chart enhancement is post-pilot
+  scope.
+- OTEL exporter backend wire-up — spans wrap `_trigger_portfolio_generation`
+  per locked #89 but no-op locally; pilot-week observability adds
+  the backend (post-pilot scope per `docs/agent/next-session-starter-prompt.md`
+  §11).
+
 ## v0.1.0-pilot — 2026-05-08
 
 Limited-beta pilot release for 3-5 advisors at Steadyhand on
