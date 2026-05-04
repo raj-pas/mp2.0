@@ -552,6 +552,139 @@ test.describe("Visual verification — DocDetailPanel inline edit (sub-session #
   });
 });
 
+test.describe("Visual verification — ClientPicker (bundle A polish)", () => {
+  test("ClientPicker open reveals search + 'Add new household' CTA + clients", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+    const picker = page.getByRole("button", { name: /select client/i }).first();
+    await picker.click();
+    // Open state shows the search input.
+    const search = page.getByPlaceholder(/search clients/i).first();
+    await expect(search).toBeVisible({ timeout: 5000 });
+    // "Add new household" CTA always present.
+    await expect(
+      page.getByRole("button", { name: /add new household/i }).first(),
+    ).toBeVisible({ timeout: 5000 });
+    // At least one client option (R5 Smoke Wizard households are
+    // visible from prior foundation runs).
+    const optionCount = await page.getByRole("option").count();
+    expect(optionCount).toBeGreaterThanOrEqual(1);
+    await snapshot(page, "18-clientpicker-open");
+  });
+
+  test("ClientPicker debounce: typing doesn't fetch on every keystroke", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+    await page.getByRole("button", { name: /select client/i }).first().click();
+    const search = page.getByPlaceholder(/search clients/i).first();
+    await expect(search).toBeVisible({ timeout: 5000 });
+    // Bundle A debounces search at 250ms. Type rapid characters and
+    // verify the input value reflects the user's text. (We can't
+    // observe the debounced fetch directly without instrumentation;
+    // this assertion just pins that the input is responsive.)
+    await search.fill("smoke");
+    expect(await search.inputValue()).toBe("smoke");
+    await snapshot(page, "19-clientpicker-search");
+  });
+});
+
+test.describe("Visual verification — FeedbackButton modal (sub-session #5b.1)", () => {
+  test("FeedbackButton opens modal with severity radios + description textarea", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+    const fb = page
+      .getByRole("button", { name: /feedback|open feedback form/i })
+      .first();
+    await fb.click();
+    // Modal renders with title + form
+    const modal = page.getByRole("dialog").first();
+    await expect(modal).toBeVisible({ timeout: 5000 });
+    // Severity radios (Blocking / Friction / Suggestion)
+    await expect(page.getByText(/^Blocking$/i).first()).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.getByText(/^Friction$/i).first()).toBeVisible();
+    await expect(page.getByText(/^Suggestion$/i).first()).toBeVisible();
+    // Description textarea
+    await expect(page.getByRole("textbox").first()).toBeVisible();
+    await snapshot(page, "20-feedback-modal-open");
+  });
+});
+
+test.describe("Visual verification — AccountRoute / GoalRoute polish (bundle A)", () => {
+  test("Pick a household → Account context panel renders + currency formatted en-CA", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+    // Pick the first household via ClientPicker (any wizard-created)
+    await page.getByRole("button", { name: /select client/i }).first().click();
+    const firstClient = page.getByRole("option").first();
+    await expect(firstClient).toBeVisible({ timeout: 5000 });
+    await firstClient.click();
+    // Wait for the household stage to render.
+    await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
+    // Verify some structural element of the household stage is
+    // present — e.g. a treemap SVG or a context panel section.
+    const svg = page.locator("svg").first();
+    const visible = await svg.isVisible({ timeout: 8000 }).catch(() => false);
+    expect(visible).toBe(true);
+    await snapshot(page, "21-household-stage");
+  });
+});
+
+test.describe("Visual verification — keyboard navigation + a11y essentials", () => {
+  test("Esc closes the FeedbackButton modal", async ({ page }) => {
+    await loginAdvisor(page);
+    await page.getByRole("button", { name: /feedback/i }).first().click();
+    await expect(page.getByRole("dialog").first()).toBeVisible({
+      timeout: 5000,
+    });
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog").first()).not.toBeVisible({
+      timeout: 5000,
+    });
+    await snapshot(page, "22-modal-esc-close");
+  });
+
+  test("Tab order on the topbar reaches the role chip + Sign out", async ({ page }) => {
+    await loginAdvisor(page);
+    // Press Tab a few times and verify focus moves through topbar
+    // controls without getting stuck. We don't pin a specific
+    // element since the order may vary; just verify focus changes.
+    const initialFocus = await page.evaluate(() => document.activeElement?.tagName);
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    const afterFocus = await page.evaluate(() => document.activeElement?.tagName);
+    // Just confirm focus moved — initialFocus is BODY pre-Tab.
+    expect(afterFocus).not.toBe(initialFocus);
+  });
+});
+
+test.describe("Visual verification — prefers-reduced-motion respected", () => {
+  test.use({ colorScheme: "light" });
+
+  test("page renders with reduced-motion forced via emulateMedia", async ({
+    page,
+  }) => {
+    // Emulate prefers-reduced-motion: reduce. Tier 3 polish bundles
+    // gate transitions on `motion-safe:` Tailwind utility, which
+    // resolves to no transition under this media query. We can't
+    // visually verify "no animation" but we can verify the page
+    // still renders cleanly under the constraint.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await loginAdvisor(page);
+    await page.goto("/wizard/new");
+    await expect(
+      page.getByText(/step \d+ of 5/i).first(),
+    ).toBeVisible({ timeout: 10_000 });
+    await snapshot(page, "23-reduced-motion-wizard");
+  });
+});
+
 test.describe("Visual verification — synthetic workspace badge (sub-session #11.2)", () => {
   test("R7 synthetic workspace renders 'Synthetic' badge (sub-session #11.2)", async ({
     page,

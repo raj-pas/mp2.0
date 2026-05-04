@@ -12,7 +12,7 @@
  * or fact values. The advisor narrates what happened in their own
  * words.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
@@ -56,6 +56,22 @@ function FeedbackModal({ onClose, onSubmitted }: FeedbackModalProps) {
   const [severity, setSeverity] = useState<Severity>("friction");
   const [description, setDescription] = useState("");
   const [trying, setTrying] = useState("");
+
+  // Esc key closes the modal — production-grade modal a11y. Wired
+  // imperatively (not via a Radix Dialog) since this modal is a
+  // bespoke layout. Caught by the visual-verification e2e on
+  // 2026-05-03; previously the modal was non-dismissable via
+  // keyboard.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
 
   const submittable = description.trim().length >= 20 && !submit.isPending;
 

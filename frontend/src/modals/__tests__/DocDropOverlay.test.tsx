@@ -13,6 +13,7 @@
  */
 import { fireEvent, render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
+import type * as ReactQuery from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DocDropOverlay } from "../DocDropOverlay";
@@ -35,7 +36,7 @@ vi.mock("../../lib/toast", () => ({
   toastSuccess: vi.fn(),
 }));
 vi.mock("@tanstack/react-query", async () => {
-  const actual = await vi.importActual<typeof import("@tanstack/react-query")>(
+  const actual = await vi.importActual<typeof ReactQuery>(
     "@tanstack/react-query",
   );
   return {
