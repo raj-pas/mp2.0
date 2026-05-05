@@ -17,9 +17,12 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useRememberedClientId } from "../chrome/ClientPicker";
+import { ToggleFundAssetClass, useFundAssetMode } from "../chrome/ToggleFundAssetClass";
+import { AllocationBars, type AllocationRow } from "../charts/AllocationBars";
 import { RiskBandTrack } from "../charts/RiskBandTrack";
 import { Skeleton } from "../components/ui/skeleton";
 import { RiskSlider } from "../components/ui/RiskSlider";
+import { fundColor, fundDisplayName, canonizeFundId } from "../lib/funds";
 import { AdvisorSummaryPanel } from "../goal/AdvisorSummaryPanel";
 import { GoalAllocationSection } from "../goal/GoalAllocationSection";
 import { GoalProjectionsSection } from "../goal/GoalProjectionsSection";
@@ -29,7 +32,13 @@ import { OptimizerOutputWidget } from "../goal/OptimizerOutputWidget";
 import { RecommendationBanner } from "../goal/RecommendationBanner";
 import { StaleRunOverlay, type StaleStatus } from "../goal/StaleRunOverlay";
 import { isAdvisorRole, useSession } from "../lib/auth";
-import { type Goal, findGoal, useHousehold } from "../lib/household";
+import {
+  type Goal,
+  type HouseholdDetail,
+  findGoal,
+  findGoalRollup,
+  useHousehold,
+} from "../lib/household";
 import { useGeneratePortfolio, useOverrideHistory } from "../lib/preview";
 import { formatCurrencyCAD } from "../lib/format";
 import { descriptorFor, isCanonRisk } from "../lib/risk";
@@ -42,6 +51,7 @@ export function GoalRoute() {
   const householdQuery = useHousehold(rememberedId);
   const session = useSession();
   const overridesQuery = useOverrideHistory(goalId ?? null);
+  const [fundAssetMode] = useFundAssetMode();
   // Stale-state Regenerate mutation (post-tag locked §3.2). Hook must be
   // called unconditionally above any early return; passing `rememberedId`
   // (string | null) is safe — `useGeneratePortfolio` rejects when null.
@@ -277,6 +287,8 @@ export function GoalRoute() {
         />
       )}
 
+      <GoalMixPanel goal={goal} household={household} mode={fundAssetMode} />
+
       <section className="border border-hairline-2 bg-paper p-4 shadow-sm">
         <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted">
           {t("routes.goal.linked_accounts_title")}
@@ -284,6 +296,94 @@ export function GoalRoute() {
         <LinkedAccounts goal={goal} />
       </section>
     </main>
+  );
+}
+
+/**
+ * Top-funds / asset-class summary panel for a single goal. Source of
+ * truth is the engine's `goal_rollups[goal.id].allocations` when a
+ * PortfolioRun exists; otherwise we fall back to the goal's current
+ * holdings mix derived from `account_allocations` + each linked
+ * account's `holdings`. The shared `<ToggleFundAssetClass>` is the
+ * primary affordance — persistence is per-user global so toggling
+ * on one route flips this panel on the next.
+ */
+function GoalMixPanel({
+  goal,
+  household,
+  mode,
+}: {
+  goal: Goal;
+  household: HouseholdDetail;
+  mode: "fund" | "asset_class";
+}) {
+  const { t } = useTranslation();
+  const rollup = findGoalRollup(household, goal.id);
+  const fundRows: AllocationRow[] = (() => {
+    if (rollup !== null) {
+      return rollup.allocations
+        .filter((a) => a.weight > 0)
+        .map((a) => {
+          const canon = canonizeFundId(a.sleeve_id) ?? a.sleeve_id;
+          return {
+            id: canon,
+            label: fundDisplayName(canon, a.sleeve_name),
+            pct: a.weight,
+            color: fundColor(canon),
+          };
+        });
+    }
+    // Calibration / current-mix fallback: aggregate fund $ across linked
+    // accounts the same way GoalAllocationSection does.
+    const fundDollars = new Map<string, { name: string; dollars: number }>();
+    let totalDollars = 0;
+    for (const link of goal.account_allocations) {
+      const allocated = Number(link.allocated_amount || 0);
+      if (allocated <= 0) continue;
+      const account = household.accounts.find((a) => a.id === link.account_id);
+      if (account === undefined) continue;
+      const accountValue = Number(account.current_value || 0);
+      if (accountValue <= 0) continue;
+      const legShare = allocated / accountValue;
+      for (const holding of account.holdings) {
+        const dollars = Number(holding.market_value || 0) * legShare;
+        if (dollars <= 0) continue;
+        const canon = canonizeFundId(holding.sleeve_id) ?? holding.sleeve_id;
+        const cur = fundDollars.get(canon);
+        const nextDollars = (cur?.dollars ?? 0) + dollars;
+        fundDollars.set(canon, { name: holding.sleeve_name, dollars: nextDollars });
+        totalDollars += dollars;
+      }
+    }
+    if (totalDollars <= 0) return [];
+    return [...fundDollars.entries()].map(([id, { name, dollars }]) => ({
+      id,
+      label: fundDisplayName(id, name),
+      pct: dollars / totalDollars,
+      color: fundColor(id),
+    }));
+  })();
+  return (
+    <section className="border border-hairline-2 bg-paper p-4 shadow-sm">
+      <header className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="font-mono text-[10px] uppercase tracking-widest text-muted">
+          {t("routes.goal.mix_panel_title")}
+        </h3>
+        <ToggleFundAssetClass />
+      </header>
+      {fundRows.length > 0 ? (
+        <AllocationBars
+          rows={fundRows}
+          limit={8}
+          ariaLabel={t("routes.goal.mix_panel_title")}
+          mode={mode}
+        />
+      ) : (
+        <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
+          {t("empty.no_holdings")}
+        </p>
+      )}
+    </section>
   );
 }
 

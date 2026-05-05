@@ -4,13 +4,20 @@ import { useNavigate } from "react-router-dom";
 
 import { useRememberedClientId } from "../chrome/ClientPicker";
 import { type GroupByMode } from "../chrome/ModeToggle";
+import { ToggleCurrentIdeal, useCurrentIdealMode } from "../chrome/ToggleCurrentIdeal";
 import { Button } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
-import { householdExternalAum, householdInternalAum, useHousehold } from "../lib/household";
+import {
+  householdExternalAum,
+  householdInternalAum,
+  useHousehold,
+  type HouseholdDetail,
+} from "../lib/household";
+import type { TreemapMode, TreemapNode } from "../lib/treemap";
 import { useLocalStorage } from "../lib/local-storage";
 import { formatCad, formatCadCompact, formatPct } from "../lib/format";
 import { descriptorFor } from "../lib/risk";
-import { useTreemap, type TreemapMode } from "../lib/treemap";
+import { useTreemap } from "../lib/treemap";
 import { CompareScreen } from "../modals/CompareScreen";
 import { RealignModal } from "../modals/RealignModal";
 import { type RealignmentResponse, useRestoreSnapshot } from "../lib/realignment";
@@ -41,6 +48,7 @@ export function HouseholdRoute() {
   const householdQuery = useHousehold(rememberedId);
   const treemapMode = topbarToTreemapMode(groupBy);
   const treemapQuery = useTreemap(rememberedId, treemapMode);
+  const [currentIdealMode] = useCurrentIdealMode();
 
   // Realignment state machine: closed → modal open → on-success → compare-
   // screen open with the freshly-created snapshot pair → user clicks
@@ -124,6 +132,14 @@ export function HouseholdRoute() {
           <Button type="button" variant="outline" size="sm" onClick={() => setRealignOpen(true)}>
             {t("realign.cta")}
           </Button>
+          {/*
+            P7 (plan v20 §A1.35 / §A1.18 LOCKED sub-bar layout): ToggleCurrentIdeal
+            sits AFTER existing actions. Disabled with tooltip when no
+            PortfolioRun exists yet — guards downstream reads of a null
+            recommended allocation. Persistence is per-user global per
+            §A1.14 #14 (no household-id namespace).
+          */}
+          <ToggleCurrentIdeal disabled={household.latest_portfolio_run === null} />
         </div>
       </section>
 
@@ -224,8 +240,13 @@ export function HouseholdRoute() {
         )}
         {treemapQuery.isSuccess && (
           <Treemap
-            root={treemapQuery.data.data}
+            root={
+              currentIdealMode === "ideal"
+                ? buildIdealTreemapRoot(household, treemapMode)
+                : treemapQuery.data.data
+            }
             mode={treemapMode}
+            dataset={currentIdealMode}
             onSelect={(node) => {
               // Plan v20 §A1.36 (P12) + §A1.14 #10 + §A1.51 P12×P13:
               // unallocated tile clicks open AssignAccountModal
@@ -303,4 +324,54 @@ function AumSplitBar({ internalPct, externalPct }: { internalPct: number; extern
       <span style={{ width: `${externalPct * 100}%`, background: "#8B5E3C" }} />
     </div>
   );
+}
+
+/**
+ * P7 — derive the "ideal" treemap root from `latest_portfolio_run`.
+ * Mirrors the by_account / by_goal shape produced by the
+ * `/api/treemap/` endpoint so the Treemap component renders without
+ * needing a parallel API. Returns an empty root when the household has
+ * no PortfolioRun yet — the Treemap empty-state branch then renders
+ * the "No recommendation yet" copy via `dataset="ideal"`.
+ */
+function buildIdealTreemapRoot(
+  household: HouseholdDetail,
+  mode: TreemapMode,
+): TreemapNode {
+  const empty: TreemapNode = {
+    id: household.id,
+    label: household.display_name,
+    children: [],
+  };
+  const run = household.latest_portfolio_run;
+  if (run === null || run.output === null) return empty;
+  if (mode === "by_account") {
+    const children: TreemapNode[] = run.output.account_rollups.map((rollup) => ({
+      id: rollup.id,
+      label: rollup.name,
+      children: rollup.allocations
+        .filter((a) => a.weight > 0)
+        .map((a) => ({
+          id: `${rollup.id}:${a.sleeve_id}`,
+          label: a.sleeve_name,
+          value: rollup.allocated_amount * a.weight,
+        })),
+    }));
+    return { id: household.id, label: household.display_name, children };
+  }
+  if (mode === "by_goal") {
+    const children: TreemapNode[] = run.output.goal_rollups.map((rollup) => ({
+      id: rollup.id,
+      label: rollup.name,
+      children: rollup.allocations
+        .filter((a) => a.weight > 0)
+        .map((a) => ({
+          id: `${rollup.id}:${a.sleeve_id}`,
+          label: a.sleeve_name,
+          value: rollup.allocated_amount * a.weight,
+        })),
+    }));
+    return { id: household.id, label: household.display_name, children };
+  }
+  return empty;
 }

@@ -10,6 +10,15 @@ interface TreemapProps {
   root: TreemapNode;
   mode: TreemapMode;
   onSelect?: (node: TreemapNode) => void;
+  /**
+   * P7 (plan v20 §A1.35 / G9): which allocation dataset the parent is
+   * passing in. `'current'` is sourced from `household.committed_allocation`
+   * via `useTreemap`; `'ideal'` is derived from
+   * `latest_portfolio_run.output.account_rollups`. Drives the
+   * empty-state copy + aria-label suffix; the component does not fetch
+   * either source directly (parent owns data assembly).
+   */
+  dataset?: "current" | "ideal";
 }
 
 /**
@@ -24,7 +33,7 @@ interface TreemapProps {
  * to navigate (e.g., HouseholdRoute → click account leaf → push
  * `/account/:id`).
  */
-export function Treemap({ root, mode, onSelect }: TreemapProps) {
+export function Treemap({ root, mode, onSelect, dataset = "current" }: TreemapProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 800, height: 480 });
@@ -63,9 +72,13 @@ export function Treemap({ root, mode, onSelect }: TreemapProps) {
 
   if (totalValue <= 0 || leaves.length === 0) {
     return (
-      <div ref={containerRef} className="flex h-full w-full items-center justify-center bg-paper-2">
+      <div
+        ref={containerRef}
+        className="flex h-full w-full items-center justify-center bg-paper-2"
+        data-testid={dataset === "ideal" ? "treemap-ideal-empty" : undefined}
+      >
         <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
-          {t("treemap.empty")}
+          {dataset === "ideal" ? t("treemap.no_recommendation_yet") : t("treemap.empty")}
         </p>
       </div>
     );
@@ -79,6 +92,7 @@ export function Treemap({ root, mode, onSelect }: TreemapProps) {
         viewBox={`0 0 ${size.width} ${size.height}`}
         role="img"
         aria-label={t("treemap.aria_label", { mode: t(`treemap.mode_${mode}`) })}
+        data-dataset={dataset}
       >
         {/*
           Plan v20 §A1.36 (P12): SVG pattern for the virtual `_unallocated`

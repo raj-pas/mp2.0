@@ -216,6 +216,7 @@
       "risk_track_label": "Goal risk band",
       "blended_view_title": "Blended view",
       "linked_accounts_title": "Linked accounts",
+      "mix_panel_title": "Goal mix",
       "recommendation_banner": "Recommendation {{signature}} • {{when}}",
       "no_recommendation_yet": "No recommendation generated yet",
       "regenerate": "Regenerate",
@@ -244,7 +245,26 @@
     "mode_by_account": "by account",
     "mode_by_goal": "by goal",
     "mode_by_fund": "by fund",
-    "mode_by_asset": "by asset class"
+    "mode_by_asset": "by asset class",
+    "no_recommendation_yet": "No recommendation yet"
+  },
+  "allocation_bars": {
+    "low_confidence": "Low confidence — fund metadata missing"
+  },
+  "toggle": {
+    "fund_asset": {
+      "label": "View",
+      "aria_label": "Switch between fund-level and asset-class allocation",
+      "fund": "Fund",
+      "asset_class": "Asset class"
+    },
+    "current_ideal": {
+      "label": "View",
+      "aria_label": "Switch between current and ideal allocation",
+      "current": "Current",
+      "ideal": "Ideal",
+      "disabled_tooltip": "Generate a portfolio first"
+    }
   },
   "risk_descriptors": {
     "1": "Cautious",

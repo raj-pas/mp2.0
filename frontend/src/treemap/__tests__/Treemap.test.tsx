@@ -134,3 +134,31 @@ describe("Treemap — unallocated virtual tile (P12)", () => {
     expect(screen.queryByTestId("treemap-unallocated-tile")).toBeNull();
   });
 });
+
+describe("Treemap — current vs ideal dataset (P7 / §A1.35)", () => {
+  it("dataset='current' (default) annotates the SVG with data-dataset='current'", () => {
+    const { container } = render(<Treemap root={rootFullyAllocated()} mode="by_account" />);
+    const svg = container.querySelector("svg");
+    expect(svg).not.toBeNull();
+    expect(svg?.getAttribute("data-dataset")).toBe("current");
+  });
+
+  it("dataset='ideal' annotates the SVG with data-dataset='ideal' (toggle wiring)", () => {
+    const { container } = render(
+      <Treemap root={rootFullyAllocated()} mode="by_account" dataset="ideal" />,
+    );
+    const svg = container.querySelector("svg");
+    expect(svg?.getAttribute("data-dataset")).toBe("ideal");
+  });
+
+  it("dataset='ideal' with empty root renders the 'No recommendation yet' empty state", () => {
+    const emptyRoot: TreemapNode = {
+      id: "hh_empty",
+      label: "Empty Household",
+      children: [],
+    };
+    render(<Treemap root={emptyRoot} mode="by_account" dataset="ideal" />);
+    expect(screen.getByTestId("treemap-ideal-empty")).toBeInTheDocument();
+    expect(screen.getByText("treemap.no_recommendation_yet")).toBeInTheDocument();
+  });
+});

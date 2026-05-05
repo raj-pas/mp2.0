@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useRememberedClientId } from "../chrome/ClientPicker";
+import { ToggleFundAssetClass, useFundAssetMode } from "../chrome/ToggleFundAssetClass";
 import { AllocationBars, type AllocationRow } from "../charts/AllocationBars";
 import { RingChart, type RingDatum } from "../charts/RingChart";
 import { Skeleton } from "../components/ui/skeleton";
@@ -16,6 +17,7 @@ export function AccountRoute() {
   const { accountId } = useParams<{ accountId: string }>();
   const [rememberedId] = useRememberedClientId();
   const householdQuery = useHousehold(rememberedId);
+  const [fundAssetMode] = useFundAssetMode();
 
   if (rememberedId === null) {
     return (
@@ -136,14 +138,18 @@ export function AccountRoute() {
           </div>
         </div>
         <div className="border border-hairline-2 bg-paper p-4 shadow-sm">
-          <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted">
-            {t("routes.account.top_funds_title")}
-          </h3>
+          <header className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="font-mono text-[10px] uppercase tracking-widest text-muted">
+              {t("routes.account.top_funds_title")}
+            </h3>
+            <ToggleFundAssetClass />
+          </header>
           {barRows.length > 0 ? (
             <AllocationBars
               rows={barRows}
               limit={8}
               ariaLabel={t("routes.account.top_funds_title")}
+              mode={fundAssetMode}
             />
           ) : (
             <p className="font-mono text-[10px] uppercase tracking-widest text-muted">

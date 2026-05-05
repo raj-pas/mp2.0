@@ -637,6 +637,50 @@ test.describe("Regression coverage — household + goal", () => {
     ).toBeVisible();
   });
 
+  // ===========================================================================
+   // P6 + P7 toggles — persistence across reload (plan v20 §A1.35 / G8 + G9)
+   // ===========================================================================
+  test("ToggleFundAssetClass + ToggleCurrentIdeal — persist across reload (P6 + P7)", async ({
+    page,
+  }) => {
+    test.setTimeout(45_000);
+    await loginAdvisor(page);
+    await pickSandraMike(page);
+    // P7 — household-level current-vs-ideal toggle in the action sub-bar.
+    // The toggle is disabled when no PortfolioRun exists; Sandra/Mike's
+    // seed includes one, so the "Ideal" option must be enabled.
+    const idealBtn = page.getByTestId("toggle-current-ideal-ideal");
+    await expect(idealBtn).toBeVisible({ timeout: 10_000 });
+    await idealBtn.click();
+    await expect(idealBtn).toHaveAttribute("aria-pressed", "true");
+
+    // P6 — drill into an account and flip the fund-vs-asset toggle.
+    // Sandra/Mike's first non-registered account is the canonical seed
+    // (acct_non_registered) per `load_synthetic_personas`.
+    await page.goto("/account/acct_non_registered");
+    const assetBtn = page.getByTestId("toggle-fund-asset-asset_class");
+    await expect(assetBtn).toBeVisible({ timeout: 10_000 });
+    await assetBtn.click();
+    await expect(assetBtn).toHaveAttribute("aria-pressed", "true");
+
+    // Reload — both toggles must persist their values via per-user
+    // global localStorage (§A1.14 #14).
+    await page.reload();
+    await expect(page.getByTestId("toggle-fund-asset-asset_class")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+      { timeout: 10_000 },
+    );
+    // Navigate back to household; the current-vs-ideal toggle stays on
+    // "ideal" because the localStorage key is per-user-global.
+    await page.goto("/");
+    await expect(page.getByTestId("toggle-current-ideal-ideal")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+      { timeout: 10_000 },
+    );
+  });
+
   test("Override → regenerate cycle — engine pill flips on save (engine→UI A2/A3 regression guard)", async ({
     page,
   }) => {
