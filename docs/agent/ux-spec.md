@@ -7,6 +7,9 @@
 - `~/.claude/plans/you-are-continuing-a-playful-hammock.md` — pilot
   hardening master plan with 50+ locked decisions
 - `docs/agent/design-system.md` — design tokens + component taxonomy
+- `docs/agent/design-system-research.md` — cited reference systems
+  + pattern-to-implementation map + counter-patterns. The bridge
+  between this doc's abstract principles and concrete implementation.
 - `docs/agent/extraction-audit.md` — extraction subsystem audit
 - `docs/agent/post-pilot-ux-backlog.md` — Tier-3 deferred items
 

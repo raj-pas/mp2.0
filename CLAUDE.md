@@ -10,6 +10,7 @@ regulatory, and architecture intent: `MP2.0_Working_Canon.md`.
 2. Read `docs/agent/session-state.md`.
 3. Check `docs/agent/open-questions.md` for blockers that affect your task.
 4. Preserve user or parallel-session changes; do not reset or overwrite them.
+5. Before any new advisor-facing surface work, read `docs/agent/design-system-research.md`.
 
 ## Current Status
 
@@ -157,3 +158,4 @@ fails on drift.
 - `docs/agent/post-pilot-improvements.md` — append-only deferred backlog (re-edit-flow upgrade post-pilot, multi-tool architecture, demo-restore --dry-run)
 - `docs/agent/r10-sweep-results-2026-05-03.md` — Phase 9 canary results (Seltzer + Niesner pre/post; +1pp recall vs Phase 4; structural-quality wins preserved)
 - `docs/agent/demo-restore-runbook.md` — Mon 2026-05-04 demo state restore procedure (reset-v2-dev.sh + upload_and_drain.py + post-restore validation steps)
+- `docs/agent/design-system-research.md` — durable design-system + UX research with cited references; pattern-to-implementation map; counter-patterns. Update at each session boundary.

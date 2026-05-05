@@ -405,3 +405,34 @@ notation for tiny weights). Per-test customization via
 `web/api/tests/test_pre_a2_portfolio_run_compat.py`.
 
 ---
+
+## Patterns Adopted from External Systems
+
+The patterns documented in this design system have explicit
+inspirations in real-world reference systems (Linear, Stripe
+Dashboard, Stripe Connect, Wealthfront, Betterment, Salesforce FSC,
+HubSpot, Relativity, Notion, YNAB, Quicken, Lattice, Plaid, Apple
+Wallet, etc.). The full citation map — 20 cited reference systems,
+each with one-line learnings, when-to-apply notes, and concrete
+file:line application points in MP2.0 — lives in
+`docs/agent/design-system-research.md`.
+
+That document is the bridge between the abstract patterns captured
+here (Card / Banner / Modal / Slide-out / Toast / Coachmark / Inline
+form / Inline action bar) and the cited inspirations behind each.
+It also captures the 8 counter-patterns explicitly avoided (Total
+Net Worth hero, auto-resolve heuristic, all-in-one super-form,
+hidden-by-default disclosures, inferred-progress bars,
+modal-on-modal stacks, color-only conveyance, toast-only error
+reporting), each with reasoning citing the canon section that backs
+the rejection.
+
+When adding a new component pattern to the inventory above, first
+check `design-system-research.md` for the source-system precedent
+and any counter-pattern guard. Append the new pattern's adoption
+entry to that document's §3 (file:line map) at the same time as
+adding the component here. Patterns applied 3+ times across
+surfaces migrate from the research doc into this design-system
+doc as canonical entries.
+
+---

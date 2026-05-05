@@ -71,3 +71,24 @@ The re-edit flow (option B in the AskUserQuestion canvass) preserves Household i
 **Estimated effort:** M (~2-3 days).
 
 ---
+
+### 2026-05-05 — P3 — Tier 3 design-system upgrades referencing adopted patterns
+
+**Source:** P0 design-system research artifact (`docs/agent/design-system-research.md`) catalogues several patterns scheduled for post-pilot Tier 3 work. Annotating here so the post-pilot backlog cross-references the cited inspirations.
+
+**Description:** post-pilot Tier 3 surfaces, each tied to a §2/§3 citation in `design-system-research.md`:
+
+- **Recent-households 4-slot rail** — Vanguard advisor portal §2.6 pattern; deferred per ClientPicker.tsx integration; needs server-side recent-clients tracking + cache invalidation on soft-undo. Effort: S-M.
+- **Source-priority-hierarchy ladder UI** — HubSpot CRM §2.10 pattern; visual stack showing SoR > structured > note-derived per canon §11.4; current implementation surfaces priority via ConfidenceChip color + text. Effort: M.
+- **Assertion-grid pivot for doc review** — Relativity §2.11 pattern; one row per fact, one column per doc, intersection cells show value extracted from each doc; analyst-only research-bench density (Morningstar §2.8 split). Effort: M-L.
+- **Multi-view database pivot for DocDetailPanel** — Notion §2.14 pattern; table / board (group-by-conflict-status) / gallery (doc-thumbnails) views with view persistence per workspace. Effort: M.
+- **Spotlight commands / Cmd-K navigation** — Linear §2.1 + §2.23 keyboard model; advisor power-user posture earned through pilot adoption. Effort: M.
+- **Panel-collapse persistence** — Figma §2.13 right-rail pattern; collapse state remembered across sessions for readiness blockers list once advisor has reviewed it. Effort: S.
+
+**Why deferred:** all Tier 3 by canon design-principles. Pilot-week-1 mental model is mouse-first / single-view / hand-curated; power-user affordances (keyboard, multi-view, recent-rail) earn adoption through pilot feedback rather than pre-emptive shipping.
+
+**Suggested next step:** post-pilot week 2 review of FeedbackButton submissions + advisor session-recording pattern observations; prioritize the Tier 3 items by frequency-of-friction signals rather than completeness ambition.
+
+**Estimated effort:** combined M-L (~4-7 days across all items; can be sub-sessioned individually).
+
+---
