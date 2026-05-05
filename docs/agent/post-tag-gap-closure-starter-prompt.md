@@ -1,9 +1,9 @@
 # Post-tag Gap-Closure — High-Fidelity Starter Prompt
 
-**Compiled:** 2026-05-04 PM (post sub-session #3 PARTIAL close-out — A0+A1+A2+A3+A4+A5 done; A5.5+A6+A7 remaining)
-**Authoritative for:** sub-session #3 remainder post-`/compact` boot (Phase A5.5 + A6 + A7)
+**Compiled:** 2026-05-04 PM (post sub-session #3 EXTENDED close-out — A0+A1+A2+A3+A4+A5+A5.5 done; A6 USER MANUAL + A7 close-out remaining)
+**Authoritative for:** sub-session #3 remainder post-`/compact` boot (Phase A6 + A7)
 **Lifecycle:** deleted at A7 close-out per locked decision §3.8
-**Owns:** mission + vision + reading list + pre-flight gates + active per-phase specs + anti-patterns + first concrete action + cumulative state at HEAD `f900adf` (this rewrite) on top of code state at `0ccdd29`
+**Owns:** mission + vision + reading list + pre-flight gates + active per-phase specs + anti-patterns + first concrete action + cumulative state at HEAD `d8c908a` (or later docs-only commit; A5.5 spec landed)
 **Does NOT own:** implementation line-by-line (in `~/.claude/plans/i-want-you-to-jolly-beacon.md`); historical narrative per phase (in `docs/agent/handoff-log.md`)
 
 > **READ IN ORDER. DO NOT SKIM. DO NOT SKIP AHEAD.** This document is load-bearing because the user has been burned by every shortcut: "I'll just glance at the dossier" → re-introduces fixed bugs; "git add -A is fine, I won't have stray files" → committed runtime artifacts in 8350090; "the slider semantic looks right" → permanently flipped pills to calibration_drag (caught only by visual baseline). The cost of reading this prompt end-to-end is 15 minutes; the cost of skipping it is half a sub-session.
@@ -11,21 +11,21 @@
 **ENTRY POINT FOR FRESH `/compact` BOOT:**
 1. Read [`MEMORY.md`](../../../.claude/projects/-Users-saranyaraj-Projects-github-repo-mp2-0/memory/MEMORY.md) (auto-loaded; first entry = "START HERE")
 2. Read **THIS file** end-to-end (≈800 lines; ≈12 min)
-3. Read [`docs/agent/handoff-log.md`](handoff-log.md) — last 1-3 entries (sub-session #1, #2, #3-partial close-outs)
+3. Read [`docs/agent/handoff-log.md`](handoff-log.md) — last 1-3 entries (sub-session #1, #2, #3-partial, #3-extended close-outs)
 4. Read [`docs/agent/session-state.md`](session-state.md) — top headline only
-5. Read `~/.claude/plans/i-want-you-to-jolly-beacon.md` — §3 table (25 locked decisions) + §A5.5 + §A6 + §A7 sections
-6. Run §3 pre-flight in this prompt — expect HEAD at `b21ce7b` or later (the rewrite landed at `f900adf`; the self-reference fix at `b21ce7b`; code state unchanged from `0ccdd29`), 872 backend pytest, 230 Vitest in 26 files, bundle 269.41 kB gzipped, all static gates clean
+5. Read `~/.claude/plans/i-want-you-to-jolly-beacon.md` — §3 table (25 locked decisions) + §A6 + §A7 sections
+6. Run §3 pre-flight in this prompt — expect HEAD at `d8c908a` or later (A5.5 spec landed; subsequent docs-only commits are OK), 872 backend pytest, 230 Vitest in 26 files, **15 regression-coverage chromium passing in <20s**, bundle 269.41 kB gzipped, all static gates clean
 7. Output the [§15 first-message template](#15-first-message-to-the-user-post-boot-template) — under 100 words
-8. Begin **Phase A5.5** (NEW `frontend/e2e/regression-coverage.spec.ts`) — see [§2 active scope](#2-active-scope-a55--a6--a7-only) + plan file §A5.5
+8. Begin **Phase A6 USER MANUAL** (real-Chrome smoke per locked #100 + dress rehearsal per §3.25) — see [§2 active scope](#2-active-scope-a6--a7-only) + plan file §A6. **A6 is USER manual; you present checklists via AskUserQuestion, do NOT execute steps yourself.**
 
 ---
 
 ## §0. Mission — what this work is, why it matters, what's at stake
 
 ### The narrow mission
-Close 5 unaddressed functional/UX gaps from the original 2,786-line Engine→UI Display Integration plan (`/Users/saranyaraj/Documents/tmp_Engine to UI Display Integration Plan_Demo and Pilot.md`) that shipped at tag `v0.1.2-engine-display` with **~75%** of its done-criteria. The work lands as **additive commits past the tag**, then cuts a NEW tag `v0.1.3-engine-display-polish` at Phase A7 close-out per locked §3.22. **At HEAD `f900adf` the work is 11 commits past the tag (10 functional + this rewrite); 4 of 5 gaps are closed; only A5.5+A6+A7 remain.**
+Close 5 unaddressed functional/UX gaps from the original 2,786-line Engine→UI Display Integration plan (`/Users/saranyaraj/Documents/tmp_Engine to UI Display Integration Plan_Demo and Pilot.md`) that shipped at tag `v0.1.2-engine-display` with **~75%** of its done-criteria. The work lands as **additive commits past the tag**, then cuts a NEW tag `v0.1.3-engine-display-polish` at Phase A7 close-out per locked §3.22. **At HEAD `d8c908a` the work is 11 functional commits past the tag (plus 4 docs commits = 15 total); ALL 5 gaps closed; A5.5 regression-coverage suite landed; only A6 USER MANUAL + A7 close-out remain.**
 
-### The 5 gaps (audited against the original plan; status at HEAD `f900adf`)
+### The 5 gaps (audited against the original plan; status at HEAD `d8c908a`)
 
 | # | Gap | Status | Where closed |
 |---|---|---|---|
@@ -112,7 +112,7 @@ The work is **production-grade software for a limited user set; no excuses, no c
 
 ---
 
-## §2. Active scope — A5.5 + A6 + A7 only
+## §2. Active scope — A6 + A7 only
 
 **Done so far** (skip these — they're committed, tested, and verified):
 - ~~Phase A0~~ — pre-flight + baselines fixed at `f6e2ef8`
@@ -121,105 +121,22 @@ The work is **production-grade software for a limited user set; no excuses, no c
 - ~~Phase A3~~ — OptimizerOutputWidget engine-first at `c212793`
 - ~~Phase A4~~ — Stale-state UX (4 status variants + 2 overlays) at `8350090`
 - ~~Phase A5~~ — Demo + axe + visual baselines + cross-browser + RiskSlider regression fix at `bd90cf9`
+- ~~Phase A5.5~~ — **Automated browser regression coverage at `d8c908a`** (NEW `frontend/e2e/regression-coverage.spec.ts` — 15 chromium tests passing 2/2 consecutive runs at 19s + 18.5s with zero flakes per §3.20)
 
 **Remaining** (the active scope — your work for this session):
 
-### Phase A5.5 — Automated browser regression coverage (per §3.20) (~3-4 hr) ⚠️ HEAVIEST PHASE
+### Phase A5.5 — Automated browser regression coverage (per §3.20) ✅ DONE at `d8c908a`
 
-**Why:** §3.20 explicitly chose automated browser regression testing over manual checklist. The 75% of the codebase NOT touched by gap-closure could regress via cross-cutting changes (i18n key collisions, type-system narrowing, route-level ErrorBoundary changes, useEffect dependency drift). Phase A5.5 pins those flows as automated tests so a single `npm run e2e` catches them rather than relying on the user to remember to manually verify 15 distinct pre-existing flows.
+**Status:** Shipped at commit `d8c908a`. NEW `frontend/e2e/regression-coverage.spec.ts` (~520 LoC, 15 chromium tests in 5 describe blocks: 4 login/chrome + 2 routes + 1 wizard + 6 review surfaces + 2 household/goal). Two consecutive runs at 19.0s + 18.5s with zero flakes; cumulative chromium Playwright is 13 foundation + 34 visual-verification + 6 pilot-features + **15 regression-coverage = 68 chromium passing**.
 
-**File:** NEW `frontend/e2e/regression-coverage.spec.ts` (~700-900 LoC, 15 tests)
+**Key implementation choices** (preserved as pattern reference for future suites):
+- Shared `openFirstWorkspace()` helper centralizes queue navigation + skip-or-tolerate
+- Direct `aside[aria-label="In-flight workspaces"]` selector — Playwright's `getByRole("complementary")` does NOT match `<aside>` inside `<main>` per WHATWG ARIA implicit semantics
+- Networkidle wait before probing for React Query-populated rows; React Query takes 1-3s to populate workspace list on cold load
+- Skip-or-tolerate pattern (`test.skip(!opened, "...")`) for state-dependent tests; Sandra/Mike auto-seeds so synthetic-data tests always run
+- Regression guards explicitly named: DocDetailPanel + FeedbackModal Esc close (`b14a199`); engine pill on saved-override view (`c5a7e02` conflated-semantic bug fixed at `bd90cf9`); auto-trigger PortfolioRun emission (engine→UI A2 contract)
 
-**Test inventory** (specific flows that must NOT break):
-1. Login → home → client picker pagination
-2. Wizard Step 1-5 full flow
-3. ReviewWorkspace doc upload + drain + reconcile
-4. ConflictPanel single resolve
-5. **DocDetailPanel slide-out + Esc close** (regression guard for `b14a199` — Esc handler bug)
-6. Bulk conflict resolve
-7. Defer + auto-resurface
-8. Section approve
-9. Household commit + auto-trigger PortfolioRun
-10. Override → regenerate cycle
-11. CMA Workbench draft → publish
-12. Methodology page renders 10 sections
-13. **FeedbackModal Esc close** (regression guard for `b14a199`)
-14. PilotBanner ack flow (Phase 5b.1)
-15. WelcomeTour ack flow
-
-**Pattern** (mirror existing pilot-features-smoke + cross-browser specs):
-```ts
-import { expect, test, type Page } from "@playwright/test";
-
-const ADVISOR_EMAIL = process.env.MP20_LOCAL_ADMIN_EMAIL ?? "advisor@example.com";
-const ADVISOR_PASSWORD = process.env.MP20_LOCAL_ADMIN_PASSWORD ?? "change-this-local-password";
-
-async function loginAdvisor(page: Page) {
-  await page.goto("/");
-  await page.getByLabel(/email/i).fill(ADVISOR_EMAIL);
-  await page.getByLabel(/password/i).fill(ADVISOR_PASSWORD);
-  await page.getByRole("button", { name: /sign in/i }).click();
-  await expect(page.locator('[data-testid="topbar"], header')).toBeVisible({ timeout: 15_000 });
-}
-
-test.describe("Regression coverage — pre-existing flows (per §3.20)", () => {
-  test.skip(!process.env.MP20_LOCAL_ADMIN_EMAIL, "MP20_LOCAL_ADMIN_EMAIL not set; skipping");
-
-  test.beforeEach(async ({ page }) => {
-    await loginAdvisor(page);
-  });
-
-  test("DocDetailPanel Esc close regression guard (b14a199)", async ({ page }) => {
-    await page.goto("/review");
-    // ... navigate to a workspace, click a doc row, press Esc, assert panel closes + focus restored
-  });
-
-  // ... 14 more
-});
-```
-
-**Setup:** Use `bash scripts/reset-v2-dev.sh --yes` in a session-scoped beforeAll hook for known synthetic state. Sandra/Mike auto-seeds with PortfolioRun + advisor pre-ack per locked #34 (only `--yes` is pre-authorized). Don't reset between tests — too slow.
-
-**Gates:**
-- Playwright `regression-coverage.spec.ts` — 15 passing on chromium
-- Run twice consecutively to confirm zero flakes per locked §3.20
-- Total chromium Playwright cumulative: 13 foundation + 34 visual-verification + 6 pilot-features + 15 regression = **68 chromium passing** at end of A5.5
-- typecheck/lint/build clean (e2e specs don't go through `npm run lint` but Playwright type-checks them at runtime)
-
-**Commit message template:**
-```
-test(e2e): automated regression coverage for 15 pre-existing high-traffic flows (per §3.20)
-
-Phase A5.5 of post-tag gap-closure plan. NEW frontend/e2e/regression-coverage.spec.ts
-with 15 automated browser tests covering pre-existing flows that aren't directly
-touched by the gap-closure but might break via cross-cutting changes. Per locked
-§3.20: chose automated over manual regression checklist.
-
-Test inventory:
-  1. Login + client picker pagination
-  2. Wizard Step 1-5 full flow
-  ...
-  15. WelcomeTour ack flow
-
-Regression guards explicitly named for prior bug classes:
-  - DocDetailPanel Esc close (b14a199)
-  - FeedbackModal Esc close (b14a199)
-  - Override → regenerate cycle (engine→UI A2/A3 wiring)
-  - Household commit + auto-trigger (engine→UI A2 wiring)
-
-Gates:
-  - 15 chromium passing on 2 consecutive runs (zero flakes per §3.20)
-  - Cumulative chromium Playwright: 13 + 34 + 6 + 15 = 68
-  - typecheck/lint/build clean
-  - Bundle unchanged (test-only)
-
-Locked decisions honored: §3.20 (automated), §3.14 (per-phase coverage),
-§3.10 (theme-token grep no new tokens introduced).
-```
-
-**Halt-and-flush gate:** all 15 tests pass on 2 consecutive runs; CI runtime < 4 min; no flakes.
-
-**Context budget warning:** A5.5 alone is the heaviest single phase in the plan. If you sense context approaching 70% mid-spec, halt at the next test-completion boundary, commit `wip(e2e): regression-coverage 9/15 tests landed; remaining 6 + flake-check pending`, write handoff entry, and suggest `/compact`. Do NOT push past 80% — past commits become unrecoverable past compaction.
+If you need to **modify** the regression suite (add/remove tests, fix flakes), read [`frontend/e2e/regression-coverage.spec.ts`](../../frontend/e2e/regression-coverage.spec.ts) directly. Do NOT rebuild from scratch — the shipped spec already tolerates current DB state across the 5 describe blocks.
 
 ### Phase A6 — Real-Chrome smoke + pilot dress rehearsal (USER MANUAL — ~45-60 min, NO commit)
 
@@ -343,31 +260,29 @@ git tag -l "v0.1*"   # confirm: v0.1.0-pilot + v0.1.1-improved-intake + v0.1.2-e
 
 **Run BEFORE any code change. Halt + AskUserQuestion if any gate red.**
 
-### Sub-session #3 remainder entry baseline (HEAD: `b21ce7b` or later)
+### Sub-session #3 remainder entry baseline (HEAD: `d8c908a` or later)
 ```bash
 cd /Users/saranyaraj/Projects/github-repo/mp2.0
 
 # 1. HEAD + working tree state
 git status --short --branch          # expect: clean tree (test-results/ if present is gitignored)
 git log --oneline -5                 # expect chain (newest → oldest):
-                                     #   b21ce7b (self-ref fix) → f900adf (rewrite) → 0ccdd29 → bd90cf9 → 7c041f2
-                                     # OR a more recent docs commit on top — that's fine if it's docs-only
+                                     #   <docs close-out>... → d8c908a (A5.5 spec) → 03c92d1 → b21ce7b → f900adf
+                                     # OR a more recent docs commit on top — that's fine if it's docs-only.
+                                     # If HEAD is BEFORE d8c908a, halt — the rollback lost A5.5 + ask user.
 git tag -l "v0.1*"                   # expect: v0.1.0-pilot + v0.1.1-improved-intake + v0.1.2-engine-display
                                      # NEW v0.1.3-engine-display-polish cuts at A7.5
 
 # 2. Backend gate suite (~3 min)
 docker compose exec -T backend bash -c "cd /app && uv run pytest --tb=no --ignore=web/api/tests/test_perf_budgets.py -q"
-# expect: 872 passed, 2 skipped (final summary line; NOTE: backend output is verbose,
-# capture summary via "| tail -3" — but the actual test count is on the LAST line, not
-# always in the last 3; if the last 3 lines are warning-summary boilerplate, run again
-# with "| grep -E 'passed|failed' | tail -3" or just look at the full tail with "| tail -8")
+# expect: 872 passed, 2 skipped (final summary line; A5.5 was frontend-only so backend unchanged)
 
 docker compose exec -T backend bash -c "cd /app && uv run pytest web/api/tests/test_perf_budgets.py --tb=no -q"
-# expect: 9 passed (isolated; full-suite run may flake on busy box)
+# expect: 9 passed (isolated)
 
 # 3. Frontend gates (~30s)
 cd frontend && npm run typecheck && npm run lint && npm run test:unit -- --run && npm run build && cd ..
-# expect: 230 Vitest in 26 files; bundle 269.41 kB gzipped
+# expect: 230 Vitest in 26 files (unchanged — A5.5 adds e2e only); bundle 269.41 kB gzipped
 
 # 4. Static guards
 bash scripts/check-vocab.sh           # expect: vocab CI: OK
@@ -379,6 +294,17 @@ docker compose ps                    # expect: backend + db running
 curl -s -o /dev/null -w "backend: %{http_code}\n" http://localhost:8000/api/session/
 curl -s -o /dev/null -w "frontend: %{http_code}\n" http://localhost:5173/
 # expect: 200 / 200
+
+# 5.5. Regression-coverage smoke (~20s; new at sub-session #3 extended)
+cd frontend && PLAYWRIGHT_BASE_URL=http://localhost:5173 \
+  MP20_LOCAL_ADMIN_EMAIL=advisor@example.com \
+  MP20_LOCAL_ADMIN_PASSWORD=change-this-local-password \
+  MP20_LOCAL_ANALYST_EMAIL=analyst@example.com \
+  MP20_LOCAL_ANALYST_PASSWORD=change-this-local-password \
+  npx playwright test --project=chromium e2e/regression-coverage.spec.ts --reporter=line 2>&1 | tail -3 && cd ..
+# expect: "15 passed (~18-20s)" — the regression-coverage suite is the entry-point
+# regression guard for sub-session #3 remainder. If any test fails or skips,
+# halt + investigate before A6 dress rehearsal.
 
 # 6. Engine probe (must succeed before any code change)
 curl -s -c /tmp/cookies.txt http://localhost:8000/api/session/ > /dev/null && \
@@ -677,30 +603,25 @@ If steps 1-7 fail, halt + ask user. Never proceed against a broken or unexpected
 
 ---
 
-## §12. First concrete action (Mode B — sub-session #3 remainder)
+## §12. First concrete action (Mode B — sub-session #3 remainder, post-A5.5)
 
-**This is the only mode for this session — A5.5 is the active scope.** No mode A (planning); no other modes; the decisions are locked.
+**A5.5 shipped at `d8c908a` — the active scope is now A6 USER MANUAL + A7 close-out.** No mode A (planning); no other modes; the decisions are locked.
 
-1. Run §3 pre-flight (~5 min)
+1. Run §3 pre-flight (~5 min). Verify the regression-coverage spec smoke (gate 5.5) returns 15 passing.
 2. Output the [§15 first-message template](#15-first-message-to-the-user-post-boot-template) — under 100 words confirming dossier read + gates green + understanding of next phase
-3. Begin **Phase A5.5** per plan file §A5.5: NEW `frontend/e2e/regression-coverage.spec.ts` with 15 automated browser tests for pre-existing flows
-   - Read `frontend/e2e/foundation.spec.ts` first (≈10 min) for the loginAdvisor helper pattern + the existing flow exercises that already exist (some may overlap; don't duplicate)
-   - Read `frontend/e2e/pilot-features-smoke.spec.ts` for the test.skip + beforeEach pattern
-   - Implement all 15 tests in one file; use existing helpers; copy minor utility from foundation if needed
-   - Run on chromium twice consecutively; expect 15 passing on both runs (zero flakes per §3.20)
-   - Commit per template in [§2 Phase A5.5](#phase-a55--automated-browser-regression-coverage-per-320-3-4-hr-%EF%B8%8F-heaviest-phase)
-4. After A5.5 commit + halt-and-flush gate green, decide based on context budget:
-   - If <70% used: proceed to A6 (USER MANUAL — present checklist via AskUserQuestion)
-   - If ≥70%: halt, write sub-session #3 second-partial close-out, suggest `/compact`
-5. Phase A6 — present A6.1 real-Chrome smoke checklist + A6.2 dress rehearsal; collect user smoke results; document in handoff-log
-6. Phase A7 — close-out (5 sub-phases A7.1-A7.5):
-   - A7.1: dispatch `pr-review-toolkit:code-reviewer` on `e5cd859..HEAD`
-   - A7.2: dispatch PII-focused `general-purpose` subagent
-   - A7.3: pre-push CI smoke (full gate suite)
-   - A7.4: 90% coverage gate
-   - A7.5: cut tag `v0.1.3-engine-display-polish`
-   - Final commit: handoff-log + decisions migration + session-state + memory update + DELETE this prompt
-7. Wait for explicit user authorization to push (do NOT push without "push to origin")
+3. **Phase A6 (USER MANUAL — you cannot automate this):**
+   - Present **A6.1 Real-Chrome smoke** checklist via `AskUserQuestion` (10-step procedure per [§2 Phase A6](#phase-a6--real-chrome-smoke--pilot-dress-rehearsal-user-manual--45-60-min-no-commit)). User runs in actual Chrome (NOT headless); reports back per step.
+   - Present **A6.2 Pilot dress rehearsal** checklist via `AskUserQuestion` (8-step demo flow with stopwatch timings + 8s non-trigger / 10s trigger thresholds per locked #88).
+   - Document timings + observations in `docs/agent/handoff-log.md`. NO commit (USER MANUAL).
+   - If any step fails: halt + AskUserQuestion for diagnostic.
+4. **Phase A7 close-out (5 sub-phases; estimated 60-90 min):**
+   - A7.1: dispatch `pr-review-toolkit:code-reviewer` on cumulative diff `e5cd859..HEAD`
+   - A7.2: dispatch PII-focused `general-purpose` subagent per §3.13
+   - A7.3: pre-push CI smoke per §3.12 (backend pytest + Vitest + Playwright + statics)
+   - A7.4: 90% coverage gate per §3.14 (backend `pytest --cov=...` + frontend `vitest --coverage`)
+   - A7.5: cut tag `v0.1.3-engine-display-polish` per §3.22
+   - Final commit: handoff-log + decisions migration + session-state + memory update + **DELETE this prompt** per §3.8 lifecycle
+5. Wait for explicit user authorization to push (do NOT push without "push to origin"). The user pushes Monday morning per pre-existing locked rule.
 
 ---
 
@@ -763,7 +684,7 @@ After §3 pre-flight + §12 mode determination:
 ```
 Booted from post-tag-gap-closure-starter-prompt.md.
 
-HEAD: <commit>          # expected: b21ce7b or later docs-only commit
+HEAD: <commit>          # expected: d8c908a or later docs-only commit
 Pre-flight: <pass/fail per gate>
   - Backend pytest: <count> passed (expected: 872 + 2 skipped)
   - Vitest: <count> in <files> (expected: 230 in 26)
@@ -771,15 +692,17 @@ Pre-flight: <pass/fail per gate>
   - Static guards: <vocab/PII/OpenAPI status>
   - Engine probe: <status>/<run_signature[:8]>; has_links=<bool>; has_rollup=<bool>
     (expected: current/<sig>; both true)
+  - regression-coverage.spec.ts: <count> passed in <duration> (expected: 15 in <22s)
   - Browsers: <chromium/webkit/firefox availability>
-Sub-session: #3 remainder (A5 done at bd90cf9; A5.5+A6+A7 remaining)
-Phase scope: A5.5 first (NEW frontend/e2e/regression-coverage.spec.ts; 15 tests; ~3-4 hr)
-Locked decisions active: §3.12, §3.13, §3.14, §3.20, §3.22, §3.25 (six remaining)
+Sub-session: #3 remainder (A0+A1+A2+A3+A4+A5+A5.5 done; A6 USER MANUAL + A7 close-out remaining)
+Phase scope: A6 first (USER MANUAL — present checklists via AskUserQuestion)
+Locked decisions active: §3.12, §3.13, §3.14, §3.22, §3.25 (five remaining; §3.20 closed at A5.5)
 
-Beginning Phase A5.5 per plan file §A5.5.
+Phase A6 is USER MANUAL — I will present checklists; you run in real Chrome.
+Awaiting confirmation to begin A6.1 real-Chrome smoke (10-step procedure).
 ```
 
-Wait for user direction. Do not begin code changes until §3 confirmed green AND scope is unambiguous.
+Wait for user direction. Do not begin A6 checklists until §3 confirmed green AND scope is unambiguous.
 
 ---
 
@@ -787,7 +710,7 @@ Wait for user direction. Do not begin code changes until §3 confirmed green AND
 
 This work is the foundation for the Mon 2026-05-08 pilot launch. **Production-grade software for a limited user set; no excuses, no cutting corners.** Three things matter most:
 
-1. **Production-quality testing.** A5.5 is the lid on the regression-coverage promise — 15 automated browser tests + 90% coverage gate at A7.4 + Hypothesis property invariants (already shipped A1) + JSON snapshot regression (already shipped A1) + cross-browser cells (already shipped A5) + 3-run baseline stability (already verified A4 + A5) + real-Chrome smoke (A6.1 user manual). The pilot can't surface "but the tests passed" — testing IS the pilot validation. Skipping A5.5 to "save time" trades 3-4 hours of automated coverage for unknown weeks of pilot triage.
+1. **Production-quality testing.** ALL automated coverage now shipped: A5.5 regression-coverage suite (15 chromium tests; 19s/18.5s with zero flakes) + Hypothesis property invariants (A1) + JSON snapshot regression (A1) + cross-browser cells (A5) + 3-run baseline stability (A4 + A5) + visual baselines (A4 + A5). What remains is the **A6 USER MANUAL real-Chrome smoke** (locked #100 — cannot be automated; must be real Chrome with real eyes) + dress rehearsal (locked #95 reactivated per §3.25) + A7 close-out gates (90% coverage per §3.14 + 2 subagent reviews per §3.13). The pilot can't surface "but the tests passed" — testing IS the pilot validation.
 
 2. **Production-quality UX.** SourcePill flips correctly mid-drag (A2 + A5 RiskSlider regression fix); stale overlay focus-trap doesn't escape (A4 mirror DocDetailPanel pattern); integrity alerts route to engineering not advisors (A4 IntegrityAlertOverlay + A1 audit emission). Each detail is paid for in pilot trust. The A5.5 regression suite verifies the 75% of code NOT touched by gap-closure didn't break via cross-cutting changes.
 

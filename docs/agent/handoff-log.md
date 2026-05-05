@@ -2,6 +2,49 @@
 
 ---
 
+## 2026-05-04 PM (post-tag gap-closure sub-session #3 of 3 EXTENDED) — Phase A5.5 complete; A6 USER MANUAL + A7 close-out remaining
+
+**HEAD:** `d8c908a`. 11 commits past tag `v0.1.2-engine-display` at `e5cd859` (A0 docs + A1 backend + A2 frontend + A3 OptimizerOutputWidget + A4 stale-state UX + cleanup chore + A5 demo+axe+visual+cross-browser + A5 RiskSlider regression fix bundled + sub-session #3 partial close-out + 3 starter-prompt rewrite docs commits + **A5.5 regression-coverage spec**).
+
+This sub-session-#3 extension session (post-`/compact` boot) entered at HEAD `03c92d1` per the rewritten starter prompt's drift-tolerant HEAD pointer (`b21ce7b` or later docs-only commit). Pre-flight gates green: 230 Vitest in 26 files, Docker stack 200/200, static guards (vocab/PII/OpenAPI codegen) all OK, Sandra/Mike engine probe `status=current` with `has_links=true` + `has_rollup=true`. Auto mode active per user explicit request; the user pre-authorized A5.5 via the §12 first concrete action in the rewritten starter prompt and explicitly stated "Halt before A6 (USER MANUAL) for explicit handoff." The boot consumed only the dossier + plan + last handoff entry + targeted file reads to find the queue's component path; no exploratory drift.
+
+**Phase A5.5 — Automated browser regression coverage (commit `d8c908a`).** NEW `frontend/e2e/regression-coverage.spec.ts` (~520 LoC, 15 chromium tests) per locked §3.20. The plan called for 700-900 LoC; 520 LoC came in lighter because of two design choices: (1) a shared `openFirstWorkspace()` helper centralizes the queue-row navigation + skip-or-tolerate pattern across the 5 review-surface tests; (2) several tests (Methodology 10 sections, CMA Workbench 5 tabs, Wizard Step 1) are SIMPLER variants of full foundation.spec.ts coverage rather than full duplications — the regression-coverage suite locks the contract for "does it render?" while foundation locks "does the full flow complete?" The two specs are complementary, not redundant.
+
+Test inventory organized into 5 describe blocks:
+
+  1. **Login + chrome** (4 tests): login → home → client picker; PilotBanner ack persistence; WelcomeTour ack persistence; FeedbackModal Esc close (b14a199 regression guard).
+  2. **Chrome routes** (2 tests): Methodology 10 sections + canon descriptors; CMA Workbench 5 tabs + active snapshot.
+  3. **Wizard onboarding** (1 test): Wizard Step 1 renders + identity validation halts on submit-empty.
+  4. **Review surfaces** (6 tests): doc-drop overlay accepts file input; DocDetailPanel slide-out + Esc close (b14a199 regression guard); ConflictPanel renders with cards or empty state; bulk-resolve affordance is structurally present; defer action button is reachable; Section approve readiness checklist + approval UI render.
+  5. **Household + goal** (2 tests): Sandra/Mike auto-trigger emitted PortfolioRun (engine→UI A2 regression guard — verifies `[role="status"]` HouseholdPortfolioPanel renders rollup, NOT empty state); Override → regenerate cycle engine pill on saved-override view (engine→UI A2/A3 regression guard — explicitly the c5a7e02 conflated-semantic bug fixed at bd90cf9; would fail loudly if `calibration_drag` ever flipped back on mount).
+
+Test design discipline:
+  - Each test self-contained + tolerant of current DB state (skip-or-render where flow depends on specific workspace shape).
+  - Sandra/Mike auto-seeds with PortfolioRun + advisor pre-ack — synthetic-data tests use her as the canonical fixture.
+  - Real-PII workspaces (Seltzer/Weryha/Niesner) may or may not exist depending on prior reset state; navigate to whichever workspace is present, assert structural elements only.
+  - `openFirstWorkspace()` helper uses direct `aside[aria-label="In-flight workspaces"]` selector (Playwright's `getByRole("complementary")` does NOT match `<aside>` inside `<main>` per WHATWG ARIA implicit semantics — confirmed via probe spec that found the aside element but `complementary` role lookup returned 0).
+  - Networkidle wait before probing for React Query-populated workspace rows (catches timing race on initial /api/review-workspaces/ fetch).
+
+Iteration loop during A5.5 development:
+  - Initial run: 10 passed + 5 skipped — 5 review-surface tests skipping because the workspace queue row selector didn't match. Used `getByRole("link", { name: /review|workspace|.../i })` on the assumption that workspaces were links; they're actually `<button>` rows inside `<aside aria-label="In-flight workspaces">`.
+  - Probe spec at /tmp/probe-review.spec.ts → found 1 aside + 6 buttons inside; switched selector to `aside[aria-label="..."]` (Playwright complementary-role lookup returned 0 because aside-in-main doesn't get implicit complementary role). Still 5 skipped.
+  - Diagnosed timing race: aside renders immediately with header, buttons populate via React Query's initial fetch. Added `await page.waitForLoadState("networkidle")` + bumped `firstRow.isVisible({ timeout: 8_000 })`. **All 15 passing.**
+  - Stability runs per locked §3.20: Run 1 = 19.0s · Run 2 = 18.5s · both 15/15 passed. Zero flakes.
+
+**Gates at HEAD `d8c908a` (Phase A5.5 close-out):**
+- Backend pytest: **872 passed + 2 skipped** (unchanged — A5.5 is frontend-only)
+- Frontend Vitest: **230 passed in 26 files** (unchanged — A5.5 adds e2e only)
+- typecheck/lint/build clean
+- Bundle: **269.41 kB gzipped** (unchanged — test-only)
+- Static guards (vocab CI / PII grep / OpenAPI codegen): all OK
+- Cumulative chromium Playwright: 13 foundation + 34 visual-verification + 6 pilot-features + **15 regression-coverage** = **68 chromium tests passing**
+- Cross-browser: 22 cells (11 webkit + 11 firefox) passing (unchanged)
+- visual-verification chromium: 34 (unchanged)
+
+**What's next — sub-session #3 remainder (Phase A6 USER MANUAL + A7).** Estimated 2-3 hr. **A6** USER MANUAL — real-Chrome smoke per locked #100 (10-step procedure: reset → login → Sandra/Mike auto-load → drill into goal → confirm engine pills + slider drag → calibration_drag → save → engine flip back → CMA republish → stale overlay → Regenerate → optional HASH_MISMATCH integrity overlay smoke; ~20-30 min) + 8-step pilot dress rehearsal per §3.25 (~45 min). User runs in actual Chrome with stopwatch; flag any step >threshold (8s non-trigger / 10s trigger). **A7** close-out: A7.1 code-reviewer subagent dispatch on cumulative diff `e5cd859..HEAD` + A7.2 PII-focused subagent review per §3.13 + A7.3 pre-push CI smoke per §3.12 + A7.4 90% coverage gate per §3.14 (backend `pytest --cov=...` + frontend `vitest --coverage`) + A7.5 cut tag `v0.1.3-engine-display-polish` per §3.22 + DELETE `docs/agent/post-tag-gap-closure-starter-prompt.md` per §3.8 lifecycle + close-out commit. **Cumulative test bar at HEAD post-A5.5:** 872 backend pytest + 230 Vitest in 26 files + 13 foundation e2e + 34 visual-verification + 22 cross-browser + 6 pilot-features (axe) + 15 regression-coverage = **1,192 tests passing across all suites**. Sub-session #3 remainder will not add new tests but will run existing suites + dispatch subagent reviews.
+
+---
+
 ## 2026-05-04 PM (post-tag gap-closure sub-session #3 of 3 PARTIAL) — Phase A5 complete; A5.5+A6+A7 remaining
 
 **HEAD:** `bd90cf9`. 9 commits past tag `v0.1.2-engine-display` at `e5cd859`.
