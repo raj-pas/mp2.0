@@ -65,7 +65,7 @@ import hashlib
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from extraction.normalization import normalize_key
 
@@ -77,6 +77,21 @@ PEOPLE_THRESHOLD: int = 100
 ACCOUNTS_THRESHOLD: int = 80
 # goals: name match OR (target+horizon) match.
 GOALS_THRESHOLD: int = 80
+
+# ---------------------------------------------------------------------------
+# Tier-2 merge-candidate bands (Round 18 #1 — broad surface).
+# Tier-1 thresholds above are UNCHANGED. Tier-2 bands sit STRICTLY BELOW the
+# Tier-1 thresholds; pairs that score in these bands are surfaced to the
+# advisor as merge candidates rather than auto-merged. Pairs with
+# *contradicting* identity fields (different DOB / different last_name /
+# different account_number_hash) are NEVER candidates regardless of score.
+# ---------------------------------------------------------------------------
+PEOPLE_TIER2_FLOOR: int = 60
+PEOPLE_TIER2_CEILING: int = 99  # strictly below PEOPLE_THRESHOLD (100)
+ACCOUNTS_TIER2_FLOOR: int = 50
+ACCOUNTS_TIER2_CEILING: int = 79  # strictly below ACCOUNTS_THRESHOLD (80)
+GOALS_TIER2_FLOOR: int = 50
+GOALS_TIER2_CEILING: int = 79  # strictly below GOALS_THRESHOLD (80)
 
 # Score weights — keep in sync with module docstring.
 PEOPLE_SCORE_NAME_TOKEN = 60
@@ -119,16 +134,52 @@ class _CanonicalEntity:
 
 
 @dataclass(frozen=True)
+class MergeCandidate:
+    """Tier-2 merge candidate surfaced for advisor adjudication (Round 18 #1).
+
+    Emitted by `_compute_merge_candidates` when a pair of canonical
+    entities scores within the Tier-2 band (60-99 people, 50-79
+    accounts/goals) AND has no contradicting identity field (different
+    DOB / different last_name / different account_number_hash /
+    different institution / different target_amount-with-same-horizon).
+
+    Persisted to `reviewed_state['merge_candidates']` (JSON shape, per
+    Round 18 #36); resolved via the
+    `MergeCandidateResolveView` / `MergeCandidateBulkKeepSeparateView`
+    endpoints. Real-PII discipline (canon §11.8.3): the dataclass holds
+    only structural / non-PII fields — index integers, prefix string,
+    score, matched/contradicting field-name tuples. Display name is
+    surfaced separately at the JSON-shape boundary in `review_state.py`,
+    not in the dataclass itself.
+    """
+
+    prefix: Literal["people", "accounts", "goals"]
+    canonical_a_index: int
+    canonical_b_index: int
+    score: int  # 60-99 (people) or 50-79 (accounts/goals)
+    matched_fields: tuple[str, ...]
+    contradicting_fields: tuple[str, ...] = ()
+    confidence: Literal["medium"] = "medium"
+
+
+@dataclass(frozen=True)
 class EntityAlignment:
     """Workspace-scoped alignment table.
 
     `mapping[(document_key, prefix, local_index)] -> canonical_index` is
     the load-bearing lookup; `canonical_entities` is the deduplicated
     list, indexed by canonical_index.
+
+    `merge_candidates` (Round 18 #1) carries Tier-2 advisor-adjudication
+    pairs — canonicals whose pairwise score landed below the Tier-1
+    auto-merge threshold but above the Tier-2 floor and have no
+    contradicting identity fields. Defaults to an empty tuple so older
+    callers that ignore Tier-2 stay backwards-compatible.
     """
 
     mapping: dict[tuple[Any, str, int], int]
     canonical_entities: list[_CanonicalEntity]
+    merge_candidates: tuple[MergeCandidate, ...] = field(default_factory=tuple)
 
     @property
     def canonical_count(self) -> int:
@@ -260,7 +311,12 @@ def align_facts(facts: Iterable[Any]) -> EntityAlignment:
             for key, value in features.items():
                 existing.features.setdefault(key, value)
 
-    return EntityAlignment(mapping=mapping, canonical_entities=canonical_entities)
+    merge_candidates = _compute_merge_candidates(canonical_entities)
+    return EntityAlignment(
+        mapping=mapping,
+        canonical_entities=canonical_entities,
+        merge_candidates=merge_candidates,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +597,281 @@ def _threshold_for(prefix: str) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Tier-2 merge-candidate emission (Round 18 #1).
+#
+# After Tier-1 greedy clustering completes, scan every same-prefix pair
+# of canonical entities. Pairs that score in the Tier-2 band AND carry
+# NO contradicting identity field become merge candidates the advisor
+# adjudicates. This is purely additive — Tier-1 thresholds are
+# unchanged (Round 13 #2 LOCKED).
+# ---------------------------------------------------------------------------
+
+
+_TIER2_BAND: dict[str, tuple[int, int]] = {
+    "people": (PEOPLE_TIER2_FLOOR, PEOPLE_TIER2_CEILING),
+    "accounts": (ACCOUNTS_TIER2_FLOOR, ACCOUNTS_TIER2_CEILING),
+    "goals": (GOALS_TIER2_FLOOR, GOALS_TIER2_CEILING),
+}
+
+
+def _compute_merge_candidates(
+    canonical_entities: list[_CanonicalEntity],
+) -> tuple[MergeCandidate, ...]:
+    """Pairwise-scan canonicals; emit Tier-2 candidates per Round 18 #1.
+
+    For each unordered same-prefix pair (a, b) where a.canonical_index <
+    b.canonical_index, score the pair with a Tier-2-specific scorer
+    that mirrors the field-weights of `_score` BUT does NOT apply the
+    Tier-1 single-field rejection gate (which is what makes weak
+    matches drop to 0). Emit a `MergeCandidate` iff:
+
+    1. score lies in the prefix's Tier-2 band (e.g. 60..99 for people).
+       Pairs that would Tier-1-auto-merge under the un-gated scorer
+       still land at >= the Tier-1 threshold, so the band ceiling
+       (one less than the Tier-1 threshold) excludes them. Tier-1 + Tier-2
+       are disjoint on any single pair.
+    2. no contradicting identity field is present on either canonical
+       (different DOB, different last_name, different
+       account_number_hash, different institution, different
+       target_amount-with-same-horizon — see the per-prefix contradicts
+       helpers). A contradiction signals "definitely different
+       entities" regardless of how strong other signals are.
+
+    The resulting tuple is deterministically ordered:
+      score DESC, canonical_a_index ASC, canonical_b_index ASC.
+    Highest-confidence candidates surface first.
+    """
+    candidates: list[MergeCandidate] = []
+    for prefix, (floor, ceiling) in _TIER2_BAND.items():
+        same_prefix = sorted(
+            (e for e in canonical_entities if e.prefix == prefix),
+            key=lambda e: e.canonical_index,
+        )
+        for i, a in enumerate(same_prefix):
+            for b in same_prefix[i + 1 :]:
+                contradictions = _contradicts_for_prefix(prefix, a.features, b.features)
+                if contradictions:
+                    continue
+                score = _score_tier2(prefix, a.features, b.features)
+                if score < floor or score > ceiling:
+                    continue
+                matched = _matched_fields_for_prefix(prefix, a.features, b.features)
+                candidates.append(
+                    MergeCandidate(
+                        prefix=prefix,  # type: ignore[arg-type]
+                        canonical_a_index=a.canonical_index,
+                        canonical_b_index=b.canonical_index,
+                        score=score,
+                        matched_fields=matched,
+                        contradicting_fields=(),
+                        confidence="medium",
+                    )
+                )
+    candidates.sort(key=lambda c: (-c.score, c.canonical_a_index, c.canonical_b_index))
+    return tuple(candidates)
+
+
+def _score_tier2(
+    prefix: str, features_a: dict[str, Any], features_b: dict[str, Any]
+) -> int:
+    """Score a candidate pair WITHOUT Tier-1's single-field rejection gate.
+
+    For people: identical to `_score_people` but with the `field_count
+    < 2` early-return removed. The Tier-1 gate is what makes single-name
+    matches return 0 and thus stay separate; Tier-2 needs to *surface*
+    those exact pairs for advisor adjudication.
+
+    For accounts and goals: the existing scorer has no single-field gate
+    and works as-is, so we delegate.
+    """
+    if prefix == "people":
+        score = 0
+        if features_a.get("name_tokens") and features_b.get("name_tokens"):
+            if features_a["name_tokens"] & features_b["name_tokens"]:
+                score += PEOPLE_SCORE_NAME_TOKEN
+        if (
+            features_a.get("dob")
+            and features_b.get("dob")
+            and features_a["dob"] == features_b["dob"]
+        ):
+            score += PEOPLE_SCORE_DOB
+        if (
+            features_a.get("last_name")
+            and features_b.get("last_name")
+            and features_a["last_name"] == features_b["last_name"]
+        ):
+            score += PEOPLE_SCORE_LAST_NAME
+        a_last4 = set(features_a.get("account_last4") or set())
+        b_last4 = set(features_b.get("account_last4") or set())
+        if a_last4 and b_last4 and (a_last4 & b_last4):
+            score += PEOPLE_SCORE_LAST4_BOOST
+        return score
+    return _score(prefix, features_a, features_b)
+
+
+def _contradicts_for_prefix(
+    prefix: str, features_a: dict[str, Any], features_b: dict[str, Any]
+) -> tuple[str, ...]:
+    if prefix == "people":
+        return _contradicts_for_people(features_a, features_b)
+    if prefix == "accounts":
+        return _contradicts_for_accounts(features_a, features_b)
+    return _contradicts_for_goals(features_a, features_b)
+
+
+def _contradicts_for_people(
+    features_a: dict[str, Any], features_b: dict[str, Any]
+) -> tuple[str, ...]:
+    """Identity contradictions for people canonicals.
+
+    Signals "definitely different real-world humans": both have a DOB
+    and they differ; both have a last_name and they differ; both have
+    an account_number_hash on file (via account_last4 overlap) and they
+    fully disagree.
+    """
+    contradictions: list[str] = []
+    if features_a.get("dob") and features_b.get("dob") and features_a["dob"] != features_b["dob"]:
+        contradictions.append("dob")
+    if (
+        features_a.get("last_name")
+        and features_b.get("last_name")
+        and features_a["last_name"] != features_b["last_name"]
+    ):
+        contradictions.append("last_name")
+    a_last4 = set(features_a.get("account_last4") or set())
+    b_last4 = set(features_b.get("account_last4") or set())
+    if a_last4 and b_last4 and not (a_last4 & b_last4):
+        # Both canonicals have last4 evidence and NONE overlap — different
+        # account holders. (Partial overlap is not a contradiction; that's
+        # joint accounts / shared family financial picture.)
+        contradictions.append("account_last4")
+    return tuple(contradictions)
+
+
+def _contradicts_for_accounts(
+    features_a: dict[str, Any], features_b: dict[str, Any]
+) -> tuple[str, ...]:
+    """Identity contradictions for account canonicals.
+
+    Signals "definitely different accounts": both have an
+    account_number_hash and they differ; both have an institution and
+    the institutions differ.
+    """
+    contradictions: list[str] = []
+    if (
+        features_a.get("account_number_hash")
+        and features_b.get("account_number_hash")
+        and features_a["account_number_hash"] != features_b["account_number_hash"]
+    ):
+        contradictions.append("account_number_hash")
+    if (
+        features_a.get("institution")
+        and features_b.get("institution")
+        and features_a["institution"] != features_b["institution"]
+    ):
+        contradictions.append("institution")
+    return tuple(contradictions)
+
+
+def _contradicts_for_goals(
+    features_a: dict[str, Any], features_b: dict[str, Any]
+) -> tuple[str, ...]:
+    """Identity contradictions for goal canonicals.
+
+    Signals "definitely different goals": both have a time_horizon AND
+    a target_amount; horizons match BUT target_amounts are not close
+    (>5% apart). When two goals have the same horizon, divergent
+    targets are a strong "different goal" signal.
+    """
+    contradictions: list[str] = []
+    a_horizon = features_a.get("time_horizon_years")
+    b_horizon = features_b.get("time_horizon_years")
+    a_target = features_a.get("target_amount")
+    b_target = features_b.get("target_amount")
+    if (
+        a_horizon is not None
+        and b_horizon is not None
+        and a_horizon == b_horizon
+        and a_target is not None
+        and b_target is not None
+        and not _values_close(a_target, b_target, NUMERIC_CLOSE_PCT)
+    ):
+        contradictions.append("target_amount")
+    return tuple(contradictions)
+
+
+def _matched_fields_for_prefix(
+    prefix: str, features_a: dict[str, Any], features_b: dict[str, Any]
+) -> tuple[str, ...]:
+    """Which signals carried the Tier-2 score? Used for advisor display."""
+    if prefix == "people":
+        matched: list[str] = []
+        if features_a.get("name_tokens") and features_b.get("name_tokens"):
+            if features_a["name_tokens"] & features_b["name_tokens"]:
+                matched.append("name_token")
+        if (
+            features_a.get("dob")
+            and features_b.get("dob")
+            and features_a["dob"] == features_b["dob"]
+        ):
+            matched.append("dob")
+        if (
+            features_a.get("last_name")
+            and features_b.get("last_name")
+            and features_a["last_name"] == features_b["last_name"]
+        ):
+            matched.append("last_name")
+        a_last4 = set(features_a.get("account_last4") or set())
+        b_last4 = set(features_b.get("account_last4") or set())
+        if a_last4 and b_last4 and (a_last4 & b_last4):
+            matched.append("account_last4")
+        return tuple(matched)
+    if prefix == "accounts":
+        matched_acc: list[str] = []
+        if (
+            features_a.get("account_number_hash")
+            and features_b.get("account_number_hash")
+            and features_a["account_number_hash"] == features_b["account_number_hash"]
+        ):
+            matched_acc.append("account_number_hash")
+        if (
+            features_a.get("account_type")
+            and features_b.get("account_type")
+            and features_a["account_type"] == features_b["account_type"]
+        ):
+            matched_acc.append("account_type")
+        if (
+            features_a.get("institution")
+            and features_b.get("institution")
+            and features_a["institution"] == features_b["institution"]
+        ):
+            matched_acc.append("institution")
+        if _values_close(
+            features_a.get("current_value"), features_b.get("current_value"), NUMERIC_CLOSE_PCT
+        ):
+            matched_acc.append("current_value_close")
+        return tuple(matched_acc)
+    # goals
+    matched_g: list[str] = []
+    if (
+        features_a.get("name_key")
+        and features_b.get("name_key")
+        and features_a["name_key"] == features_b["name_key"]
+    ):
+        matched_g.append("name_key")
+    if (
+        features_a.get("time_horizon_years") is not None
+        and features_b.get("time_horizon_years") is not None
+        and features_a["time_horizon_years"] == features_b["time_horizon_years"]
+        and _values_close(
+            features_a.get("target_amount"), features_b.get("target_amount"), NUMERIC_CLOSE_PCT
+        )
+    ):
+        matched_g.append("target_horizon_close")
+    return tuple(matched_g)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -682,6 +1013,13 @@ __all__ = [
     "PEOPLE_THRESHOLD",
     "ACCOUNTS_THRESHOLD",
     "GOALS_THRESHOLD",
+    "PEOPLE_TIER2_FLOOR",
+    "PEOPLE_TIER2_CEILING",
+    "ACCOUNTS_TIER2_FLOOR",
+    "ACCOUNTS_TIER2_CEILING",
+    "GOALS_TIER2_FLOOR",
+    "GOALS_TIER2_CEILING",
     "EntityAlignment",
+    "MergeCandidate",
     "align_facts",
 ]

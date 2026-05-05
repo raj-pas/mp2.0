@@ -160,6 +160,25 @@ class WorkspaceReopenConflict(ValueError):
     """
 
 
+class MergeCandidateNotFound(ValueError):
+    """Tier-2 merge candidate `key` not present in the workspace state.
+
+    Mirrors the typed-exception sister-pattern (`EngineKillSwitchBlocked`,
+    `WorkspaceReopenConflict`, `AccountAssignmentRollupMismatch`) per
+    locked #59. Raised by `MergeCandidateResolveView` /
+    `MergeCandidateBulkKeepSeparateView` when the URL-provided key
+    references a candidate that does not appear in
+    `reviewed_state['merge_candidates']` (already resolved by another
+    advisor / state stale / typo). Caller maps to a 404 response with
+    `safe_response_payload(exc)` + structured
+    `code="merge_candidate_not_found"`.
+
+    Per canon §11.8.3 the exception message stays structural — only the
+    candidate key (e.g. `"people:0:2"`); never names, DOBs, or display
+    values.
+    """
+
+
 class AccountAssignmentRollupMismatch(ValueError):
     """Sum of `allocated_amount_basis_points` across assignments doesn't match
     the account's `current_value_basis_points` (within 1 bp tolerance).
@@ -2958,6 +2977,367 @@ class ReviewWorkspaceConflictBulkResolveView(APIView):
                 "readiness": version.readiness,
                 "invalidated_approvals": invalidated_sections,
                 "resolved_count": len(resolved_meta),
+            }
+        )
+
+
+VALID_MERGE_DECISIONS = ("merge", "keep_separate", "defer")
+
+
+def _resolve_single_merge_candidate(
+    *,
+    locked_workspace: models.ReviewWorkspace,
+    candidate: dict,
+    decision: str,
+    rationale: str,
+) -> tuple[dict, dict, int]:
+    """Apply a single advisor decision to a Tier-2 merge candidate.
+
+    Caller MUST hold a row-level lock on `locked_workspace` via
+    `select_for_update(of=("self",))` inside `transaction.atomic()`.
+
+    Mutates ExtractedFact rows (re-indexing for `decision="merge"`),
+    rebuilds reviewed_state['merge_candidates'] from scratch, persists
+    `reviewed_state['merge_decisions'][key] = decision`, and saves the
+    workspace.
+
+    Returns (new_state, candidate_metadata_for_audit, re_indexed_facts).
+
+    Round 18 #16: merge re-indexes ALL facts whose canonical_index ==
+    canonical_b_index to canonical_a_index. canonical_index slots are
+    NOT renumbered (preserves audit references).
+
+    Round 18 #17: decision is appended to
+    `reviewed_state['merge_decisions']` so re-reconcile applies it
+    BEFORE surfacing new candidates.
+
+    PII discipline (canon §11.8.3): the returned `candidate_metadata`
+    carries only counts + integers + decision string + rationale_length.
+    No raw values, names, DOBs, or evidence quotes.
+    """
+    prefix = candidate["prefix"]
+    canonical_a_index = int(candidate["canonical_a_index"])
+    canonical_b_index = int(candidate["canonical_b_index"])
+    score = int(candidate.get("score") or 0)
+    key = candidate["key"]
+
+    re_indexed_facts = 0
+    if decision == "merge":
+        # Re-index all facts where canonical_index == B to A. Single
+        # filtered UPDATE to keep the write small + fast even when N
+        # facts are large.
+        re_indexed_facts = (
+            locked_workspace.extracted_facts.filter(
+                canonical_index=canonical_b_index,
+                field__startswith=f"{prefix}[",
+            ).update(canonical_index=canonical_a_index)
+        )
+
+    # Append the advisor's decision to the persistent decision-history
+    # layer (Round 18 #17). The new reviewed_state will pick it up via
+    # `_merge_candidates_for_state(prior_decisions=...)`.
+    previous_state = locked_workspace.reviewed_state or reviewed_state_from_workspace(
+        locked_workspace
+    )
+    prior_decisions = dict((previous_state.get("merge_decisions") or {}))
+    prior_decisions[key] = decision
+
+    # Re-derive the reviewed state from the (possibly re-indexed) facts.
+    # `reviewed_state_from_workspace` re-runs alignment + Tier-2 candidate
+    # emission + applies prior_decisions when filtering candidates.
+    locked_workspace.reviewed_state = {
+        **(previous_state),
+        "merge_decisions": prior_decisions,
+    }
+    locked_workspace.save(update_fields=["reviewed_state", "updated_at"])
+    new_state = reviewed_state_from_workspace(locked_workspace)
+    locked_workspace.reviewed_state = new_state
+    locked_workspace.readiness = new_state["readiness"]
+    locked_workspace.save(update_fields=["reviewed_state", "readiness", "updated_at"])
+
+    audit_meta = {
+        "decision": decision,
+        "prefix": prefix,
+        "canonical_a_index": canonical_a_index,
+        "canonical_b_index": canonical_b_index,
+        "score": score,
+        "re_indexed_facts": re_indexed_facts,
+        "rationale_length": len(rationale),
+    }
+    return new_state, audit_meta, re_indexed_facts
+
+
+class MergeCandidateResolveView(APIView):
+    """POST /api/review-workspaces/<wsid>/merge-candidates/<key>/resolve/ — Phase B1.
+
+    Body: ``{decision: "merge"|"keep_separate"|"defer", rationale (>=4
+    chars), evidence_ack: true}``.
+
+    Round 18 #16 — for `decision="merge"`:
+      1. Re-indexes all `ExtractedFact` rows with `canonical_index ==
+         canonical_b_index` to `canonical_a_index` (single SQL update
+         inside atomic + select_for_update).
+      2. Persists the decision to
+         `reviewed_state['merge_decisions'][key] = "merge"` so
+         re-reconcile re-applies it.
+      3. Re-derives reviewed_state via
+         `reviewed_state_from_workspace`; the merged pair no longer
+         appears in `merge_candidates`.
+
+    Round 18 #16 — for `decision="keep_separate"` and `decision="defer"`:
+      No fact re-indexing. Decision persisted in `merge_decisions`. Next
+      re-reconcile filters keep-separate (forever, unless Tier-1 forces)
+      and re-surfaces defer.
+
+    Audit (per §A1.23 schema): exactly one
+    `entity_merge_candidate_resolved` AuditEvent per resolution, with
+    metadata carrying only counts + integers + decision + rationale_length
+    + bulk=False. No PII (canon §11.8.3).
+
+    Concurrency: atomic + ``select_for_update(of=("self",))`` on the
+    workspace row, mirroring `ReviewWorkspaceUncommitView` (Phase 5b /
+    Round 18 #33). 100 concurrent calls serialize cleanly with no 5xx.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, workspace_id: str, key: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        workspace = _workspace_for_user(workspace_id, request.user)
+        decision = (request.data.get("decision") or "").strip()
+        rationale = (request.data.get("rationale") or "").strip()
+        evidence_ack = bool(request.data.get("evidence_ack"))
+
+        if decision not in VALID_MERGE_DECISIONS:
+            return Response(
+                {
+                    "detail": f"decision must be one of {VALID_MERGE_DECISIONS}.",
+                    "code": "decision_invalid",
+                },
+                status=400,
+            )
+        if len(rationale) < 4:
+            return Response(
+                {
+                    "detail": "Rationale is required (>= 4 characters).",
+                    "code": "rationale_required",
+                },
+                status=400,
+            )
+        if not evidence_ack:
+            return Response(
+                {
+                    "detail": "Evidence acknowledgement is required.",
+                    "code": "evidence_ack_required",
+                },
+                status=400,
+            )
+
+        with transaction.atomic():
+            locked_workspace = (
+                _review_workspace_queryset()
+                .select_for_update(of=("self",))
+                .filter(
+                    external_id=workspace_id,
+                    pk__in=team_workspaces(request.user).values("pk"),
+                )
+                .first()
+            )
+            if locked_workspace is None:
+                return Response({"detail": "Workspace not found."}, status=404)
+            current_state = locked_workspace.reviewed_state or reviewed_state_from_workspace(
+                locked_workspace
+            )
+            candidates = list(current_state.get("merge_candidates") or [])
+            target = next((c for c in candidates if c.get("key") == key), None)
+            if target is None:
+                return Response(
+                    {
+                        "detail": f"Merge candidate '{key}' not found.",
+                        "code": "merge_candidate_not_found",
+                    },
+                    status=404,
+                )
+            new_state, audit_meta, _ = _resolve_single_merge_candidate(
+                locked_workspace=locked_workspace,
+                candidate=target,
+                decision=decision,
+                rationale=rationale,
+            )
+            version = create_state_version(
+                locked_workspace, user=request.user, state=new_state
+            )
+
+        record_event(
+            action="entity_merge_candidate_resolved",
+            entity_type="review_workspace",
+            entity_id=str(workspace.external_id),
+            actor=_actor(request),
+            metadata=safe_audit_metadata(
+                None,
+                workspace_id=workspace.external_id,
+                bulk=False,
+                **audit_meta,
+            ),
+        )
+
+        return Response(
+            {
+                "state": version.state,
+                "readiness": version.readiness,
+                "invalidated_approvals": [],
+            }
+        )
+
+
+class MergeCandidateBulkKeepSeparateView(APIView):
+    """POST /api/review-workspaces/<wsid>/merge-candidates/bulk-keep-separate/ — Phase B1.
+
+    Body: ``{keys: [str, ...], rationale (>=4 chars), evidence_ack: true}``.
+
+    Bulk dismiss for "obviously not duplicates" sweeps. Per Round 18 #3
+    LOCKED — bulk merge is FORBIDDEN; this endpoint accepts only
+    `keep_separate` semantics.
+
+    Round 18 #16 — every key in `keys` must be present in the current
+    `reviewed_state['merge_candidates']`; missing keys 404 the entire
+    request (atomic — no partial application).
+
+    Audit (per §A5 + design-system-research §5.9): emits ONE
+    `entity_merge_candidate_resolved` AuditEvent PER key, each tagged
+    `bulk=True, bulk_count=N` so compliance review can independently
+    inspect every dismissal. Shared rationale length on each.
+
+    Concurrency: atomic + ``select_for_update(of=("self",))``. Sister
+    Round 18 #33 — N=100 concurrent calls serialize.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, workspace_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        workspace = _workspace_for_user(workspace_id, request.user)
+        keys = request.data.get("keys")
+        rationale = (request.data.get("rationale") or "").strip()
+        evidence_ack = bool(request.data.get("evidence_ack"))
+
+        if not isinstance(keys, list) or len(keys) == 0:
+            return Response(
+                {
+                    "detail": "keys must be a non-empty array of merge-candidate keys.",
+                    "code": "keys_required",
+                },
+                status=400,
+            )
+        if not all(isinstance(k, str) and k for k in keys):
+            return Response(
+                {
+                    "detail": "Every key must be a non-empty string.",
+                    "code": "keys_invalid",
+                },
+                status=400,
+            )
+        if len(rationale) < 4:
+            return Response(
+                {
+                    "detail": "Rationale is required (>= 4 characters).",
+                    "code": "rationale_required",
+                },
+                status=400,
+            )
+        if not evidence_ack:
+            return Response(
+                {
+                    "detail": "Evidence acknowledgement is required.",
+                    "code": "evidence_ack_required",
+                },
+                status=400,
+            )
+
+        # De-dup keys while preserving order (advisor sometimes
+        # double-clicks; bulk should still emit ONE event per UNIQUE key).
+        seen: set[str] = set()
+        unique_keys: list[str] = []
+        for k in keys:
+            if k in seen:
+                continue
+            seen.add(k)
+            unique_keys.append(k)
+
+        audit_metas: list[dict] = []
+        with transaction.atomic():
+            locked_workspace = (
+                _review_workspace_queryset()
+                .select_for_update(of=("self",))
+                .filter(
+                    external_id=workspace_id,
+                    pk__in=team_workspaces(request.user).values("pk"),
+                )
+                .first()
+            )
+            if locked_workspace is None:
+                return Response({"detail": "Workspace not found."}, status=404)
+
+            current_state = locked_workspace.reviewed_state or reviewed_state_from_workspace(
+                locked_workspace
+            )
+            candidates = list(current_state.get("merge_candidates") or [])
+            candidate_by_key = {c.get("key"): c for c in candidates if isinstance(c, dict)}
+
+            missing = [k for k in unique_keys if k not in candidate_by_key]
+            if missing:
+                return Response(
+                    {
+                        "detail": (
+                            f"Merge candidate(s) not found: {missing}."
+                        ),
+                        "code": "merge_candidate_not_found",
+                        "missing_keys": missing,
+                    },
+                    status=404,
+                )
+
+            for k in unique_keys:
+                target = candidate_by_key[k]
+                _new_state, audit_meta, _ = _resolve_single_merge_candidate(
+                    locked_workspace=locked_workspace,
+                    candidate=target,
+                    decision="keep_separate",
+                    rationale=rationale,
+                )
+                audit_metas.append(audit_meta)
+
+            final_state = locked_workspace.reviewed_state or reviewed_state_from_workspace(
+                locked_workspace
+            )
+            version = create_state_version(
+                locked_workspace, user=request.user, state=final_state
+            )
+
+        bulk_count = len(audit_metas)
+        for audit_meta in audit_metas:
+            record_event(
+                action="entity_merge_candidate_resolved",
+                entity_type="review_workspace",
+                entity_id=str(workspace.external_id),
+                actor=_actor(request),
+                metadata=safe_audit_metadata(
+                    None,
+                    workspace_id=workspace.external_id,
+                    bulk=True,
+                    bulk_count=bulk_count,
+                    **audit_meta,
+                ),
+            )
+
+        return Response(
+            {
+                "state": version.state,
+                "readiness": version.readiness,
+                "invalidated_approvals": [],
+                "resolved_count": bulk_count,
             }
         )
 

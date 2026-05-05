@@ -1300,6 +1300,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/review-workspaces/{workspace_id}/merge-candidates/{key}/resolve/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST /api/review-workspaces/<wsid>/merge-candidates/<key>/resolve/ — Phase B1.
+         *
+         *     Body: ``{decision: "merge"|"keep_separate"|"defer", rationale (>=4
+         *     chars), evidence_ack: true}``.
+         *
+         *     Round 18 #16 — for `decision="merge"`:
+         *       1. Re-indexes all `ExtractedFact` rows with `canonical_index ==
+         *          canonical_b_index` to `canonical_a_index` (single SQL update
+         *          inside atomic + select_for_update).
+         *       2. Persists the decision to
+         *          `reviewed_state['merge_decisions'][key] = "merge"` so
+         *          re-reconcile re-applies it.
+         *       3. Re-derives reviewed_state via
+         *          `reviewed_state_from_workspace`; the merged pair no longer
+         *          appears in `merge_candidates`.
+         *
+         *     Round 18 #16 — for `decision="keep_separate"` and `decision="defer"`:
+         *       No fact re-indexing. Decision persisted in `merge_decisions`. Next
+         *       re-reconcile filters keep-separate (forever, unless Tier-1 forces)
+         *       and re-surfaces defer.
+         *
+         *     Audit (per §A1.23 schema): exactly one
+         *     `entity_merge_candidate_resolved` AuditEvent per resolution, with
+         *     metadata carrying only counts + integers + decision + rationale_length
+         *     + bulk=False. No PII (canon §11.8.3).
+         *
+         *     Concurrency: atomic + ``select_for_update(of=("self",))`` on the
+         *     workspace row, mirroring `ReviewWorkspaceUncommitView` (Phase 5b /
+         *     Round 18 #33). 100 concurrent calls serialize cleanly with no 5xx.
+         */
+        post: operations["review_workspaces_merge_candidates_resolve_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/review-workspaces/{workspace_id}/merge-candidates/bulk-keep-separate/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST /api/review-workspaces/<wsid>/merge-candidates/bulk-keep-separate/ — Phase B1.
+         *
+         *     Body: ``{keys: [str, ...], rationale (>=4 chars), evidence_ack: true}``.
+         *
+         *     Bulk dismiss for "obviously not duplicates" sweeps. Per Round 18 #3
+         *     LOCKED — bulk merge is FORBIDDEN; this endpoint accepts only
+         *     `keep_separate` semantics.
+         *
+         *     Round 18 #16 — every key in `keys` must be present in the current
+         *     `reviewed_state['merge_candidates']`; missing keys 404 the entire
+         *     request (atomic — no partial application).
+         *
+         *     Audit (per §A5 + design-system-research §5.9): emits ONE
+         *     `entity_merge_candidate_resolved` AuditEvent PER key, each tagged
+         *     `bulk=True, bulk_count=N` so compliance review can independently
+         *     inspect every dismissal. Shared rationale length on each.
+         *
+         *     Concurrency: atomic + ``select_for_update(of=("self",))``. Sister
+         *     Round 18 #33 — N=100 concurrent calls serialize.
+         */
+        post: operations["review_workspaces_merge_candidates_bulk_keep_separate_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/review-workspaces/{workspace_id}/state/": {
         parameters: {
             query?: never;
@@ -3032,6 +3116,47 @@ export interface operations {
         };
     };
     review_workspaces_matches_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    review_workspaces_merge_candidates_resolve_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    review_workspaces_merge_candidates_bulk_keep_separate_create: {
         parameters: {
             query?: never;
             header?: never;

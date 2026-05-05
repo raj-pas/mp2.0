@@ -70,6 +70,47 @@ ALLOWED_ENGINE_ACCOUNT_TYPES = {
     "Corporate",
 }
 
+# Phase B1 (Round 18 #4): account_type case normalization.
+# Maps lowercase / snake_case extractor output ("rrsp", "non_registered")
+# to the canonical mixed-case form the engine and ALLOWED_ENGINE_ACCOUNT_TYPES
+# expect ("RRSP", "Non-Registered"). Applied at the
+# `_merge_household_state` boundary — the single point where reviewed_state
+# becomes Account model rows. Idempotent: already-canonical inputs pass
+# through unchanged. Unknown inputs pass through unchanged so an
+# explicit ALLOWED_ENGINE_ACCOUNT_TYPES validation can flag them
+# downstream. No prompt-version bump; pairs with new matcher Tier-2 work.
+ACCOUNT_TYPE_NORMALIZATION: dict[str, str] = {
+    "rrsp": "RRSP",
+    "tfsa": "TFSA",
+    "rrif": "RRIF",
+    "lira": "LIRA",
+    "lrif": "LRIF",
+    "resp": "RESP",
+    "rdsp": "RDSP",
+    "fhsa": "FHSA",
+    "non_registered": "Non-Registered",
+    "non-registered": "Non-Registered",
+    "corporate": "Corporate",
+}
+
+
+def _normalize_account_type(raw: Any) -> Any:
+    """Normalize an extractor-supplied `account_type` string to canonical case.
+
+    Returns the raw value unchanged when:
+      - value is None / empty / non-str (defensive),
+      - value is not in the lowercase mapping table (e.g. typo, free-text).
+    Returns the canonical mixed-case form ("RRSP", "Non-Registered") when
+    the lowercased + stripped input matches a known mapping. Idempotent
+    on already-canonical input.
+    """
+    if not raw:
+        return raw
+    if not isinstance(raw, str):
+        return raw
+    lookup = raw.strip().lower()
+    return ACCOUNT_TYPE_NORMALIZATION.get(lookup, raw)
+
 
 @dataclass(frozen=True)
 class Readiness:
@@ -92,7 +133,9 @@ class Readiness:
 
 
 def reviewed_state_from_workspace(workspace: models.ReviewWorkspace) -> dict[str, Any]:
-    current_facts = _current_facts(workspace)
+    facts = list(workspace.extracted_facts.select_related("document"))
+    alignment = compute_entity_alignment(facts)
+    current_facts = _current_facts(workspace, alignment=alignment, facts=facts)
     state = _empty_state()
     state["household"]["display_name"] = _value(
         current_facts, "household.display_name", workspace.label
@@ -157,6 +200,21 @@ def reviewed_state_from_workspace(workspace: models.ReviewWorkspace) -> dict[str
     state["source_summary"] = _source_summary(workspace)
     state["field_sources"] = _field_sources(workspace, current_facts)
     state["conflicts"] = _conflicts(workspace)
+    # Phase B1 (Round 18 #1, #16, #17, #36): Tier-2 merge candidates for
+    # advisor adjudication. JSON shape persisted in reviewed_state so
+    # the frontend reads via the existing state hook; backwards-compat
+    # for older committed workspaces (missing key -> empty list).
+    state["merge_candidates"] = _merge_candidates_for_state(
+        facts=facts,
+        alignment=alignment,
+        prior_decisions=(workspace.reviewed_state or {}).get("merge_decisions") or {},
+    )
+    # Round 18 #17 + #36: append-only decision history. Empty dict when
+    # no advisor has resolved a candidate yet; populated by the resolve
+    # endpoints. Re-reconcile preserves prior decisions via this dict.
+    state["merge_decisions"] = dict(
+        (workspace.reviewed_state or {}).get("merge_decisions") or {}
+    )
     state["readiness"] = readiness_for_state(state).__dict__
     return state
 
@@ -888,9 +946,16 @@ def engine_payload_from_reviewed_state(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
-def _current_facts(workspace: models.ReviewWorkspace) -> dict[str, Any]:
-    facts = list(workspace.extracted_facts.select_related("document"))
-    alignment = compute_entity_alignment(facts)
+def _current_facts(
+    workspace: models.ReviewWorkspace,
+    *,
+    alignment: Any | None = None,
+    facts: list[Any] | None = None,
+) -> dict[str, Any]:
+    if facts is None:
+        facts = list(workspace.extracted_facts.select_related("document"))
+    if alignment is None:
+        alignment = compute_entity_alignment(facts)
     current = current_facts_by_field(facts, alignment=alignment)
     return _apply_fact_overrides(workspace, current)
 
@@ -1059,6 +1124,133 @@ def _source_summary(workspace: models.ReviewWorkspace) -> list[dict[str, Any]]:
         }
         for document in workspace.documents.all()
     ]
+
+
+def _merge_candidates_for_state(
+    *,
+    facts: list[Any],
+    alignment: Any,
+    prior_decisions: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Build the JSON shape of `reviewed_state['merge_candidates']` (Phase B1).
+
+    Maps each Tier-2 `MergeCandidate` from the alignment into the
+    advisor-facing dict shape declared in plan §A3:
+
+        {
+          "key": "<prefix>:<canonical_a_index>:<canonical_b_index>",
+          "prefix": "people" | "accounts" | "goals",
+          "canonical_a_index": int,
+          "canonical_b_index": int,
+          "score": int,
+          "matched_fields": list[str],
+          "confidence": "medium",
+          "canonical_a_features": {display_name, contributing_doc_count, available_fields},
+          "canonical_b_features": {...},
+        }
+
+    Round 18 #17 — applies prior_decisions BEFORE surfacing:
+      - "merge"          -> never surface (the merge has already been
+                            re-executed via fact re-indexing on the
+                            persisted state by the resolve endpoint).
+      - "keep_separate"  -> filter from the surfaced list UNLESS the
+                            pair has now crossed the Tier-1 threshold
+                            (overwhelming new signal forces re-adjudication).
+      - "defer"          -> surface again (defer = "decide later").
+
+    PII discipline (canon §11.8.3): `display_name` per canonical is
+    a structural advisor-display field already exposed elsewhere in
+    reviewed_state; we surface only NAMED counts + field-name lists.
+    No raw values, DOBs, account numbers, evidence quotes.
+    """
+    candidates_shape: list[dict[str, Any]] = []
+    canonicals_by_key = {(e.prefix, e.canonical_index): e for e in alignment.canonical_entities}
+
+    # Pre-compute display_name per (prefix, canonical_index) by scanning
+    # facts whose aligned canonical_index matches.
+    display_names: dict[tuple[str, int], str] = {}
+    available_fields: dict[tuple[str, int], set[str]] = {}
+    contributing_doc_ids: dict[tuple[str, int], set[Any]] = {}
+    for fact in facts:
+        canonical = alignment.canonical_index_for(fact)
+        if canonical is None:
+            continue
+        # Re-derive prefix + suffix from the fact's field path. Use the
+        # ORIGINAL local index for parsing; canonical_index_for returns
+        # the canonical index regardless of where the fact's `.field`
+        # currently points.
+        field_str = str(getattr(fact, "field", "") or "")
+        for prefix in ("people", "accounts", "goals"):
+            marker = f"{prefix}["
+            if not field_str.startswith(marker):
+                continue
+            try:
+                suffix = field_str.split(".", 1)[1]
+            except IndexError:
+                continue
+            key = (prefix, canonical)
+            available_fields.setdefault(key, set()).add(suffix)
+            doc_id = getattr(getattr(fact, "document", None), "id", None) or getattr(
+                fact, "document_id", None
+            )
+            if doc_id is not None:
+                contributing_doc_ids.setdefault(key, set()).add(doc_id)
+            if prefix == "people" and suffix in ("display_name", "name", "full_name"):
+                if key not in display_names:
+                    display_names[key] = str(getattr(fact, "value", "") or "")
+            elif prefix == "accounts" and suffix in ("display_name", "account_label", "label"):
+                if key not in display_names:
+                    display_names[key] = str(getattr(fact, "value", "") or "")
+            elif prefix == "goals" and suffix in ("name", "goal_name", "display_name"):
+                if key not in display_names:
+                    display_names[key] = str(getattr(fact, "value", "") or "")
+            break
+
+    for candidate in alignment.merge_candidates:
+        key = f"{candidate.prefix}:{candidate.canonical_a_index}:{candidate.canonical_b_index}"
+        prior = prior_decisions.get(key)
+        if prior == "merge":
+            # Already executed via fact re-indexing on a prior resolve.
+            # Don't surface and don't re-emit.
+            continue
+        if prior == "keep_separate":
+            # Round 18 #17: keep-separate decisions stay hidden unless
+            # the pair has now crossed Tier-1 (impossible by construction
+            # because Tier-1 alignment would have already merged them
+            # into a single canonical, so the pair wouldn't appear in
+            # `alignment.merge_candidates` at all). We filter here as a
+            # belt-and-suspenders safety.
+            continue
+        # "defer" or absent prior decision -> surface.
+
+        a_key = (candidate.prefix, candidate.canonical_a_index)
+        b_key = (candidate.prefix, candidate.canonical_b_index)
+        a_entity = canonicals_by_key.get(a_key)
+        b_entity = canonicals_by_key.get(b_key)
+        candidates_shape.append(
+            {
+                "key": key,
+                "prefix": candidate.prefix,
+                "canonical_a_index": candidate.canonical_a_index,
+                "canonical_b_index": candidate.canonical_b_index,
+                "score": candidate.score,
+                "matched_fields": list(candidate.matched_fields),
+                "confidence": candidate.confidence,
+                "canonical_a_features": {
+                    "display_name": display_names.get(a_key, ""),
+                    "contributing_doc_count": len(contributing_doc_ids.get(a_key, set()))
+                    or (len(a_entity.contributing_docs) if a_entity else 0),
+                    "available_fields": sorted(available_fields.get(a_key, set())),
+                },
+                "canonical_b_features": {
+                    "display_name": display_names.get(b_key, ""),
+                    "contributing_doc_count": len(contributing_doc_ids.get(b_key, set()))
+                    or (len(b_entity.contributing_docs) if b_entity else 0),
+                    "available_fields": sorted(available_fields.get(b_key, set())),
+                },
+            }
+        )
+    return candidates_shape
 
 
 def _conflicts(workspace: models.ReviewWorkspace) -> list[dict[str, Any]]:
@@ -1346,7 +1538,7 @@ def _merge_household_state(household: models.Household, state: dict[str, Any]) -
             external_id=external_id,
             household=household,
             owner_person=owner,
-            account_type=account_state.get("type") or "Non-Registered",
+            account_type=_normalize_account_type(account_state.get("type")) or "Non-Registered",
             regulatory_objective=account_state.get("regulatory_objective") or "growth_and_income",
             regulatory_time_horizon=account_state.get("regulatory_time_horizon") or "3-10y",
             regulatory_risk_rating=account_state.get("regulatory_risk_rating") or "medium",

@@ -180,6 +180,16 @@ urlpatterns = [
         name="review-workspace-conflict-defer",
     ),
     path(
+        "api/review-workspaces/<str:workspace_id>/merge-candidates/bulk-keep-separate/",
+        views.MergeCandidateBulkKeepSeparateView.as_view(),
+        name="review-workspace-merge-candidate-bulk-keep-separate",
+    ),
+    path(
+        "api/review-workspaces/<str:workspace_id>/merge-candidates/<path:key>/resolve/",
+        views.MergeCandidateResolveView.as_view(),
+        name="review-workspace-merge-candidate-resolve",
+    ),
+    path(
         "api/review-workspaces/<str:workspace_id>/facts/override/",
         views.ReviewWorkspaceFactOverrideView.as_view(),
         name="review-workspace-fact-override",

@@ -26,7 +26,12 @@ from typing import Any
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from extraction.entity_alignment import align_facts
+from extraction.entity_alignment import (
+    ACCOUNTS_THRESHOLD,
+    GOALS_THRESHOLD,
+    PEOPLE_THRESHOLD,
+    align_facts,
+)
 from extraction.reconciliation import conflicts_for_facts
 
 
@@ -229,3 +234,81 @@ def test_alignment_never_increases_dob_or_account_conflicts(specs) -> None:
         f"Alignment increased identity-stable conflicts: "
         f"{_stable(pre_conflicts)} -> {_stable(post_conflicts)} for specs {specs!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Property 4 (Phase B1 / Round 18 #1): Tier-2 candidate scores are STRICTLY
+# below the Tier-1 threshold for their prefix. This invariant is what
+# makes the two tiers DISJOINT on any single canonical pair.
+# ---------------------------------------------------------------------------
+
+
+@given(specs=_person_specs())
+@settings(
+    max_examples=10,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow],
+)
+def test_tier_2_candidates_score_strictly_below_tier_1_threshold(specs) -> None:
+    facts = _facts_from_specs(specs)
+    if not facts:
+        return  # vacuously satisfied
+    alignment = align_facts(facts)
+    thresholds = {
+        "people": PEOPLE_THRESHOLD,
+        "accounts": ACCOUNTS_THRESHOLD,
+        "goals": GOALS_THRESHOLD,
+    }
+    for cand in alignment.merge_candidates:
+        threshold = thresholds[cand.prefix]
+        assert cand.score < threshold, (
+            f"Tier-2 candidate score {cand.score} >= Tier-1 threshold {threshold} for "
+            f"prefix={cand.prefix} (a={cand.canonical_a_index}, b={cand.canonical_b_index})"
+        )
+        assert cand.canonical_a_index < cand.canonical_b_index, (
+            f"Tier-2 candidate must have a<b indices: {cand!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Property 5 (Phase B1 / canon §11.8.3): MergeCandidate dataclass holds
+# only structural fields — no raw values, names, DOBs, or evidence quotes.
+# Display names are surfaced separately at the JSON-shape boundary, not in
+# the dataclass.
+# ---------------------------------------------------------------------------
+
+
+@given(specs=_person_specs())
+@settings(
+    max_examples=10,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow],
+)
+def test_tier_2_emission_no_pii_in_merge_candidate_dataclass(specs) -> None:
+    facts = _facts_from_specs(specs)
+    if not facts:
+        return  # vacuously satisfied
+    alignment = align_facts(facts)
+    if not alignment.merge_candidates:
+        return  # vacuously satisfied
+    structural_field_names = {
+        "prefix",
+        "canonical_a_index",
+        "canonical_b_index",
+        "score",
+        "matched_fields",
+        "contradicting_fields",
+        "confidence",
+    }
+    for cand in alignment.merge_candidates:
+        # Same field set every time — no smuggled raw values.
+        assert set(cand.__dataclass_fields__) == structural_field_names
+        # matched_fields entries are field-NAMES (strings), not raw values.
+        for fname in cand.matched_fields:
+            assert isinstance(fname, str)
+            # No spaces or digits beyond expected suffix names; field
+            # names are short identifiers like "name_token", "dob",
+            # "account_number_hash" — all alphanumeric+underscore.
+            assert all(ch.isalnum() or ch == "_" for ch in fname), (
+                f"matched_fields entry {fname!r} looks non-structural"
+            )
