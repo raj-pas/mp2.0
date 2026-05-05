@@ -47,6 +47,20 @@ declare -a FORBIDDEN=(
   # paren (function-arg) or a dot (member access) so code references
   # don't trip the guard.
   '\bSleeve [a-z]'
+  # P5 (plan v20 §A1.34) — non-canon risk descriptors (canon §11.4
+  # locks the 1-5 → Cautious / Conservative-balanced / Balanced /
+  # Balanced-growth / Growth-oriented mapping). The mockup's retired
+  # "low risk" / "medium risk" / "high risk" labels MUST NOT reappear
+  # in any user-visible string. Word boundaries catch the advisor-
+  # facing copy form; identifier-like "low_risk" is left alone.
+  '\blow risk\b'
+  '\bmedium risk\b'
+  '\bhigh risk\b'
+  # P3.1 (plan v20 §A1.32) — stale "Phase R<N>" labels from the v36 UX
+  # migration plan (R0-R10) must NOT appear in user-visible copy. The
+  # canon taxonomy is Phase A/B/C; internal round labels are not for
+  # advisor/analyst eyes.
+  '\bPhase R[0-9]'
 )
 
 # Allow-listed contexts where forbidden words are LEGITIMATE (e.g., this
@@ -100,7 +114,8 @@ if [[ $found_any -eq 1 ]]; then
   echo "  - Re-goaling, goal realignment, re-label dollars between goals"
   echo "    (NOT reallocation / transfer / move money — canon §6.3a)"
   echo "  - Cautious / Conservative-balanced / Balanced /"
-  echo "    Balanced-growth / Growth-oriented (NOT bare 'Conservative')"
+  echo "    Balanced-growth / Growth-oriented (NOT bare 'Conservative',"
+  echo "    NOT 'low risk' / 'medium risk' / 'high risk' — canon §11.4)"
   echo "  - building-block fund / whole-portfolio fund / fund"
   echo "    (NOT user-visible 'Sleeve ' — class identifier OK)"
   exit 1

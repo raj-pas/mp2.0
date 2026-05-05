@@ -6,22 +6,30 @@
  * Keep this file in sync with `web/api/wizard_views.py` —
  * locked decision #29 (react-hook-form + zod) is the only
  * approved client validation surface.
+ *
+ * P5 / G7 (plan v20 §A1.34): Person, Account, Goal, GoalAccountLink
+ * base shapes live in `frontend/src/lib/schemas.ts` so the Wizard
+ * and Review surfaces share one source of truth. This file
+ * `.extend()`s the bases for wizard-specific fields (e.g.
+ * `missing_holdings_confirmed`) and layers on the wizard-only
+ * superRefine logic (account-centric + goal-side P14 hard-blocks).
  */
 import { z } from "zod";
 
-export const ACCOUNT_TYPES = [
-  "RRSP",
-  "TFSA",
-  "RESP",
-  "RDSP",
-  "FHSA",
-  "Non-Registered",
-  "LIRA",
-  "RRIF",
-  "Corporate",
-] as const;
+import {
+  BaseAccountSchema,
+  BaseGoalAccountLinkSchema,
+  BaseGoalSchema,
+  BasePersonSchema,
+  CANON_ACCOUNT_TYPES,
+  type CanonAccountType,
+  moneyStringSchema,
+} from "../lib/schemas";
 
-export type AccountType = (typeof ACCOUNT_TYPES)[number];
+// Re-export the canonical account-type vocabulary under the legacy
+// wizard-local names so existing consumers keep working.
+export const ACCOUNT_TYPES = CANON_ACCOUNT_TYPES;
+export type AccountType = CanonAccountType;
 
 export const Q2Q4_CHOICES = ["A", "B", "C", "D"] as const;
 export type Q2Q4Choice = (typeof Q2Q4_CHOICES)[number];
@@ -31,18 +39,9 @@ export type Q2Q4Choice = (typeof Q2Q4_CHOICES)[number];
 export const Q3_STRESSORS = ["career", "health", "family", "market_volatility"] as const;
 export type Q3Stressor = (typeof Q3_STRESSORS)[number];
 
-const memberSchema = z.object({
-  name: z.string().trim().min(1, "Name required."),
-  dob: z.string().trim().min(1, "DOB required."),
-});
+const memberSchema = BasePersonSchema;
 
-const accountSchema = z.object({
-  account_type: z.enum(ACCOUNT_TYPES),
-  current_value: z
-    .string()
-    .trim()
-    .refine((s) => /^\d+(\.\d{1,2})?$/.test(s), "Use a number like 120000.00"),
-  custodian: z.string().trim().default(""),
+const accountSchema = BaseAccountSchema.extend({
   /**
    * Advisor confirms "no fund-level holdings to track" for this account
    * (e.g., GIC, single-fund, cash). When true, engine-readiness accepts
@@ -56,34 +55,14 @@ const accountSchema = z.object({
   missing_holdings_confirmed: z.boolean().default(false),
 });
 
-const goalLegSchema = z.object({
-  account_index: z.number().int().nonnegative(),
-  allocated_amount: z
-    .string()
-    .trim()
-    .refine((s) => /^\d+(\.\d{1,2})?$/.test(s), "Use a number like 120000.00"),
-});
+const goalLegSchema = BaseGoalAccountLinkSchema;
 
-const goalSchema = z.object({
-  name: z.string().trim().min(1, "Goal name required."),
-  target_date: z.string().trim().min(1, "Target date required."),
-  necessity_score: z.number().int().min(1).max(5),
-  target_amount: z
-    .string()
-    .trim()
-    .refine((s) => s === "" || /^\d+(\.\d{1,2})?$/.test(s), "Use a number or leave blank.")
-    .optional()
-    .default(""),
-  legs: z.array(goalLegSchema).min(1, "Each goal needs at least one account leg."),
-});
+const goalSchema = BaseGoalSchema;
 
 const externalHoldingSchema = z
   .object({
     name: z.string().trim().default(""),
-    value: z
-      .string()
-      .trim()
-      .refine((s) => /^\d+(\.\d{1,2})?$/.test(s), "Use a number."),
+    value: moneyStringSchema,
     equity_pct: z.string().trim(),
     fixed_income_pct: z.string().trim(),
     cash_pct: z.string().trim(),
