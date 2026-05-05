@@ -8,7 +8,17 @@ import { fundColor } from "../lib/funds";
 import { findAccount, useHousehold } from "../lib/household";
 import { formatCad, formatPct } from "../lib/format";
 
-export function AccountContext() {
+interface AccountContextProps {
+  /**
+   * Controlled active-tab value driven by the parent ContextPanel
+   * (P3.2 plan v20 §A1.32). Radix Tabs.Content handles visibility via
+   * the parent Tabs.Root; the prop is plumbed for explicit contract +
+   * future per-tab data fetching.
+   */
+  tab: string;
+}
+
+export function AccountContext({ tab: _tab }: AccountContextProps) {
   const { t } = useTranslation();
   const { accountId } = useParams<{ accountId: string }>();
   const [rememberedId] = useRememberedClientId();

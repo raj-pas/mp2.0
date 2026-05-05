@@ -85,7 +85,6 @@
     "breadcrumb_label": "Context breadcrumb",
     "expand": "Expand context panel",
     "collapse": "Collapse context panel",
-    "placeholder_body": "Detail content lands in subsequent phases. The chrome scaffold is in place per the approved migration plan.",
     "kinds": {
       "household": "Household",
       "account": "Account",
@@ -108,8 +107,7 @@
       "reg_horizon": "Regulatory time horizon"
     },
     "deferred": {
-      "projections_r4": "Projections + fan chart land in Phase R4.",
-      "history_r6": "History snapshots arrive in Phase R6.",
+      "projections_r4": "Household-level projections coming after pilot. Open any goal for its fan chart today.",
       "no_holdings": "No holdings on file."
     }
   },
@@ -198,7 +196,6 @@
       "risk_track_label": "Goal risk band",
       "blended_view_title": "Blended view",
       "linked_accounts_title": "Linked accounts",
-      "advanced_panels_pending": "Allocation, projections, optimizer output, and rebalance moves arrive in Phase R4.",
       "recommendation_banner": "Recommendation {{signature}} • {{when}}",
       "no_recommendation_yet": "No recommendation generated yet",
       "regenerate": "Regenerate",
@@ -219,18 +216,6 @@
       "integrity_overlay_title": "Integrity check failed",
       "integrity_overlay_body": "Engineering has been notified. Do not act on this recommendation.",
       "integrity_overlay_run_ref": "Run {{signature}} · ops-runbook §portfolio_run_integrity_alert"
-    },
-    "review": {
-      "placeholder_title": "Review queue",
-      "placeholder_description": "Doc-drop and conflict resolution surface ships in Phase R7."
-    },
-    "cma": {
-      "placeholder_title": "CMA Workbench",
-      "placeholder_description": "Analyst CMA tooling ships in Phase R9."
-    },
-    "methodology": {
-      "placeholder_title": "Methodology",
-      "placeholder_description": "Ten-section methodology overlay ships in Phase R8."
     }
   },
   "treemap": {
@@ -482,12 +467,10 @@
     "boundary_title": "Something went wrong",
     "boundary_scoped": "Error in {{scope}}. The rest of the console is still available.",
     "boundary_unscoped": "An unexpected error occurred.",
-    "report_phase_b": "Reporting channel coming in Phase B.",
+    "report_phase_b": "Thanks — error captured locally. Use the Feedback button to send it to ops.",
     "report_this": "Report this"
   },
   "scaffold": {
-    "phase_label": "Phase R0 · Foundation",
-    "phase_label_r2": "Phase R2 · Chrome",
     "title": "v36 rewrite scaffold ready",
     "description": "Engine modules + design tokens + i18n + a11y + telemetry are wired. The advisor console (TopBar / Stage / Context Panel / three-view) lands in subsequent phases per the approved migration plan."
   },

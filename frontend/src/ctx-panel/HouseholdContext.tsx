@@ -16,10 +16,16 @@ import { formatCad, formatPct } from "../lib/format";
 import { descriptorFor } from "../lib/risk";
 
 interface HouseholdContextProps {
+  /**
+   * Controlled active-tab value driven by the parent ContextPanel
+   * (P3.2 plan v20 §A1.32). Currently used for defensive empty-state
+   * rendering; Radix Tabs.Content handles the actual visibility via its
+   * parent `Tabs.Root value=` prop.
+   */
   tab: string;
 }
 
-export function HouseholdContext({ tab }: HouseholdContextProps) {
+export function HouseholdContext({ tab: _tab }: HouseholdContextProps) {
   const { t } = useTranslation();
   const [rememberedId] = useRememberedClientId();
   const householdQuery = useHousehold(rememberedId);
@@ -82,10 +88,6 @@ export function HouseholdContext({ tab }: HouseholdContextProps) {
       <Tabs.Content value="history" className="flex-1 overflow-y-auto p-3.5">
         <HouseholdHistoryTab />
       </Tabs.Content>
-
-      {/* Use a noop tab content if for some reason the requested tab
-          isn't one of the above (defensive — Radix Tabs handles this). */}
-      <Tabs.Content value="__noop" key={tab} hidden />
     </>
   );
 }

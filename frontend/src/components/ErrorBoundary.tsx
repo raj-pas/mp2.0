@@ -3,6 +3,7 @@ import { Component } from "react";
 
 import i18n from "../i18n";
 import { cn } from "../lib/cn";
+import { toastError } from "../lib/toast";
 
 /**
  * Top-level + per-route React ErrorBoundary (locked decision #31a).
@@ -88,8 +89,9 @@ export class ErrorBoundary extends Component<Props, State> {
           <button
             type="button"
             onClick={() => {
-              // Phase B: wire to a real "report this" channel.
-              window.alert(i18n.t("errors.report_phase_b"));
+              // Local-capture report (P3.1 polish). Future "report this"
+              // channel wires up via the Feedback button in the chrome.
+              toastError(i18n.t("errors.report_phase_b"));
             }}
             className={cn(
               "border border-hairline-2 bg-paper-2 px-4 py-2 text-xs font-medium uppercase tracking-wider text-ink-2",

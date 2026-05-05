@@ -36,11 +36,34 @@ const TAB_DEFS: Record<ContextPanelKind, { value: string; labelKey: string }[]> 
   ],
 };
 
+/**
+ * Per-kind localStorage keys for active-tab persistence (P3.2 §A1.32).
+ * Each kind gets its own key so switching between household/account/goal
+ * preserves the last-active tab independently for each.
+ */
+const TAB_STORAGE_KEYS: Record<ContextPanelKind, string> = {
+  household: "mp20_ctx_tab_household",
+  account: "mp20_ctx_tab_account",
+  goal: "mp20_ctx_tab_goal",
+};
+
 export function ContextPanel({ kind, breadcrumb }: ContextPanelProps) {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useLocalStorage<boolean>("mp20_ctx_panel_collapsed", false);
   const tabs = TAB_DEFS[kind];
   const firstTab = tabs[0];
+  const defaultTabValue = firstTab?.value ?? "overview";
+
+  // Controlled Tabs.Root state with per-kind localStorage persistence
+  // (P3.2 plan v20 §A1.32). useLocalStorage shares state cross-component
+  // and survives reloads; if the persisted tab no longer exists for this
+  // kind (e.g. catalog change), fall back to the first tab defensively.
+  const [persistedTab, setPersistedTab] = useLocalStorage<string>(
+    TAB_STORAGE_KEYS[kind],
+    defaultTabValue,
+  );
+  const isKnownTab = tabs.some((t) => t.value === persistedTab);
+  const activeTab = isKnownTab ? persistedTab : defaultTabValue;
 
   if (collapsed) {
     return (
@@ -76,7 +99,11 @@ export function ContextPanel({ kind, breadcrumb }: ContextPanelProps) {
           <ChevronRight aria-hidden className="h-4 w-4" />
         </Button>
       </div>
-      <Tabs.Root defaultValue={firstTab?.value} className="flex flex-1 flex-col overflow-hidden">
+      <Tabs.Root
+        value={activeTab}
+        onValueChange={setPersistedTab}
+        className="flex flex-1 flex-col overflow-hidden"
+      >
         <Tabs.List className="flex flex-shrink-0 overflow-x-auto border-b border-hairline bg-paper">
           {tabs.map((tab) => (
             <Tabs.Trigger
@@ -92,16 +119,16 @@ export function ContextPanel({ kind, breadcrumb }: ContextPanelProps) {
             </Tabs.Trigger>
           ))}
         </Tabs.List>
-        <ContextBody kind={kind} />
+        <ContextBody kind={kind} tab={activeTab} />
       </Tabs.Root>
     </aside>
   );
 }
 
-function ContextBody({ kind }: { kind: ContextPanelKind }) {
-  if (kind === "household") return <HouseholdContext tab="overview" />;
-  if (kind === "account") return <AccountContext />;
-  return <GoalContext />;
+function ContextBody({ kind, tab }: { kind: ContextPanelKind; tab: string }) {
+  if (kind === "household") return <HouseholdContext tab={tab} />;
+  if (kind === "account") return <AccountContext tab={tab} />;
+  return <GoalContext tab={tab} />;
 }
 
 function Breadcrumb({ segments }: { segments: string[] }) {

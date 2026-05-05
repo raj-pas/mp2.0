@@ -10,7 +10,17 @@ import { formatCad } from "../lib/format";
 import { useOverrideHistory } from "../lib/preview";
 import { descriptorFor, isCanonRisk } from "../lib/risk";
 
-export function GoalContext() {
+interface GoalContextProps {
+  /**
+   * Controlled active-tab value driven by the parent ContextPanel
+   * (P3.2 plan v20 §A1.32). Radix Tabs.Content handles visibility via
+   * the parent Tabs.Root; the prop is plumbed for explicit contract +
+   * future per-tab data fetching.
+   */
+  tab: string;
+}
+
+export function GoalContext({ tab: _tab }: GoalContextProps) {
   const { t } = useTranslation();
   const { goalId } = useParams<{ goalId: string }>();
   const [rememberedId] = useRememberedClientId();
