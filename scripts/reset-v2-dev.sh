@@ -51,4 +51,20 @@ uv run python web/manage.py seed_default_cma --force
 uv run python web/manage.py bootstrap_local_advisor --skip-if-missing
 uv run python web/manage.py load_synthetic_personas
 
-echo "V2 dev DB reset and reseed complete."
+# Bring up backend + worker. Without the worker, /review uploads sit
+# in PROCESSING forever and surface "Processing offline — no worker
+# reachable" in DocDropOverlay. The frontend's worker-heartbeat check
+# is correct; the bug is that earlier versions of this script left the
+# worker container down after reset.
+docker compose up -d backend worker
+
+echo "Waiting for backend to respond on http://localhost:8000/api/session/..."
+for _ in {1..30}; do
+  if curl -fsS -o /dev/null -m 2 http://localhost:8000/api/session/ 2>/dev/null; then
+    echo "Backend is healthy."
+    break
+  fi
+  sleep 1
+done
+
+echo "V2 dev DB reset and reseed complete. Services up: db + backend + worker."
