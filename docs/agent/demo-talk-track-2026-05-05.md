@@ -6,11 +6,12 @@
 **Branch:** `feature/ux-rebuild` (+18 commits past origin; not yet pushed)
 
 ## Time budget: 30 min total
-- 10 min — show what works (Sandra/Mike full flow)
+- 8 min — show what works (Sandra/Mike full flow)
+- 4 min — show secondary committed couple (David & Margaret Hartman) for variety
 - 5 min — show real-PII friction (Niesner pre-UI)
 - 5 min — show the matcher Tier-2 fix landed (commit 7274485 + 28 merge candidates surfaced)
-- 5 min — walk the plan (37 lock-ins, 8 phases, 14-tier test strategy)
-- 5 min — Q&A / next steps
+- 4 min — walk the plan (37 lock-ins, 8 phases, 14-tier test strategy)
+- 4 min — Q&A / next steps
 
 ---
 
@@ -36,7 +37,27 @@ Talk track:
 
 ---
 
-## Part 2 (5 min) — Real-PII friction we discovered: Niesner couple workspace
+## Part 2 (4 min) — Secondary committed couple: David & Margaret Hartman
+
+**TopBar ClientPicker → David & Margaret Hartman**
+
+Talk track:
+> "Different shape household — pre-retirement couple in their late 50s. Showcases variety: different risk score, different goal mix, different fund weights."
+
+**Walk:**
+1. **HouseholdRoute** — AUM $900K (RRSP $800K + TFSA $100K), risk score 4 (Balanced-growth descriptor), PortfolioRun signature `9f0907d7`
+2. **Members** — David Hartman (57, Senior Engineer, high investment knowledge); Margaret Hartman (55, Healthcare Administrator, medium knowledge)
+3. **Goals** — Retirement ($1.2M target by 2035, $890K currently allocated) + YOLO ($500K target by 2030, $10K allocated; YOLO is the client's informal name)
+4. **GoalRoute → Retirement** — engine recommendation rendered; allocation matrix shows RRSP ($800K) + TFSA ($90K) split
+
+**Key callouts:**
+- Same engine→UI plumbing as Sandra/Mike but DIFFERENT data shapes
+- Demonstrates that the system handles variety (not just one canonical persona)
+- Goal-account-links auto-extracted from advisor planning docs; matrix renders correctly
+
+---
+
+## Part 3 (5 min) — Real-PII friction we discovered: Niesner couple workspace
 
 **Switch to /review → Niesner review (demo prep)**
 
@@ -53,7 +74,7 @@ Talk track:
 
 ---
 
-## Part 3 (5 min) — The matcher Tier-2 fix just shipped backend (commit 7274485)
+## Part 4 (5 min) — The matcher Tier-2 fix just shipped backend (commit 7274485)
 
 Talk track:
 > "We solved this with a third state — merge candidates. Tier-1 stays tight; Tier-2 surfaces medium-confidence pairs to the advisor for adjudication. Just landed in the last hour."
@@ -85,7 +106,7 @@ Sample candidates:
 
 ---
 
-## Part 4 (5 min) — The plan: 37 lock-ins, 8 phases, 14-tier test strategy
+## Part 5 (4 min) — The plan: 37 lock-ins, 8 phases, 14-tier test strategy
 
 **Show:** `~/.claude/plans/you-are-continuing-a-playful-hammock.md` (1547 lines)
 
@@ -130,7 +151,7 @@ Talk track:
 
 ---
 
-## Part 5 (5 min) — Q&A + Next Steps
+## Part 6 (4 min) — Q&A + Next Steps
 
 **Anticipated questions:**
 
