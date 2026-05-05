@@ -39,3 +39,7 @@ real-data/
 .DS_Store
 .idea/
 .vscode/
+
+# Claude Code runtime + Playwright last-run artifacts (root-level)
+.claude/
+test-results/
