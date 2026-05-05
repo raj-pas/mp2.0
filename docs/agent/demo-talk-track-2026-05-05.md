@@ -6,12 +6,13 @@
 **Branch:** `feature/ux-rebuild` (+18 commits past origin; not yet pushed)
 
 ## Time budget: 30 min total
-- 8 min — show what works (Sandra/Mike full flow)
-- 4 min — show secondary committed couple (David & Margaret Hartman) for variety
-- 5 min — show real-PII friction (Niesner pre-UI)
-- 5 min — show the matcher Tier-2 fix landed (commit 7274485 + 28 merge candidates surfaced)
+- 6 min — show what works post-commit (Sandra/Mike full flow)
+- 3 min — show secondary committed couple (David & Margaret Hartman) for variety
+- 6 min — show full RECONCILIATION UI pre-commit (Werhya: 5 docs, ConflictPanel, MissingPanel, SectionApprovalPanel, StatePeekPanel)
+- 4 min — show real-PII stress case (Niesner over-fragmentation: 11/30/18, 28 merge candidates)
+- 4 min — show the matcher Tier-2 fix landed (commit 7274485)
 - 4 min — walk the plan (37 lock-ins, 8 phases, 14-tier test strategy)
-- 4 min — Q&A / next steps
+- 3 min — Q&A / next steps
 
 ---
 
@@ -57,7 +58,36 @@ Talk track:
 
 ---
 
-## Part 3 (5 min) — Real-PII friction we discovered: Niesner couple workspace
+## Part 3 (6 min) — Pre-commit RECONCILIATION UI: Werhya real-PII workspace
+
+**Switch to /review → Werhya**
+
+Talk track:
+> "This is where the advisor lives during onboarding. Real-PII single-person workspace, 5 docs uploaded, extraction completed. Pre-commit. Let me walk you through the full reconciliation UI."
+
+**Walk:**
+1. **/review queue** — workspace queue shows in-flight workspaces with status pills (review_ready, processing). Werhya is review_ready.
+2. **Open Werhya** → ReviewScreen full layout:
+   - **DocsPanel (left)** — 5 docs all reconciled: AW Address.pdf (identity), AW Client Notes.docx (meeting_note), AW DOB.pdf (identity), AW KYC.pdf (kyc), AW Profile.pdf (kyc). Each shows status pill.
+   - **ProcessingPanel** — extraction completed, no stale-job banner
+   - **ConflictPanel** — "Field disagreements (1)" — `people[3].display_name` required disagreement; advisor picks candidate, enters rationale + evidence_ack, submits
+   - **MergeCandidateGroup** (NEW from Phase B1) — "Possible duplicates (6)" — 6 candidate pairs of fragmented person canonicals (single person extracted across 5 docs produced 5 fragments). All score 90 with `matched_fields=['name_token', 'last_name']`. Once UI ships (Phase B2), advisor merges → people drops 5→1.
+   - **MissingPanel** — required-section blockers
+   - **StatePeekPanel** — reviewed state preview: people=5, accounts=4, goals=1, links=0
+   - **SectionApprovalPanel** — household / people / accounts / goals / goal_account_mapping / risk approval rows
+3. **DocDetailPanel** — click any doc → slide-out with per-fact provenance, redacted evidence quotes, source pill, confidence chip
+4. **Right-rail HouseholdContext** — History tab + AuditTimelinePanel showing extraction events
+
+**Key callouts:**
+- This is the FULL pre-commit advisor experience working today
+- Document-evidence-first reconciliation; every fact ties to a doc + page + redacted quote
+- ConflictPanel forces explicit advisor adjudication with rationale + evidence_ack (canon §9.4.5)
+- Phase B1 just shipped surfaces 6 merge candidates; UI for advisor merge action ships in Phase B2
+- engine_ready=False until advisor approves required sections + resolves blocking conflicts
+
+---
+
+## Part 4 (4 min) — Real-PII stress case: Niesner couple workspace
 
 **Switch to /review → Niesner review (demo prep)**
 
@@ -74,7 +104,7 @@ Talk track:
 
 ---
 
-## Part 4 (5 min) — The matcher Tier-2 fix just shipped backend (commit 7274485)
+## Part 5 (4 min) — The matcher Tier-2 fix just shipped backend (commit 7274485)
 
 Talk track:
 > "We solved this with a third state — merge candidates. Tier-1 stays tight; Tier-2 surfaces medium-confidence pairs to the advisor for adjudication. Just landed in the last hour."
@@ -106,7 +136,7 @@ Sample candidates:
 
 ---
 
-## Part 5 (4 min) — The plan: 37 lock-ins, 8 phases, 14-tier test strategy
+## Part 6 (4 min) — The plan: 37 lock-ins, 8 phases, 14-tier test strategy
 
 **Show:** `~/.claude/plans/you-are-continuing-a-playful-hammock.md` (1547 lines)
 
@@ -151,7 +181,7 @@ Talk track:
 
 ---
 
-## Part 6 (4 min) — Q&A + Next Steps
+## Part 7 (3 min) — Q&A + Next Steps
 
 **Anticipated questions:**
 
