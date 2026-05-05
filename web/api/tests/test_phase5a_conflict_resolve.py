@@ -36,7 +36,14 @@ def _user(email: str = "advisor@example.com"):
 
 
 def _make_conflicting_workspace(user, *, with_pii_quote: bool = False):
-    """Build a workspace with two docs producing conflicting age facts."""
+    """Build a workspace with two docs producing conflicting age facts.
+
+    Phase P1.1 (2026-05-05): cross-doc entity alignment requires TWO
+    identifying fields to merge `people[0]` references across docs.
+    Both docs share `display_name` + `accounts[0].account_number` so
+    the matcher aligns them to a single canonical person — exposing
+    the age disagreement on the canonical field.
+    """
     workspace = models.ReviewWorkspace.objects.create(
         label="conflict-test",
         owner=user,
@@ -60,6 +67,28 @@ def _make_conflicting_workspace(user, *, with_pii_quote: bool = False):
         document_type="statement",
         status=models.ReviewDocument.Status.RECONCILED,
     )
+    # Identity anchors so alignment merges to one canonical person.
+    for doc, run in ((kyc_doc, "kyc-run"), (statement_doc, "statement-run")):
+        models.ExtractedFact.objects.create(
+            workspace=workspace,
+            document=doc,
+            field="people[0].display_name",
+            value="Sarah Chen",
+            confidence="high",
+            derivation_method="extracted",
+            evidence_quote="Account holder: Sarah Chen",
+            extraction_run_id=run,
+        )
+        models.ExtractedFact.objects.create(
+            workspace=workspace,
+            document=doc,
+            field="accounts[0].account_number",
+            value="98765432",
+            confidence="high",
+            derivation_method="extracted",
+            evidence_quote="Account: 98765432",
+            extraction_run_id=run,
+        )
     quote_kyc = (
         "DOB: 1965-03-12; SIN 123-456-789" if with_pii_quote else "Date of birth: 1965-03-12"
     )

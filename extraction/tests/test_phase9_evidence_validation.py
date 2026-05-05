@@ -156,30 +156,35 @@ class TestFilterInferredFactsByEvidence:
 
 
 class TestPromptVersionsBumpedToV3:
-    def test_kyc_prompt_version_is_v3(self) -> None:
+    """Phase 9 v3 baseline; Phase P1.1 (2026-05-05) bumped to v4
+    `_tooluse_entity_aligned` (locked decision). The v4 string must
+    SUFFIX the original v3 marker family so the full version chain
+    remains greppable across releases."""
+
+    def test_kyc_prompt_version_is_v4_entity_aligned(self) -> None:
         from extraction.prompts.kyc import PROMPT_VERSION
 
-        assert PROMPT_VERSION == "kyc_review_facts_v3_tooluse"
+        assert PROMPT_VERSION == "kyc_review_facts_v4_tooluse_entity_aligned"
 
-    def test_statement_prompt_version_is_v3(self) -> None:
+    def test_statement_prompt_version_is_v4_entity_aligned(self) -> None:
         from extraction.prompts.statement import PROMPT_VERSION
 
-        assert PROMPT_VERSION == "statement_review_facts_v3_tooluse"
+        assert PROMPT_VERSION == "statement_review_facts_v4_tooluse_entity_aligned"
 
-    def test_meeting_note_prompt_version_is_v3(self) -> None:
+    def test_meeting_note_prompt_version_is_v4_entity_aligned(self) -> None:
         from extraction.prompts.meeting_note import PROMPT_VERSION
 
-        assert PROMPT_VERSION == "meeting_note_review_facts_v3_tooluse"
+        assert PROMPT_VERSION == "meeting_note_review_facts_v4_tooluse_entity_aligned"
 
-    def test_generic_prompt_version_is_v3(self) -> None:
+    def test_generic_prompt_version_is_v4_entity_aligned(self) -> None:
         from extraction.prompts.generic import PROMPT_VERSION
 
-        assert PROMPT_VERSION == "generic_review_facts_v3_tooluse"
+        assert PROMPT_VERSION == "generic_review_facts_v4_tooluse_entity_aligned"
 
-    def test_planning_prompt_version_is_v3(self) -> None:
+    def test_planning_prompt_version_is_v4_entity_aligned(self) -> None:
         from extraction.prompts.planning import PROMPT_VERSION
 
-        assert PROMPT_VERSION == "planning_review_facts_v3_tooluse"
+        assert PROMPT_VERSION == "planning_review_facts_v4_tooluse_entity_aligned"
 
     def test_base_no_fabrication_block_includes_strong_signal_section(self) -> None:
         from extraction.prompts.base import NO_FABRICATION_BLOCK

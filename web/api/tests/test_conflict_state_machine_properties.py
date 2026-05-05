@@ -79,9 +79,19 @@ def _fact(workspace, document, *, field, value):
 
 
 def _seed_conflict(workspace, *, field: str = "people[0].date_of_birth") -> tuple[int, int]:
-    """Two same-class kyc docs disagreeing on `field`. Returns fact ids."""
+    """Two same-class kyc docs disagreeing on `field`. Returns fact ids.
+
+    Phase P1.1 (2026-05-05): cross-doc entity alignment requires TWO
+    identifying fields to merge `people[0]` references across docs.
+    Both docs share `display_name` + `accounts[0].account_number` so
+    the matcher aligns them to a single canonical person.
+    """
     kyc1 = _doc(workspace, filename=f"{field}-kyc1.pdf", document_type="kyc")
     kyc2 = _doc(workspace, filename=f"{field}-kyc2.pdf", document_type="kyc")
+    # Identity anchors so alignment merges to one canonical entity.
+    for doc in (kyc1, kyc2):
+        _fact(workspace, doc, field="people[0].display_name", value="Sarah Smith")
+        _fact(workspace, doc, field="accounts[0].account_number", value="98765432")
     f1 = _fact(workspace, kyc1, field=field, value="value-a")
     f2 = _fact(workspace, kyc2, field=field, value="value-b")
     workspace.reviewed_state = reviewed_state_from_workspace(workspace)
@@ -145,6 +155,10 @@ def test_resurfaced_only_reachable_from_deferred() -> None:
     _seed_conflict(workspace, field=field)
 
     new_doc = _doc(workspace, filename="kyc3.pdf", document_type="kyc")
+    # Phase P1.1: identity anchors keep new evidence on the canonical
+    # person seeded above.
+    _fact(workspace, new_doc, field="people[0].display_name", value="Sarah Smith")
+    _fact(workspace, new_doc, field="accounts[0].account_number", value="98765432")
     _fact(workspace, new_doc, field=field, value="value-c")
     fresh_state = reviewed_state_from_workspace(workspace)
     target = next(c for c in fresh_state.get("conflicts") or [] if c.get("field") == field)
@@ -170,6 +184,10 @@ def test_resurface_requires_new_fact_id() -> None:
     assert target.get("re_surfaced_at") in (None, "")
 
     new_doc = _doc(workspace, filename="kyc-v3.pdf", document_type="kyc")
+    # Phase P1.1: identity anchors keep new evidence on the canonical
+    # person seeded above.
+    _fact(workspace, new_doc, field="people[0].display_name", value="Sarah Smith")
+    _fact(workspace, new_doc, field="accounts[0].account_number", value="98765432")
     _fact(workspace, new_doc, field=field, value="value-c")
     fresh_state = reviewed_state_from_workspace(workspace)
     target = next(c for c in fresh_state.get("conflicts") or [] if c.get("field") == field)
@@ -228,8 +246,22 @@ def test_property_one_open_conflict_per_field(field, values) -> None:
     workspace = models.ReviewWorkspace.objects.create(label="WS-one", owner=user)
 
     seen_values: set[str] = set()
+    # Phase P1.1 identity anchors seeded ONLY on (display_name +
+    # account_number) so alignment merges all docs to one canonical
+    # person per index across all docs. We deliberately skip the
+    # field-under-test so the test's `value` writes are the only
+    # values for that field path.
+    anchor_fields = {
+        "people[0].display_name": "Sarah Smith",
+        "people[1].display_name": "Bob Jones",
+        "accounts[0].account_number": "98765432",
+    }
     for i, value in enumerate(values):
         doc = _doc(workspace, filename=f"kyc{i}.pdf", document_type="kyc")
+        for anchor_field, anchor_value in anchor_fields.items():
+            if anchor_field == field:
+                continue
+            _fact(workspace, doc, field=anchor_field, value=anchor_value)
         _fact(workspace, doc, field=field, value=value)
         seen_values.add(value)
 

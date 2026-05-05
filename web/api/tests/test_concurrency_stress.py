@@ -111,9 +111,15 @@ def _seed_two_conflicts(workspace) -> tuple[int, int]:
     """Two same-class doc conflicts on two distinct fields. Returns
     the (KYC dob fact_id, KYC marital fact_id) tuple — the candidates
     a bulk-resolve concurrent test will pick.
+
+    Phase P1.1 (2026-05-05): identity anchors keep the two docs
+    aligned to one canonical person.
     """
     kyc = _doc(workspace, filename="kyc.pdf", document_type="kyc")
     statement = _doc(workspace, filename="statement.pdf", document_type="kyc")
+    for doc in (kyc, statement):
+        _fact(workspace, doc, field="people[0].display_name", value="Sarah Smith")
+        _fact(workspace, doc, field="accounts[0].account_number", value="98765432")
     kyc_dob = _fact(workspace, kyc, field="people[0].date_of_birth", value="1985-03-12")
     _fact(workspace, statement, field="people[0].date_of_birth", value="1985-03-15")
     kyc_marital = _fact(workspace, kyc, field="people[0].marital_status", value="married")
@@ -124,9 +130,18 @@ def _seed_two_conflicts(workspace) -> tuple[int, int]:
 
 
 def _seed_one_conflict(workspace) -> tuple[str, int]:
-    """Single conflict on people[0].date_of_birth (kyc vs kyc-v2)."""
+    """Single conflict on people[0].date_of_birth (kyc vs kyc-v2).
+
+    Phase P1.1 (2026-05-05): cross-doc entity alignment requires TWO
+    identifying fields to merge `people[0]` references across docs.
+    Both docs share `display_name` + `accounts[0].account_number` so
+    the matcher aligns them to a single canonical person.
+    """
     kyc = _doc(workspace, filename="kyc.pdf", document_type="kyc")
     kyc2 = _doc(workspace, filename="kyc-v2.pdf", document_type="kyc")
+    for doc in (kyc, kyc2):
+        _fact(workspace, doc, field="people[0].display_name", value="Sarah Smith")
+        _fact(workspace, doc, field="accounts[0].account_number", value="98765432")
     kyc_fact = _fact(workspace, kyc, field="people[0].date_of_birth", value="1985-03-12")
     _fact(workspace, kyc2, field="people[0].date_of_birth", value="1985-03-15")
     workspace.reviewed_state = reviewed_state_from_workspace(workspace)

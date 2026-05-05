@@ -8,12 +8,15 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.utils import timezone
+from extraction.entity_alignment import align_facts as compute_entity_alignment
 from extraction.llm import bedrock_config_from_env
 from extraction.parsers import ParserDependencyError, parse_document_path
 from extraction.pipeline import classify_from_parsed, extract_facts_for_document
+from extraction.prompts import TOOLUSE_VERSION_SUFFIX
 from extraction.schemas import SUPPORTED_EXTENSIONS, ParsedDocument
 
 from web.api import models
+from web.api.error_codes import safe_audit_metadata
 from web.api.review_redaction import (
     pii_detection_summary,
     redact_evidence_quote,
@@ -302,6 +305,31 @@ def reconcile_workspace(workspace: models.ReviewWorkspace) -> dict[str, Any]:
         )
         return workspace.reviewed_state or reviewed_state_from_workspace(workspace)
 
+    # Phase P1.1 (2026-05-05) cross-document entity alignment runs FIRST.
+    # We persist `canonical_index` on each ExtractedFact so the audit
+    # trail captures the alignment outcome and downstream queries can
+    # group by canonical entity without recomputing the matcher.
+    # The reviewed-state composer (`reviewed_state_from_workspace`) also
+    # computes alignment internally so the live state is consistent
+    # whether or not persistence has caught up yet — alignment is pure +
+    # deterministic so the two computations agree.
+    facts_for_alignment = list(workspace.extracted_facts.select_related("document"))
+    pre_alignment_field_count = len({str(f.field) for f in facts_for_alignment})
+    alignment = compute_entity_alignment(facts_for_alignment)
+    canonical_count = alignment.canonical_count
+
+    # Persist canonical_index per fact so the alignment is queryable +
+    # auditable downstream. We use bulk_update batched per
+    # canonical_index value to keep the write small.
+    rows_to_update: list[models.ExtractedFact] = []
+    for fact in facts_for_alignment:
+        canonical = alignment.canonical_index_for(fact)
+        if canonical != fact.canonical_index:
+            fact.canonical_index = canonical
+            rows_to_update.append(fact)
+    if rows_to_update:
+        models.ExtractedFact.objects.bulk_update(rows_to_update, ["canonical_index"])
+
     state = reviewed_state_from_workspace(workspace)
     workspace.reviewed_state = state
     workspace.readiness = state["readiness"]
@@ -318,6 +346,23 @@ def reconcile_workspace(workspace: models.ReviewWorkspace) -> dict[str, Any]:
     workspace.documents.filter(status=models.ReviewDocument.Status.FACTS_EXTRACTED).update(
         status=models.ReviewDocument.Status.RECONCILED
     )
+
+    # Phase P1.1 audit emission. Real-PII discipline (canon §11.8.3):
+    # metadata carries counts + UUID + prompt-version reason code only.
+    # Never raw fact text, names, account numbers, or Decimal values.
+    record_event(
+        action="entities_reconciled",
+        entity_type="review_workspace",
+        entity_id=str(workspace.external_id),
+        metadata=safe_audit_metadata(
+            None,
+            old_canonical_count=pre_alignment_field_count,
+            new_canonical_count=canonical_count,
+            source_workspace_id=str(workspace.external_id),
+            prompt_version=TOOLUSE_VERSION_SUFFIX,
+        ),
+    )
+
     record_event(
         action="review_workspace_reconciled",
         entity_type="review_workspace",

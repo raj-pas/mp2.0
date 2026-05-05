@@ -388,9 +388,15 @@ def test_feedback_report_anonymous_returns_401_or_403() -> None:
 def _seed_kyc_conflict(workspace) -> tuple[str, int]:
     """Seed a single resolvable kyc-vs-kyc conflict on people[0].dob.
 
+    Phase P1.1 (2026-05-05): cross-document entity alignment requires
+    TWO identifying fields to merge two `people[0]` references into a
+    single canonical entity. We seed shared display_name + shared
+    account_number so the two docs align to canonical people[0],
+    exposing the DOB disagreement as a conflict on the canonical
+    field. Without this, the matcher would split the two `people[0]`
+    references into people[0] + people[1] (no canonical conflict).
+
     Returns (field, chosen_fact_id) for the resolve/defer endpoints.
-    Mirrors `test_concurrency_stress._seed_one_conflict` but inline
-    so the auth-rbac module stays independent.
     """
     kyc = models.ReviewDocument.objects.create(
         workspace=workspace,
@@ -414,6 +420,32 @@ def _seed_kyc_conflict(workspace) -> tuple[str, int]:
         document_type="kyc",
         status=models.ReviewDocument.Status.RECONCILED,
     )
+    # Identity anchors so alignment merges to one canonical person.
+    for doc in (kyc, kyc2):
+        models.ExtractedFact.objects.create(
+            workspace=workspace,
+            document=doc,
+            field="people[0].display_name",
+            value="Sarah Smith",
+            confidence="high",
+            derivation_method="extracted",
+            source_location="page 1",
+            source_page=1,
+            evidence_quote="Account holder: Sarah Smith",
+            extraction_run_id="run-test",
+        )
+        models.ExtractedFact.objects.create(
+            workspace=workspace,
+            document=doc,
+            field="accounts[0].account_number",
+            value="98765432",
+            confidence="high",
+            derivation_method="extracted",
+            source_location="page 1",
+            source_page=1,
+            evidence_quote="Account: 98765432",
+            extraction_run_id="run-test",
+        )
     chosen = models.ExtractedFact.objects.create(
         workspace=workspace,
         document=kyc,

@@ -69,9 +69,20 @@ def _seed_conflict(workspace) -> str:
     """Two facts on the same field from two same-class docs ⇒
     one conflict surfaces. Returns the field path of the seeded
     conflict.
+
+    Phase P1.1 (2026-05-05): cross-doc entity alignment requires TWO
+    identifying fields to merge `people[0]` references across docs.
+    Both docs share `display_name` + `accounts[0].account_number` so
+    the matcher aligns them to a single canonical person.
     """
     kyc = _doc(workspace, filename="kyc.pdf", document_type="kyc")
     kyc2 = _doc(workspace, filename="kyc-v2.pdf", document_type="kyc")
+
+    # Identity anchors so alignment merges to one canonical person.
+    for doc in (kyc, kyc2):
+        _fact(workspace, doc, field="people[0].display_name", value="Sarah Smith")
+        _fact(workspace, doc, field="accounts[0].account_number", value="98765432")
+
     _fact(workspace, kyc, field="people[0].date_of_birth", value="1985-03-12")
     _fact(workspace, kyc2, field="people[0].date_of_birth", value="1985-03-15")
 
@@ -159,7 +170,11 @@ def test_deferred_conflict_resurfaces_on_new_evidence() -> None:
     # New evidence arrives: a third document with a third fact on the
     # same field path. Re-running reconcile (via reviewed_state_from_workspace)
     # should auto-undefer.
+    # Phase P1.1: include identity anchors so the new doc aligns to
+    # the same canonical person as the seeded conflict.
     new_doc = _doc(workspace, filename="kyc-v3.pdf", document_type="kyc")
+    _fact(workspace, new_doc, field="people[0].display_name", value="Sarah Smith")
+    _fact(workspace, new_doc, field="accounts[0].account_number", value="98765432")
     _fact(workspace, new_doc, field=field, value="1985-03-20")
     workspace.refresh_from_db()
     fresh_state = reviewed_state_from_workspace(workspace)

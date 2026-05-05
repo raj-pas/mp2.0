@@ -83,6 +83,10 @@ def test_pdf_visual_blocks_use_provider_safe_payloads(tmp_path) -> None:
 
 @pytest.mark.django_db
 def test_field_specific_authority_prefers_kyc_identity_fact() -> None:
+    """Phase P1.1 (2026-05-05): identity anchors (display_name +
+    account_number) on both docs let the entity-alignment matcher
+    map both `people[0]` references to a single canonical person,
+    so the age conflict surfaces on the canonical field."""
     user = _user()
     workspace = models.ReviewWorkspace.objects.create(label="Authority review", owner=user)
     kyc_doc = models.ReviewDocument.objects.create(
@@ -101,6 +105,25 @@ def test_field_specific_authority_prefers_kyc_identity_fact() -> None:
         sha256="note-authority",
         document_type="meeting_note",
     )
+    # Identity anchors on both docs so the matcher merges to one
+    # canonical person (TIGHTENED 2-field threshold: name + last4).
+    for doc in (kyc_doc, note_doc):
+        models.ExtractedFact.objects.create(
+            workspace=workspace,
+            document=doc,
+            field="people[0].display_name",
+            value="Sarah Chen",
+            confidence="high",
+            extraction_run_id="anchor",
+        )
+        models.ExtractedFact.objects.create(
+            workspace=workspace,
+            document=doc,
+            field="accounts[0].account_number",
+            value="98765432",
+            confidence="high",
+            extraction_run_id="anchor",
+        )
     models.ExtractedFact.objects.create(
         workspace=workspace,
         document=note_doc,
@@ -121,7 +144,8 @@ def test_field_specific_authority_prefers_kyc_identity_fact() -> None:
     state = reviewed_state_from_workspace(workspace)
 
     assert state["people"][0]["age"] == 62
-    assert state["conflicts"][0]["label"] == "People age"
+    age_conflicts = [c for c in state["conflicts"] if c.get("label") == "People age"]
+    assert age_conflicts, f"expected People age conflict; got {state['conflicts']!r}"
 
 
 @pytest.mark.django_db

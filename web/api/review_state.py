@@ -8,6 +8,7 @@ from typing import Any
 
 from django.db import transaction
 from django.utils import timezone
+from extraction.entity_alignment import align_facts as compute_entity_alignment
 from extraction.normalization import (
     bool_value as normalized_bool_value,
 )
@@ -580,7 +581,8 @@ def engine_payload_from_reviewed_state(state: dict[str, Any]) -> dict[str, Any]:
 
 def _current_facts(workspace: models.ReviewWorkspace) -> dict[str, Any]:
     facts = list(workspace.extracted_facts.select_related("document"))
-    current = current_facts_by_field(facts)
+    alignment = compute_entity_alignment(facts)
+    current = current_facts_by_field(facts, alignment=alignment)
     return _apply_fact_overrides(workspace, current)
 
 
@@ -671,6 +673,18 @@ def _indexed_items(
 
 
 def _normalize_reviewed_relationships(state: dict[str, Any]) -> None:
+    """Stamp stable ids on people/accounts/goals + wire goal_account_links.
+
+    Phase P1.1 (2026-05-05): cross-document entity alignment now runs in
+    `extraction.entity_alignment.align_facts(...)` BEFORE reconciliation
+    grouping (see `web.api.review_processing.reconcile_workspace`). When
+    alignment has run, every person/account/goal in `state` is already a
+    workspace-canonical entity — so the post-grouping `semantic_entity_key`
+    call here is IDEMPOTENT: it produces the same id whether invoked
+    once at reconcile time or later during state composition. The function
+    is preserved as a defensive fallback so legacy workspaces (extracted
+    pre-P1.1, never re-reconciled) still get stable ids assigned.
+    """
     for index, person in enumerate(state["people"], start=1):
         person.setdefault("id", semantic_entity_key("review_person", person, index))
 
@@ -758,7 +772,8 @@ def _conflicts(workspace: models.ReviewWorkspace) -> list[dict[str, Any]]:
     the advisor resolves it).
     """
     facts = list(workspace.extracted_facts.select_related("document"))
-    raw_conflicts = conflicts_for_facts(facts)
+    alignment = compute_entity_alignment(facts)
+    raw_conflicts = conflicts_for_facts(facts, alignment=alignment)
     facts_by_id = {fact.id: fact for fact in facts}
     prior_state = workspace.reviewed_state or {}
     prior_by_field = {

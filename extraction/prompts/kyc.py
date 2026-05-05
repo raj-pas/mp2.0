@@ -13,7 +13,7 @@ from __future__ import annotations
 from extraction.prompts.base import compose_prompt
 from extraction.schemas import ClassificationResult
 
-PROMPT_VERSION = "kyc_review_facts_v3_tooluse"
+PROMPT_VERSION = "kyc_review_facts_v4_tooluse_entity_aligned"
 
 CANONICAL_FIELDS = [
     "people[*].display_name",

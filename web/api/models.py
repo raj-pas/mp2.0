@@ -594,6 +594,12 @@ class ExtractedFact(models.Model):
     evidence_quote = models.TextField(blank=True)
     extraction_run_id = models.CharField(max_length=255)
     is_current = models.BooleanField(default=False)
+    # Phase P1.1 cross-doc entity alignment (2026-05-05). Workspace-
+    # canonical index for facts whose field matches
+    # `(people|accounts|goals)[N].suffix`. NULL when the fact's field
+    # does not carry an entity prefix OR the workspace has not yet been
+    # re-reconciled under the alignment matcher.
+    canonical_index = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

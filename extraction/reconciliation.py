@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from datetime import date
 from typing import Any
 
+from extraction.entity_alignment import EntityAlignment
 from extraction.normalization import normalize_fact_value, normalize_key
 
 CONFIDENCE_PRIORITY = {"high": 0, "medium": 1, "low": 2}
@@ -115,10 +116,30 @@ def advisor_label(field: str) -> str:
     return " ".join(words).strip().capitalize() or field
 
 
-def current_facts_by_field(facts: Iterable[Any]) -> dict[str, Any]:
+def current_facts_by_field(
+    facts: Iterable[Any],
+    *,
+    alignment: EntityAlignment | None = None,
+) -> dict[str, Any]:
+    """Group facts to one winner per field, with optional cross-doc alignment.
+
+    When `alignment` is provided, each fact's field is rewritten via
+    `alignment.aligned_field_for(fact)` BEFORE grouping — so a
+    workspace-canonical field path
+    (`people[<canonical_idx>].display_name`) becomes the grouping key
+    instead of the raw per-document field path. This eliminates the
+    classic father+son / Alice+Bob false-conflict where two distinct
+    real-world people both land at `people[0]` in their respective
+    source docs.
+
+    When `alignment` is None, behavior is unchanged from the original
+    field-keyed grouping (backwards-compat for unit tests + any caller
+    that hasn't yet plumbed alignment through).
+    """
     grouped: dict[str, list[Any]] = {}
     for fact in facts:
-        grouped.setdefault(str(fact.field), []).append(fact)
+        field_key = _aligned_or_raw_field(fact, alignment)
+        grouped.setdefault(field_key, []).append(fact)
     current: dict[str, Any] = {}
     for field, field_facts in grouped.items():
         current[field] = sorted(
@@ -133,10 +154,19 @@ def current_facts_by_field(facts: Iterable[Any]) -> dict[str, Any]:
     return current
 
 
-def conflicts_for_facts(facts: Iterable[Any]) -> list[dict[str, Any]]:
+def conflicts_for_facts(
+    facts: Iterable[Any],
+    *,
+    alignment: EntityAlignment | None = None,
+) -> list[dict[str, Any]]:
+    """Conflicts for an iterable of facts, with optional cross-doc alignment.
+
+    See `current_facts_by_field` for the alignment contract.
+    """
     grouped: dict[str, list[Any]] = {}
     for fact in facts:
-        grouped.setdefault(str(fact.field), []).append(fact)
+        field_key = _aligned_or_raw_field(fact, alignment)
+        grouped.setdefault(field_key, []).append(fact)
 
     conflicts: list[dict[str, Any]] = []
     for field, field_facts in grouped.items():
@@ -171,6 +201,16 @@ def conflicts_for_facts(facts: Iterable[Any]) -> list[dict[str, Any]]:
             }
         )
     return conflicts
+
+
+def _aligned_or_raw_field(fact: Any, alignment: EntityAlignment | None) -> str:
+    """Return the canonical field for a fact when alignment is provided,
+    else fall back to the raw `fact.field` value."""
+    raw = str(getattr(fact, "field", ""))
+    if alignment is None:
+        return raw
+    aligned = alignment.aligned_field_for(fact)
+    return aligned if aligned is not None else raw
 
 
 def semantic_entity_key(prefix: str, item: dict[str, Any], index: int) -> str:

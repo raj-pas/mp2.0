@@ -27,9 +27,13 @@ from typing import Any
 from extraction.schemas import ClassificationResult
 
 # Tool-use prompt-version suffix; per-doc-type modules append to their
-# own prefix (e.g. "kyc_review_facts_v3_tooluse"). Bumped to v3 in
-# Phase 9 to reflect the permissive-base + strong-signal calibration.
-TOOLUSE_VERSION_SUFFIX = "v3_tooluse"
+# own prefix (e.g. "kyc_review_facts_v4_tooluse_entity_aligned").
+# Bumped to v4 in Phase P1.1 (2026-05-05) to reflect the cross-document
+# entity-alignment matcher: prompts now require always-emit-name nudges
+# on people[N].display_name + accounts[N].account_number (or institution
+# +account_type fallback) + goals[N].name so the matcher has reliable
+# identifying fields to align across documents.
+TOOLUSE_VERSION_SUFFIX = "v4_tooluse_entity_aligned"
 
 
 # Shared no-fabrication guidance with worked examples.
@@ -128,6 +132,38 @@ The classifier provides an overall classification confidence; the
 runtime caps each fact's confidence at the classification confidence
 so a low-confidence classification can never produce high-confidence
 facts.
+"""
+
+
+ENTITY_ALIGNMENT_BLOCK = """\
+Cross-document entity alignment (P1.1, 2026-05-05):
+
+The downstream system aligns people / accounts / goals across
+DIFFERENT documents in the same workspace using identifying fields.
+It treats "people[0] in doc A" and "people[0] in doc B" as the SAME
+real-world person ONLY when at least TWO identifying fields overlap
+(e.g. shared name token AND matching DOB). Without enough identity
+signal, the system records two distinct canonical entities — which
+keeps a father+son pair correctly separate, but also means missing
+identity fields fragment what should have been one entity.
+
+To support reliable alignment, ALWAYS emit the following identifier
+fields whenever the document references the entity:
+
+  - people[N].display_name      ALWAYS, for every people[N] referenced.
+                                 Without a name, the matcher cannot
+                                 align this person to other docs.
+  - people[N].date_of_birth      Whenever printed. Strong identity
+                                 signal; use ISO YYYY-MM-DD.
+  - accounts[N].account_number   Preferred when printed (raw; system
+                                 hashes for display). When absent,
+                                 emit BOTH (institution, account_type)
+                                 as a fallback identifier pair.
+  - goals[N].name                ALWAYS, for every goals[N] referenced.
+
+Do NOT invent identifiers. If a document does not state a name / DOB /
+account number, OMIT — the matcher's two-field threshold is the
+fail-safe.
 """
 
 
@@ -322,6 +358,8 @@ def compose_prompt(
         f"{type_specific_body.strip()}\n\n"
         "=== No-fabrication rule (canon §9.4.5) ===\n"
         f"{NO_FABRICATION_BLOCK.strip()}\n\n"
+        "=== Cross-document entity alignment ===\n"
+        f"{ENTITY_ALIGNMENT_BLOCK.strip()}\n\n"
         "=== Confidence guidance ===\n"
         f"{CONFIDENCE_GUIDANCE_BLOCK.strip()}\n\n"
         "=== Vocabulary discipline ===\n"

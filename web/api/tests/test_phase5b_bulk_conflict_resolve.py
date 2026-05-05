@@ -63,9 +63,24 @@ def _seed_two_conflicts(workspace) -> tuple[int, int]:
     """Two conflicting fields with two candidates each. Returns the
     (chosen_fact_id_for_dob, chosen_fact_id_for_marital) tuple — KYC
     candidate fact IDs that the bulk endpoint picks.
+
+    Phase P1.1 (2026-05-05): cross-doc entity alignment requires TWO
+    identifying fields to merge `people[0]` references across docs.
+    Both docs share `display_name` + `accounts[0].account_number` so
+    the matcher aligns them to a single canonical person.
     """
     kyc = _doc(workspace, filename="kyc.pdf", document_type="kyc")
     statement = _doc(workspace, filename="statement.pdf", document_type="statement")
+
+    # Identity anchors so alignment merges to one canonical person.
+    for doc in (kyc, statement):
+        _fact(workspace, doc, field="people[0].display_name", value="Sarah Smith")
+        _fact(
+            workspace,
+            doc,
+            field="accounts[0].account_number",
+            value="98765432",
+        )
 
     kyc_dob = _fact(
         workspace, kyc, field="people[0].date_of_birth", value="1985-03-12", confidence="high"
