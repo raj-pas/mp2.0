@@ -87,6 +87,16 @@ urlpatterns = [
         name="assign-account-to-goals",
     ),
     path(
+        "api/clients/<str:household_id>/reopen/",
+        views.ClientReopenView.as_view(),
+        name="client-reopen",
+    ),
+    path(
+        "api/clients/<str:household_id>/reconcile/",
+        views.ClientReconcileView.as_view(),
+        name="client-reconcile",
+    ),
+    path(
         "api/clients/<str:household_id>/planning-versions/",
         views.PlanningVersionListView.as_view(),
         name="planning-version-list",

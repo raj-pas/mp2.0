@@ -817,6 +817,13 @@ def commit_reviewed_state(
     if not required_sections_approved(workspace):
         raise ValueError("Required review sections are not approved.")
 
+    # Phase P2.1 (plan v20 §A1.30): if this workspace was opened via
+    # the re-open path (POST /api/clients/<id>/reopen/), `source_household`
+    # is the canonical UPSERT target. Skipping `_create_household_from_state`
+    # preserves the household.external_id across re-commit cycles —
+    # critical for the household-identity invariant of re-open.
+    if household is None and workspace.source_household_id is not None:
+        household = workspace.source_household
     household = household or _create_household_from_state(workspace, state, user=user)
     _merge_household_state(household, state)
     if blocker := portfolio_generation_blocker_for_household(household):
@@ -1397,6 +1404,154 @@ def _merge_household_state(household: models.Household, state: dict[str, Any]) -
             if link_state.get("allocated_pct") is not None
             else None,
         )
+
+
+def reviewed_state_from_household(household: models.Household) -> dict[str, Any]:
+    """Inverse of `_merge_household_state` — reconstruct a reviewed_state
+    dict from the live Household model rows (Phase P2.1 / plan v20 §A1.30).
+
+    Used by `ClientReopenView` to seed a new ReviewWorkspace whose
+    `source_household` points at the existing committed Household. The
+    returned dict is the same shape the wizard / commit flow normally
+    produces, so subsequent `commit_reviewed_state(workspace, household=h)`
+    calls UPSERT cleanly back onto the source Household via
+    `_merge_household_state` (preserving `external_id` per locked
+    decision; see also §3.16 backwards-compat).
+
+    Includes empty `field_sources` / `conflicts` / `source_summary` —
+    a re-opened workspace has no fresh extraction yet, so those panels
+    render empty until the advisor uploads the next statement. Readiness
+    is computed from the seeded state via `readiness_for_state` per
+    §3.95 so the workspace lands in REVIEW_READY status.
+    """
+    state = _empty_state()
+    state["household"]["display_name"] = household.display_name
+    state["household"]["household_type"] = household.household_type
+    state["household"]["household_risk_score"] = _risk_score(
+        household.household_risk_score, default=3
+    )
+    state["risk"]["household_score"] = state["household"]["household_risk_score"]
+
+    state["people"] = [
+        {
+            "id": person.external_id,
+            "name": person.name,
+            "dob": person.dob.isoformat() if person.dob else None,
+            "marital_status": person.marital_status,
+            "investment_knowledge": person.investment_knowledge or "medium",
+        }
+        for person in household.members.all()
+    ]
+
+    accounts: list[dict[str, Any]] = []
+    for account in household.accounts.all():
+        accounts.append(
+            {
+                "id": account.external_id,
+                "owner_person_id": (
+                    account.owner_person.external_id if account.owner_person_id else None
+                ),
+                "type": account.account_type,
+                "regulatory_objective": account.regulatory_objective,
+                "regulatory_time_horizon": account.regulatory_time_horizon,
+                "regulatory_risk_rating": account.regulatory_risk_rating,
+                "current_value": (
+                    float(account.current_value) if account.current_value is not None else 0
+                ),
+                "is_held_at_purpose": bool(account.is_held_at_purpose),
+                "missing_holdings_confirmed": bool(account.missing_holdings_confirmed),
+                "cash_state": account.cash_state,
+                "holdings": [
+                    {
+                        "sleeve_id": holding.sleeve_id,
+                        "sleeve_name": holding.sleeve_name,
+                        "weight": float(holding.weight) if holding.weight is not None else 0,
+                        "market_value": (
+                            float(holding.market_value) if holding.market_value is not None else 0
+                        ),
+                    }
+                    for holding in account.holdings.all()
+                ],
+            }
+        )
+    state["accounts"] = accounts
+
+    goals: list[dict[str, Any]] = []
+    for goal in household.goals.all():
+        goals.append(
+            {
+                "id": goal.external_id,
+                "name": goal.name,
+                "target_amount": (
+                    float(goal.target_amount) if goal.target_amount is not None else None
+                ),
+                "target_date": goal.target_date.isoformat() if goal.target_date else None,
+                "necessity_score": goal.necessity_score,
+                "current_funded_amount": (
+                    float(goal.current_funded_amount)
+                    if goal.current_funded_amount is not None
+                    else 0
+                ),
+                "contribution_plan": goal.contribution_plan or {},
+                "goal_risk_score": _risk_score(goal.goal_risk_score, default=3),
+                "notes": goal.notes,
+            }
+        )
+    state["goals"] = goals
+
+    links: list[dict[str, Any]] = []
+    for goal in household.goals.all():
+        for link in goal.account_allocations.all():
+            links.append(
+                {
+                    "id": link.external_id,
+                    "goal_id": goal.external_id,
+                    "account_id": link.account.external_id,
+                    "allocated_amount": (
+                        float(link.allocated_amount) if link.allocated_amount is not None else None
+                    ),
+                    "allocated_pct": (
+                        float(link.allocated_pct) if link.allocated_pct is not None else None
+                    ),
+                }
+            )
+    state["goal_account_links"] = links
+    state["readiness"] = readiness_for_state(state).__dict__
+    return state
+
+
+def reviewed_state_from_household_with_realignment(
+    household: models.Household,
+) -> tuple[dict[str, Any], int, int]:
+    """Variant of `reviewed_state_from_household` that re-runs cross-document
+    entity alignment on the household's prior-workspace ExtractedFact rows.
+
+    Used by `ClientReconcileView` (Phase P2.5 / §A1.30): the advisor
+    explicitly opts in to a re-reconcile pass. We collect every fact
+    across every prior workspace linked to this household, call
+    `extraction.entity_alignment.align_facts(...)` deterministically,
+    and compare the resulting canonical-entity count to the household's
+    current member/account/goal totals. Returns the seeded state plus
+    `(n_old, n_new)` so the caller can decide whether to open a new
+    workspace or return a 200 noop per §A1.23 audit schema.
+
+    Backwards-compat (sister §3.16): if the household has no prior
+    workspaces (e.g. it was created via the wizard, not the review
+    flow), we treat n_old == n_new so the caller emits a noop without
+    crashing.
+    """
+    state = reviewed_state_from_household(household)
+    facts: list[Any] = []
+    for workspace in household.review_workspaces.all():
+        facts.extend(workspace.extracted_facts.select_related("document").all())
+    # The household's existing canonical entity count — what alignment
+    # would need to "match" for a noop.
+    n_old = len(state["people"]) + len(state["accounts"]) + len(state["goals"])
+    if not facts:
+        return state, n_old, n_old
+    alignment = compute_entity_alignment(facts)
+    n_new = alignment.canonical_count
+    return state, n_old, n_new
 
 
 def _dob(person_state: dict[str, Any]) -> date:

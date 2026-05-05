@@ -256,6 +256,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/clients/{household_id}/reconcile/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST /api/clients/<household_id>/reconcile/
+         *
+         *     Phase P2.5 (plan v20 §A1.30) — re-run cross-document entity alignment
+         *     over the household's prior-workspace ExtractedFact rows. If the
+         *     canonical-entity count differs from the household's current
+         *     members/accounts/goals totals, opens a new ReviewWorkspace
+         *     pre-seeded with the realigned reviewed_state (same shape as
+         *     ClientReopenView). If counts match, returns 200 ``{noop: true}``
+         *     with no side effects beyond the audit row.
+         *
+         *     Per §A1.14 #4 the alignment never auto-runs — it's strictly an
+         *     explicit advisor opt-in surface from the action sub-bar. Per
+         *     §A1.51 P1.1×P2.5 the alignment is deterministic, so calling twice
+         *     on an unchanged corpus is idempotent.
+         *
+         *     Idempotency / concurrency: atomic + select_for_update on the
+         *     Household. Mirrors ClientReopenView's 409 path on existing open
+         *     reopen workspaces (§A1.51 P2.1×P2.5).
+         *
+         *     Audit ``entities_reconciled_via_button`` per §A1.23 schema
+         *     (counts + UUIDs + ``canonical_diff`` enum only; no member names).
+         */
+        post: operations["clients_reconcile_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/clients/{household_id}/reopen/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST /api/clients/<household_id>/reopen/
+         *
+         *     Phase P2.1 (plan v20 §A1.30) — re-open a committed household to
+         *     accept a new statement / advisor edit cycle WITHOUT re-creating
+         *     the household identity. Creates a fresh ReviewWorkspace whose
+         *     ``source_household`` points at the existing committed Household;
+         *     seeded ``reviewed_state`` mirrors the household's current
+         *     members/accounts/goals/links. Required section approvals are
+         *     pre-seeded as APPROVED so the advisor lands in REVIEW_READY status
+         *     and can immediately upload a new statement or edit a fact.
+         *
+         *     On commit (POST /api/review-workspaces/<wsid>/commit/),
+         *     ``commit_reviewed_state`` UPSERTs onto ``source_household`` because
+         *     of the model field's presence (preserves ``Household.external_id``
+         *     across re-commit cycles). Soft-undo is forbidden on reopen
+         *     workspaces; the UI surfaces "Discard changes" via the standard
+         *     DELETE endpoint instead.
+         *
+         *     Idempotency / concurrency: atomic + ``select_for_update`` on the
+         *     Household. If another open reopen workspace already targets this
+         *     source_household (status in {DRAFT, PROCESSING, REVIEW_READY,
+         *     ENGINE_READY}), returns 409 with code ``reopen_conflict`` per
+         *     §A1.14 #4 + §A1.51 P2.1×P2.5 (concurrent re-open + re-reconcile
+         *     serialize through the same lock).
+         *
+         *     Audit ``review_workspace_reopened`` per §A1.23 schema (counts +
+         *     UUIDs only; no PII / member names).
+         */
+        post: operations["clients_reopen_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/cma/active/": {
         parameters: {
             query?: never;
@@ -1846,6 +1930,46 @@ export interface operations {
             path: {
                 household_id: string;
                 run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    clients_reconcile_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                household_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    clients_reopen_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                household_id: string;
             };
             cookie?: never;
         };

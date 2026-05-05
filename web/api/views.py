@@ -64,6 +64,8 @@ from web.api.review_state import (
     match_candidates,
     portfolio_generation_blocker_for_household,
     readiness_for_state,
+    reviewed_state_from_household,
+    reviewed_state_from_household_with_realignment,
     reviewed_state_from_workspace,
     section_blockers,
     serialize_doc_contributed_facts,
@@ -140,6 +142,22 @@ class CMAValidationError(ValueError):
         self.detail = message  # exposed structurally so callers don't need str(exc) (Phase 2)
         self.code = code
         self.diagnostics = diagnostics or {}
+
+
+class WorkspaceReopenConflict(ValueError):
+    """Another open ReviewWorkspace already targets this `source_household`.
+
+    Mirrors sister's typed-exception pattern (`EngineKillSwitchBlocked`,
+    `NoActiveCMASnapshot`, `AccountAssignmentRollupMismatch`) per locked
+    #59. Per §A1.14 #4 — only one re-open / re-reconcile workspace can
+    target a given source_household at a time; the advisor must commit
+    or discard the existing one before opening another.
+
+    Per canon §11.8.3 — message structural only; no PII / member names.
+    Used by `ClientReopenView` (P2.1) + `ClientReconcileView` (P2.5).
+    Caller maps to a 409 response with `safe_response_payload(exc)` +
+    structured `code="reopen_conflict"`.
+    """
 
 
 class AccountAssignmentRollupMismatch(ValueError):
@@ -1129,9 +1147,7 @@ class AssignAccountToGoalsView(APIView):
 
     def post(self, request, household_id: str, account_id: str):  # noqa: ANN001
         if not can_access_real_pii(request.user):
-            return Response(
-                {"detail": "Role cannot access real-client PII."}, status=403
-            )
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
 
         rationale_raw = request.data.get("rationale")
         rationale = (rationale_raw or "").strip() if isinstance(rationale_raw, str) else ""
@@ -1256,9 +1272,7 @@ class AssignAccountToGoalsView(APIView):
                 if household is None:
                     raise _NotFoundError("Household not found.")
                 try:
-                    account = household.accounts.select_for_update().get(
-                        external_id=account_id
-                    )
+                    account = household.accounts.select_for_update().get(external_id=account_id)
                 except models.Account.DoesNotExist as exc:
                     raise _NotFoundError("Account not found in this household.") from exc
 
@@ -1279,8 +1293,7 @@ class AssignAccountToGoalsView(APIView):
 
                 # Resolve existing goals + verify each non-"new" id exists.
                 existing_goals_by_id = {
-                    g.external_id: g
-                    for g in household.goals.select_for_update().all()
+                    g.external_id: g for g in household.goals.select_for_update().all()
                 }
                 for row in normalized:
                     if row["is_new_goal"]:
@@ -1395,8 +1408,8 @@ class AssignAccountToGoalsView(APIView):
         _trigger_and_audit(household, request.user, source="goal_assignment")
 
         # Re-fetch with prefetch_related so the serializer doesn't N+1.
-        household_refreshed = (
-            _household_queryset(request.user).get(external_id=household.external_id)
+        household_refreshed = _household_queryset(request.user).get(
+            external_id=household.external_id
         )
         return Response(HouseholdDetailSerializer(household_refreshed).data)
 
@@ -1417,9 +1430,7 @@ class AssignAccountToGoalsView(APIView):
         if not isinstance(name, str) or not name.strip():
             return Response(
                 {
-                    "detail": (
-                        f"Assignment row {idx} new_goal.name is required."
-                    ),
+                    "detail": (f"Assignment row {idx} new_goal.name is required."),
                     "code": "new_goal_missing_name",
                 },
                 status=400,
@@ -1440,8 +1451,7 @@ class AssignAccountToGoalsView(APIView):
             return Response(
                 {
                     "detail": (
-                        f"Assignment row {idx} new_goal.target_amount_basis_points "
-                        "must be > 0."
+                        f"Assignment row {idx} new_goal.target_amount_basis_points must be > 0."
                     ),
                     "code": "new_goal_invalid_target",
                 },
@@ -1486,8 +1496,7 @@ class AssignAccountToGoalsView(APIView):
             return Response(
                 {
                     "detail": (
-                        f"Assignment row {idx} new_goal.target_date must be a "
-                        "YYYY-MM-DD string."
+                        f"Assignment row {idx} new_goal.target_date must be a YYYY-MM-DD string."
                     ),
                     "code": "new_goal_missing_target_date",
                 },
@@ -1499,8 +1508,7 @@ class AssignAccountToGoalsView(APIView):
             return Response(
                 {
                     "detail": (
-                        f"Assignment row {idx} new_goal.target_date must parse "
-                        "as YYYY-MM-DD."
+                        f"Assignment row {idx} new_goal.target_date must parse as YYYY-MM-DD."
                     ),
                     "code": "new_goal_invalid_target_date",
                 },
@@ -1510,6 +1518,271 @@ class AssignAccountToGoalsView(APIView):
         payload["target_date"] = target_date
         payload["name"] = name.strip()
         return None
+
+
+class ClientReopenView(APIView):
+    """POST /api/clients/<household_id>/reopen/
+
+    Phase P2.1 (plan v20 §A1.30) — re-open a committed household to
+    accept a new statement / advisor edit cycle WITHOUT re-creating
+    the household identity. Creates a fresh ReviewWorkspace whose
+    ``source_household`` points at the existing committed Household;
+    seeded ``reviewed_state`` mirrors the household's current
+    members/accounts/goals/links. Required section approvals are
+    pre-seeded as APPROVED so the advisor lands in REVIEW_READY status
+    and can immediately upload a new statement or edit a fact.
+
+    On commit (POST /api/review-workspaces/<wsid>/commit/),
+    ``commit_reviewed_state`` UPSERTs onto ``source_household`` because
+    of the model field's presence (preserves ``Household.external_id``
+    across re-commit cycles). Soft-undo is forbidden on reopen
+    workspaces; the UI surfaces "Discard changes" via the standard
+    DELETE endpoint instead.
+
+    Idempotency / concurrency: atomic + ``select_for_update`` on the
+    Household. If another open reopen workspace already targets this
+    source_household (status in {DRAFT, PROCESSING, REVIEW_READY,
+    ENGINE_READY}), returns 409 with code ``reopen_conflict`` per
+    §A1.14 #4 + §A1.51 P2.1×P2.5 (concurrent re-open + re-reconcile
+    serialize through the same lock).
+
+    Audit ``review_workspace_reopened`` per §A1.23 schema (counts +
+    UUIDs only; no PII / member names).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, household_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+
+        try:
+            with transaction.atomic():
+                household = (
+                    _household_queryset(request.user)
+                    .select_for_update(of=("self",))
+                    .filter(external_id=household_id)
+                    .first()
+                )
+                if household is None:
+                    return Response({"detail": "Household not found."}, status=404)
+
+                # Idempotency gate per §A1.14 #4: only ONE open reopen
+                # workspace can target this household at a time. The
+                # advisor must commit or discard the existing one.
+                open_statuses = {
+                    models.ReviewWorkspace.Status.DRAFT,
+                    models.ReviewWorkspace.Status.PROCESSING,
+                    models.ReviewWorkspace.Status.REVIEW_READY,
+                    models.ReviewWorkspace.Status.ENGINE_READY,
+                }
+                conflict = (
+                    models.ReviewWorkspace.objects.filter(
+                        source_household=household,
+                        status__in=open_statuses,
+                    )
+                    .order_by("-created_at")
+                    .first()
+                )
+                if conflict is not None:
+                    raise WorkspaceReopenConflict(
+                        "Another open re-open workspace already targets this "
+                        "household. Commit or discard it before re-opening."
+                    )
+
+                state = reviewed_state_from_household(household)
+                workspace = models.ReviewWorkspace.objects.create(
+                    label=f"Re-open: {household.display_name}",
+                    owner=request.user,
+                    data_origin=models.ReviewWorkspace.DataOrigin.REAL_DERIVED,
+                    status=models.ReviewWorkspace.Status.REVIEW_READY,
+                    source_household=household,
+                    reviewed_state=state,
+                    readiness=state.get("readiness") or {},
+                )
+                # Seed required section approvals as APPROVED so the
+                # advisor lands in a green-gate state and only re-flips
+                # to NEEDS_ATTENTION when they actually edit a fact /
+                # upload a new statement.
+                for section in ENGINE_REQUIRED_SECTIONS:
+                    models.SectionApproval.objects.create(
+                        workspace=workspace,
+                        section=section,
+                        status=models.SectionApproval.Status.APPROVED,
+                        approved_by=request.user,
+                        approved_at=timezone.now(),
+                    )
+                latest_run = household.portfolio_runs.order_by("-created_at").first()
+                seeded_signature = (
+                    (latest_run.run_signature[:8] if latest_run.run_signature else None)
+                    if latest_run is not None
+                    else None
+                )
+                # §A1.23 audit metadata schema (counts + UUIDs only).
+                record_event(
+                    action="review_workspace_reopened",
+                    entity_type="review_workspace",
+                    entity_id=workspace.external_id,
+                    actor=_actor(request),
+                    metadata=safe_audit_metadata(
+                        None,
+                        source_household_id=str(household.external_id),
+                        seeded_from_run_signature=seeded_signature,
+                    ),
+                )
+        except WorkspaceReopenConflict as exc:
+            return Response(
+                safe_response_payload(exc, code="reopen_conflict"),
+                status=409,
+            )
+
+        return Response(
+            {
+                "workspace": ReviewWorkspaceSerializer(
+                    _review_workspace_queryset().get(pk=workspace.pk)
+                ).data,
+                "redirect_url": f"/review/{workspace.external_id}",
+            },
+            status=200,
+        )
+
+
+class ClientReconcileView(APIView):
+    """POST /api/clients/<household_id>/reconcile/
+
+    Phase P2.5 (plan v20 §A1.30) — re-run cross-document entity alignment
+    over the household's prior-workspace ExtractedFact rows. If the
+    canonical-entity count differs from the household's current
+    members/accounts/goals totals, opens a new ReviewWorkspace
+    pre-seeded with the realigned reviewed_state (same shape as
+    ClientReopenView). If counts match, returns 200 ``{noop: true}``
+    with no side effects beyond the audit row.
+
+    Per §A1.14 #4 the alignment never auto-runs — it's strictly an
+    explicit advisor opt-in surface from the action sub-bar. Per
+    §A1.51 P1.1×P2.5 the alignment is deterministic, so calling twice
+    on an unchanged corpus is idempotent.
+
+    Idempotency / concurrency: atomic + select_for_update on the
+    Household. Mirrors ClientReopenView's 409 path on existing open
+    reopen workspaces (§A1.51 P2.1×P2.5).
+
+    Audit ``entities_reconciled_via_button`` per §A1.23 schema
+    (counts + UUIDs + ``canonical_diff`` enum only; no member names).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, household_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+
+        try:
+            with transaction.atomic():
+                household = (
+                    _household_queryset(request.user)
+                    .select_for_update(of=("self",))
+                    .filter(external_id=household_id)
+                    .first()
+                )
+                if household is None:
+                    return Response({"detail": "Household not found."}, status=404)
+
+                # Concurrent reopen / reconcile attempts serialize via
+                # the same household lock. If another open reopen
+                # workspace already targets this household, return 409.
+                open_statuses = {
+                    models.ReviewWorkspace.Status.DRAFT,
+                    models.ReviewWorkspace.Status.PROCESSING,
+                    models.ReviewWorkspace.Status.REVIEW_READY,
+                    models.ReviewWorkspace.Status.ENGINE_READY,
+                }
+                conflict = (
+                    models.ReviewWorkspace.objects.filter(
+                        source_household=household,
+                        status__in=open_statuses,
+                    )
+                    .order_by("-created_at")
+                    .first()
+                )
+                if conflict is not None:
+                    raise WorkspaceReopenConflict(
+                        "Another open re-open workspace already targets this "
+                        "household. Commit or discard it before re-reconciling."
+                    )
+
+                state, n_old, n_new = reviewed_state_from_household_with_realignment(household)
+
+                if n_old == n_new:
+                    # Noop path — alignment unchanged. No new workspace,
+                    # but we still emit the audit row so the advisor's
+                    # action is traceable in the Commits sub-tab.
+                    record_event(
+                        action="entities_reconciled_via_button",
+                        entity_type="household",
+                        entity_id=household.external_id,
+                        actor=_actor(request),
+                        metadata=safe_audit_metadata(
+                            None,
+                            source_household_id=str(household.external_id),
+                            old_canonical_count=n_old,
+                            new_canonical_count=n_new,
+                            canonical_diff="noop",
+                        ),
+                    )
+                    return Response(
+                        {"noop": True, "redirect_url": None},
+                        status=200,
+                    )
+
+                workspace = models.ReviewWorkspace.objects.create(
+                    label=f"Re-reconcile: {household.display_name}",
+                    owner=request.user,
+                    data_origin=models.ReviewWorkspace.DataOrigin.REAL_DERIVED,
+                    status=models.ReviewWorkspace.Status.REVIEW_READY,
+                    source_household=household,
+                    reviewed_state=state,
+                    readiness=state.get("readiness") or {},
+                )
+                # Seed approvals as needs-attention so the advisor must
+                # confirm the realigned canonical entities before commit.
+                for section in ENGINE_REQUIRED_SECTIONS:
+                    models.SectionApproval.objects.create(
+                        workspace=workspace,
+                        section=section,
+                        status=models.SectionApproval.Status.NEEDS_ATTENTION,
+                        approved_by=None,
+                    )
+                # §A1.23 audit metadata schema.
+                record_event(
+                    action="entities_reconciled_via_button",
+                    entity_type="review_workspace",
+                    entity_id=workspace.external_id,
+                    actor=_actor(request),
+                    metadata=safe_audit_metadata(
+                        None,
+                        source_household_id=str(household.external_id),
+                        old_canonical_count=n_old,
+                        new_canonical_count=n_new,
+                        canonical_diff="differs",
+                    ),
+                )
+        except WorkspaceReopenConflict as exc:
+            return Response(
+                safe_response_payload(exc, code="reopen_conflict"),
+                status=409,
+            )
+
+        return Response(
+            {
+                "noop": False,
+                "workspace": ReviewWorkspaceSerializer(
+                    _review_workspace_queryset().get(pk=workspace.pk)
+                ).data,
+                "redirect_url": f"/review/{workspace.external_id}",
+            },
+            status=200,
+        )
 
 
 class _BadRequest(Exception):
@@ -1796,7 +2069,15 @@ class ReviewWorkspaceListCreateView(APIView):
     def get(self, request):  # noqa: ANN001
         if not can_access_real_pii(request.user):
             return Response({"detail": "Role cannot access real-client PII."}, status=403)
-        workspaces = team_workspaces(request.user).prefetch_related("documents")
+        # Phase P2.1 (plan v20 §A1.30): hide reopen workspaces from the
+        # main /review queue. They surface separately on the household's
+        # action sub-bar via the Re-open / Re-reconcile CTAs and live in
+        # the Commits sub-tab audit trail, not the new-onboarding queue.
+        workspaces = (
+            team_workspaces(request.user)
+            .filter(source_household__isnull=True)
+            .prefetch_related("documents")
+        )
         return Response(ReviewWorkspaceListSerializer(workspaces, many=True).data)
 
     def post(self, request):  # noqa: ANN001
@@ -3331,6 +3612,25 @@ class ReviewWorkspaceUncommitView(APIView):
             )
             if workspace is None:
                 return Response({"detail": "Workspace not found."}, status=404)
+            # Phase P2.1 (plan v20 §A1.30): soft-undo is forbidden on
+            # reopen workspaces — the source_household is shared with
+            # subsequent commits + pre-existing audit trail, so deleting
+            # it would corrupt the canonical household identity. The UI
+            # surfaces "Discard changes" instead, which deletes only the
+            # ephemeral reopen workspace via the standard DELETE endpoint
+            # (Household stays untouched).
+            if workspace.source_household_id is not None:
+                return Response(
+                    {
+                        "detail": (
+                            "Soft-undo is not available for re-opened workspaces. "
+                            "Discard changes instead — the source household is "
+                            "preserved."
+                        ),
+                        "code": "soft_undo_forbidden_on_reopen",
+                    },
+                    status=403,
+                )
             if workspace.status != models.ReviewWorkspace.Status.COMMITTED:
                 return Response(
                     {

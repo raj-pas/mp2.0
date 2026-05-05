@@ -158,7 +158,17 @@
       "readiness_blockers_title": "Resolve before generating",
       "stale_chip_label": "Stale: regenerate to refresh ({{signature}})",
       "integrity_chip_label": "Integrity issue: see ops-runbook ({{signature}})",
-      "unallocated_banner_slot_aria": "Unallocated funds banner slot"
+      "unallocated_banner_slot_aria": "Unallocated funds banner slot",
+      "reopen_cta": "Re-open",
+      "reopen_pending": "Opening…",
+      "reopen_error_title": "Could not re-open household",
+      "reopen_error_body": "Try again, or contact ops if the problem persists.",
+      "reconcile_cta": "Re-reconcile",
+      "reconcile_pending": "Reconciling…",
+      "reconcile_noop_title": "No changes detected",
+      "reconcile_noop_body": "Household entities are already aligned across documents.",
+      "reconcile_error_title": "Could not re-reconcile household",
+      "reconcile_error_body": "Try again, or contact ops if the problem persists."
     },
     "portfolio": {
       "blocker": {

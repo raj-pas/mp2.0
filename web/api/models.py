@@ -440,6 +440,24 @@ class ReviewWorkspace(models.Model):
         null=True,
         blank=True,
     )
+    # Phase P2.1 (plan v20 §A1.30) — set when this workspace was opened
+    # via POST /api/clients/<id>/reopen/ (or the re-reconcile button at
+    # POST /api/clients/<id>/reconcile/). The presence of the field is
+    # the canonical signal to:
+    #   (a) hide the workspace from the main /review queue,
+    #   (b) forbid soft-undo (uncommit) on this workspace,
+    #   (c) cause `commit_reviewed_state` to UPSERT onto the source
+    #       household (preserving external_id) instead of creating a new
+    #       Household row.
+    # SET_NULL so a legacy soft-undo (which deletes the Household row)
+    # doesn't cascade-delete reopen workspaces and lose audit context.
+    source_household = models.ForeignKey(
+        Household,
+        related_name="reopen_workspaces",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
     reviewed_state = models.JSONField(default=dict, blank=True)
     readiness = models.JSONField(default=dict, blank=True)
     match_candidates = models.JSONField(default=list, blank=True)

@@ -7,6 +7,7 @@ import { type GroupByMode } from "../chrome/ModeToggle";
 import { ToggleCurrentIdeal, useCurrentIdealMode } from "../chrome/ToggleCurrentIdeal";
 import { Button } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
+import { useReconcileHousehold, useReopenHousehold } from "../lib/clients";
 import {
   householdExternalAum,
   householdInternalAum,
@@ -21,7 +22,7 @@ import { useTreemap } from "../lib/treemap";
 import { CompareScreen } from "../modals/CompareScreen";
 import { RealignModal } from "../modals/RealignModal";
 import { type RealignmentResponse, useRestoreSnapshot } from "../lib/realignment";
-import { toastSuccess } from "../lib/toast";
+import { toastError, toastSuccess } from "../lib/toast";
 import { Treemap } from "../treemap/Treemap";
 import { HouseholdPortfolioPanel } from "./HouseholdPortfolioPanel";
 import { UnallocatedBanner } from "./UnallocatedBanner";
@@ -64,6 +65,14 @@ export function HouseholdRoute() {
   //   - Treemap virtual unallocated tile click  (per §A1.14 #10 + §A1.51 P12×P13)
   //   - HouseholdPortfolioPanel BlockerBanner "Assign" ui_action  (§A1.51 P11×P13)
   const [assignTargetAccountId, setAssignTargetAccountId] = useState<string | null>(null);
+
+  // P2.1 + P2.5 (plan v20 §A1.30) — re-open / re-reconcile mutation
+  // hooks. Both invalidate the household detail query on success so the
+  // sub-bar gating refreshes (§A1.57 cache-invalidation contract). On
+  // success we navigate to /review/<wsid>; on a reconcile noop we just
+  // toast "no changes detected" without navigating.
+  const reopen = useReopenHousehold(rememberedId);
+  const reconcile = useReconcileHousehold(rememberedId);
 
   if (rememberedId === null) {
     return <HouseholdEmpty message={t("routes.household.select_first")} />;
@@ -131,6 +140,78 @@ export function HouseholdRoute() {
           />
           <Button type="button" variant="outline" size="sm" onClick={() => setRealignOpen(true)}>
             {t("realign.cta")}
+          </Button>
+          {/*
+            P2.1 (plan v20 §A1.30 + §A1.18 LOCKED sub-bar layout): Re-open
+            the committed household for a new statement / advisor edit
+            cycle. Disabled while a re-open or re-reconcile mutation is
+            in flight (per §A1.14 #4 — manual button only; the sub-bar
+            is the single surface). On success, navigate to
+            /review/<wsid> so the advisor lands directly in the
+            ReviewWorkspace with the household pre-seeded.
+          */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="household-reopen-button"
+            disabled={reopen.isPending || reconcile.isPending}
+            onClick={() => {
+              reopen.mutate(undefined, {
+                onSuccess: (response) => {
+                  navigate(response.redirect_url);
+                },
+                onError: (err) => {
+                  toastError(t("routes.household.reopen_error_title"), {
+                    description: err.message || t("routes.household.reopen_error_body"),
+                  });
+                },
+              });
+            }}
+          >
+            {reopen.isPending
+              ? t("routes.household.reopen_pending")
+              : t("routes.household.reopen_cta")}
+          </Button>
+          {/*
+            P2.5 (plan v20 §A1.30): Re-reconcile button — re-runs
+            cross-document entity alignment over the household's prior
+            ExtractedFact corpus. If alignment differs, opens a new
+            ReviewWorkspace pre-seeded for advisor confirmation. If
+            alignment matches (noop), toasts "no changes detected" and
+            stays on the route. Per §A1.14 #4: manual button only — no
+            auto-resurface paths.
+          */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="household-reconcile-button"
+            disabled={reopen.isPending || reconcile.isPending}
+            onClick={() => {
+              reconcile.mutate(undefined, {
+                onSuccess: (response) => {
+                  if (response.noop) {
+                    toastSuccess(
+                      t("routes.household.reconcile_noop_title"),
+                      t("routes.household.reconcile_noop_body"),
+                    );
+                    return;
+                  }
+                  navigate(response.redirect_url);
+                },
+                onError: (err) => {
+                  toastError(t("routes.household.reconcile_error_title"), {
+                    description:
+                      err.message || t("routes.household.reconcile_error_body"),
+                  });
+                },
+              });
+            }}
+          >
+            {reconcile.isPending
+              ? t("routes.household.reconcile_pending")
+              : t("routes.household.reconcile_cta")}
           </Button>
           {/*
             P7 (plan v20 §A1.35 / §A1.18 LOCKED sub-bar layout): ToggleCurrentIdeal

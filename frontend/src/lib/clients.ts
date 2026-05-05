@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch } from "./api";
+import { householdQueryKey } from "./household";
 
 /**
  * Lightweight household summary served by the existing
@@ -76,5 +77,70 @@ export function useAuditEventsForHousehold(
       );
     },
     enabled: householdId !== null,
+  });
+}
+
+/**
+ * Plan v20 §A1.30 — Phase P2.1 + P2.5 mutation hooks for the
+ * HouseholdRoute action sub-bar Re-open / Re-reconcile CTAs.
+ *
+ * Both hooks navigate to the new ReviewWorkspace on success (redirect
+ * URL returned in the response body), and invalidate the household
+ * detail + audit events queries so the Commits sub-tab + readiness
+ * banners refresh in lockstep (§A1.57 — exact-key invalidation).
+ */
+export type ReopenResponse = {
+  workspace: { external_id: string; [key: string]: unknown };
+  redirect_url: string;
+};
+
+export function useReopenHousehold(householdId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation<ReopenResponse, Error, void>({
+    mutationFn: () => {
+      if (householdId === null) {
+        return Promise.reject(new Error("household id required"));
+      }
+      return apiFetch<ReopenResponse>(
+        `/api/clients/${encodeURIComponent(householdId)}/reopen/`,
+        { method: "POST" },
+      );
+    },
+    onSuccess: () => {
+      if (householdId === null) return;
+      // Invalidate the household detail (open-workspace gating reads
+      // depend on this) + the audit events feed (Commits sub-tab will
+      // surface the new review_workspace_reopened event).
+      queryClient.invalidateQueries({ queryKey: householdQueryKey(householdId) });
+      queryClient.invalidateQueries({ queryKey: ["audit-events", householdId] });
+    },
+  });
+}
+
+export type ReconcileResponse =
+  | { noop: true; redirect_url: null }
+  | {
+      noop: false;
+      workspace: { external_id: string; [key: string]: unknown };
+      redirect_url: string;
+    };
+
+export function useReconcileHousehold(householdId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation<ReconcileResponse, Error, void>({
+    mutationFn: () => {
+      if (householdId === null) {
+        return Promise.reject(new Error("household id required"));
+      }
+      return apiFetch<ReconcileResponse>(
+        `/api/clients/${encodeURIComponent(householdId)}/reconcile/`,
+        { method: "POST" },
+      );
+    },
+    onSuccess: () => {
+      if (householdId === null) return;
+      queryClient.invalidateQueries({ queryKey: householdQueryKey(householdId) });
+      queryClient.invalidateQueries({ queryKey: ["audit-events", householdId] });
+    },
   });
 }

@@ -197,6 +197,50 @@ describe("HouseholdCommitsSubTab", () => {
     expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 
+  it("renders review_workspace_reopened events with badge (P2.1 §A1.30)", () => {
+    useAuditEventsMock.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: {
+        events: [
+          row({
+            id: 3,
+            action: "review_workspace_reopened",
+            entity_type: "review_workspace",
+            entity_id: "ws_reopen_42",
+            metadata: { source_household_id: "hh_commits_test" },
+            created_at: "2026-05-04T10:00:00Z",
+          }),
+          row({
+            id: 1,
+            action: "review_state_committed",
+            created_at: "2026-05-01T10:00:00Z",
+          }),
+        ],
+        total: 2,
+        page: 1,
+        page_size: 50,
+        kind: "commits",
+      },
+    });
+    render(
+      <MemoryRouter>
+        <HouseholdCommitsSubTab />
+      </MemoryRouter>,
+    );
+    // Both events render with their humanized action label.
+    expect(screen.getByText("review workspace reopened")).toBeInTheDocument();
+    expect(screen.getByText("review state committed")).toBeInTheDocument();
+    // The reopen entry surfaces a workspace-link with the new ws ID.
+    const link = screen
+      .getAllByRole("link")
+      .find((l) => l.getAttribute("href")?.includes("ws_reopen_42"));
+    expect(link).toBeDefined();
+    // Both COMMIT_ACTIONS rows render the badge testid.
+    const badges = screen.getAllByTestId("commit-badge");
+    expect(badges.length).toBe(2);
+  });
+
   it("renders forward-compat advisor-relevant kinds (P2.5 + P13 events) without crashing", () => {
     // Forward-compat: events for `entities_reconciled_via_button` (P2.5)
     // and `account_assigned_to_goals` (P13) may not be emitted yet, but
