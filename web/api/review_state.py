@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 from django.utils import timezone
@@ -44,6 +44,9 @@ from web.api import models
 from web.api.access import linkable_households
 from web.api.review_redaction import redact_evidence_quote
 from web.audit.writer import record_event
+
+if TYPE_CHECKING:
+    from web.api.types import PortfolioGenerationBlocker
 
 REVIEW_SCHEMA_VERSION = "reviewed_client_state.v1"
 ENGINE_REQUIRED_SECTIONS = [
@@ -400,6 +403,189 @@ def portfolio_generation_blockers_for_household(household: models.Household) -> 
 def portfolio_generation_blocker_for_household(household: models.Household) -> str:
     blockers = portfolio_generation_blockers_for_household(household)
     return blockers[0] if blockers else ""
+
+
+def portfolio_generation_blockers_structured_for_household(
+    household: models.Household,
+) -> list[PortfolioGenerationBlocker]:
+    """Return advisor-actionable blockers as structured TypedDict objects.
+
+    ADDITIVE companion to `portfolio_generation_blockers_for_household`
+    (which returns list[str] and is preserved verbatim for all existing
+    callers — sister's RecommendationBanner + HouseholdPortfolioPanel
+    fallback path + the construction-readiness gate at
+    `_full_assignment_blockers`).
+
+    Why structured:
+      - Round 14 #3 LOCKED: TypedDict + DRF + ts-types via OpenAPI codegen
+        gives the frontend a typed `code` + `ui_action` pair, enabling
+        per-blocker fix CTA buttons (Round 9 #11 LOCKED — every blocker
+        gets a fix CTA, no advisor bypass path).
+      - Closes G11 UUID-leak: the list[str] form interpolates raw
+        `account.external_id` UUIDs into user-facing strings (humanized
+        downstream by a regex at `serializers.py:188-229`). The
+        structured form NEVER ships raw UUIDs — `account_label` carries
+        the canon-vocab humanized label from `advisor_account_label`,
+        and `account_id` is the advisor's stable handle for `ui_action`
+        target routing (acceptable in payload — same shape as
+        `latest_portfolio_run.link_recommendation_rows[].account_external_id`).
+
+    Mirrors the same 12 branches the list[str] function visits, in the
+    same order, so the two outputs are 1-1 alignable for the snapshot
+    test.
+    """
+    from web.api.account_helpers import advisor_account_label
+    from web.api.types import PortfolioGenerationBlocker
+
+    blockers: list[PortfolioGenerationBlocker] = []
+
+    if household.household_risk_score < 1 or household.household_risk_score > 5:
+        blockers.append(
+            PortfolioGenerationBlocker(
+                code="household_invalid_risk_score",
+                ui_action="set_household_risk",
+            )
+        )
+
+    accounts = list(household.accounts.all())
+    if not accounts:
+        blockers.append(
+            PortfolioGenerationBlocker(
+                code="no_accounts",
+                ui_action="open_review_workspace",
+            )
+        )
+    goals = list(household.goals.prefetch_related("account_allocations").all())
+    if not goals:
+        blockers.append(
+            PortfolioGenerationBlocker(
+                code="no_goals",
+                ui_action="open_review_workspace",
+            )
+        )
+
+    links_by_account: dict[str, list[models.GoalAccountLink]] = {
+        account.external_id: [] for account in accounts if account.is_held_at_purpose
+    }
+    for account in accounts:
+        if account.account_type not in ALLOWED_ENGINE_ACCOUNT_TYPES:
+            blockers.append(
+                PortfolioGenerationBlocker(
+                    code="unsupported_account_type",
+                    account_id=account.external_id,
+                    account_label=advisor_account_label(account),
+                    ui_action="open_review_workspace",
+                )
+            )
+    for goal in goals:
+        if not goal.target_date:
+            blockers.append(
+                PortfolioGenerationBlocker(
+                    code="goal_missing_target_date",
+                    goal_id=goal.external_id,
+                    goal_label=goal.name or "Goal",
+                    ui_action="set_goal_horizon",
+                )
+            )
+        if goal.goal_risk_score < 1 or goal.goal_risk_score > 5:
+            blockers.append(
+                PortfolioGenerationBlocker(
+                    code="goal_invalid_risk_score",
+                    goal_id=goal.external_id,
+                    goal_label=goal.name or "Goal",
+                    ui_action="set_goal_horizon",
+                )
+            )
+        for link in goal.account_allocations.all():
+            if link.allocated_amount is None and link.allocated_pct is None:
+                blockers.append(
+                    PortfolioGenerationBlocker(
+                        code="missing_link_amount",
+                        account_id=link.account.external_id,
+                        account_label=advisor_account_label(link.account),
+                        goal_id=goal.external_id,
+                        goal_label=goal.name or "Goal",
+                        ui_action="assign_to_goal",
+                    )
+                )
+            if link.account.external_id in links_by_account:
+                links_by_account[link.account.external_id].append(link)
+
+    for account in accounts:
+        if not account.is_held_at_purpose:
+            continue
+        links = links_by_account.get(account.external_id, [])
+        account_value = account.current_value or Decimal("0")
+        account_value_bp = int((account_value * 10000).to_integral_value())
+        if not links:
+            blockers.append(
+                PortfolioGenerationBlocker(
+                    code="purpose_account_unassigned",
+                    account_id=account.external_id,
+                    account_label=advisor_account_label(account),
+                    account_value_basis_points=account_value_bp,
+                    ui_action="assign_to_goal",
+                )
+            )
+            continue
+        # Catalogued post-R7 real-PII bug 2: zero/null current_value on
+        # an is_held_at_purpose account would silently slip through and
+        # then crash engine.optimizer. Surface as explicit blocker.
+        if account_value <= 0:
+            blockers.append(
+                PortfolioGenerationBlocker(
+                    code="purpose_account_zero_value",
+                    account_id=account.external_id,
+                    account_label=advisor_account_label(account),
+                    account_value_basis_points=account_value_bp,
+                    ui_action="edit_account_value",
+                )
+            )
+            continue
+        if all(link.allocated_amount is not None for link in links):
+            allocated = sum(link.allocated_amount for link in links)
+            unallocated = account_value - allocated
+            if abs(unallocated) > Decimal("1.00"):
+                blockers.append(
+                    PortfolioGenerationBlocker(
+                        code="purpose_account_unallocated",
+                        account_id=account.external_id,
+                        account_label=advisor_account_label(account),
+                        account_value_basis_points=account_value_bp,
+                        account_unallocated_basis_points=int(
+                            (unallocated * 10000).to_integral_value()
+                        ),
+                        ui_action="assign_to_goal",
+                    )
+                )
+        elif all(link.allocated_pct is not None for link in links):
+            allocated_pct = sum(link.allocated_pct for link in links)
+            if abs(allocated_pct - Decimal("1")) > Decimal("0.0001"):
+                # `unallocated` here is the PCT gap converted to bp:
+                # e.g., 0.95 -> -500 bp short, 1.05 -> +500 bp over.
+                pct_gap = Decimal("1") - allocated_pct
+                blockers.append(
+                    PortfolioGenerationBlocker(
+                        code="purpose_account_pct_not_100",
+                        account_id=account.external_id,
+                        account_label=advisor_account_label(account),
+                        account_value_basis_points=account_value_bp,
+                        account_unallocated_basis_points=int((pct_gap * 10000).to_integral_value()),
+                        ui_action="assign_to_goal",
+                    )
+                )
+        else:
+            blockers.append(
+                PortfolioGenerationBlocker(
+                    code="mixed_amount_pct",
+                    account_id=account.external_id,
+                    account_label=advisor_account_label(account),
+                    account_value_basis_points=account_value_bp,
+                    ui_action="assign_to_goal",
+                )
+            )
+
+    return blockers
 
 
 def _full_assignment_blockers(

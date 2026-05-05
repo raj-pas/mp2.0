@@ -305,6 +305,7 @@ _EXPECTED_TOP_LEVEL_KEYS = {
     "latest_portfolio_run",
     "latest_portfolio_failure",
     "readiness_blockers",
+    "structured_readiness_blockers",  # P11 (plan v20 §A1.27)
     "portfolio_runs",
 }
 

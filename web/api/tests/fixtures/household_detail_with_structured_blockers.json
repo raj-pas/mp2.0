@@ -1,0 +1,65 @@
+{
+  "_comment": "P11 fixture (plan v20 §A1.27 / §3.21 5th committed JSON fixture). Synthetic household_detail payload exercising structured_readiness_blockers covering 4 representative codes: zero-value Purpose account, unallocated Purpose account, missing goal target_date, and household-invalid risk score. PII-safe — synthetic external_ids only. Used by test_household_detail_serializer_snapshot.py to lock the JSON byte-shape.",
+  "id": "hh_p11_blockers_fixture",
+  "display_name": "P11 Blocker Fixture Household",
+  "household_type": "couple",
+  "household_risk_score": 3,
+  "goal_count": 1,
+  "total_assets": 0.0,
+  "external_assets": [],
+  "notes": "Synthetic P11 fixture — never used by load_synthetic_personas.",
+  "members": [],
+  "goals": [
+    {
+      "id": "goal_p11_blocker_no_date",
+      "name": "Goal without target date",
+      "target_amount": 50000.0,
+      "target_date": null,
+      "necessity_score": 3,
+      "current_funded_amount": 0.0,
+      "contribution_plan": {},
+      "goal_risk_score": 3,
+      "status": "watch",
+      "notes": "",
+      "account_allocations": []
+    }
+  ],
+  "accounts": [
+    {
+      "id": "acct_p11_blocker_zero",
+      "owner_person_id": null,
+      "type": "RRSP",
+      "regulatory_objective": "growth",
+      "regulatory_time_horizon": "10y+",
+      "regulatory_risk_rating": "medium",
+      "current_value": 0.0,
+      "contribution_room": null,
+      "is_held_at_purpose": true,
+      "missing_holdings_confirmed": false,
+      "cash_state": "invested",
+      "holdings": []
+    }
+  ],
+  "latest_portfolio_run": null,
+  "latest_portfolio_failure": null,
+  "readiness_blockers": [
+    "Goal Goal without target date needs a target date or horizon.",
+    "Purpose account RRSP (acct_p11) must be assigned to a goal."
+  ],
+  "structured_readiness_blockers": [
+    {
+      "code": "goal_missing_target_date",
+      "goal_id": "goal_p11_blocker_no_date",
+      "goal_label": "Goal without target date",
+      "ui_action": "set_goal_horizon"
+    },
+    {
+      "code": "purpose_account_unassigned",
+      "account_id": "acct_p11_blocker_zero",
+      "account_label": "Purpose RRSP at Steadyhand",
+      "account_value_basis_points": 0,
+      "ui_action": "assign_to_goal"
+    }
+  ],
+  "portfolio_runs": []
+}

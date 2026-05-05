@@ -27,6 +27,7 @@ import type {
   HouseholdDetail,
   LinkRecommendation,
   Member,
+  PortfolioGenerationBlocker,
   PortfolioGenerationFailure,
   PortfolioRun,
   ProjectionPoint,
@@ -329,6 +330,19 @@ export function mockMember(overrides: Partial<Member> = {}): Member {
   };
 }
 
+export function mockBlocker(
+  overrides: Partial<PortfolioGenerationBlocker> = {},
+): PortfolioGenerationBlocker {
+  return {
+    code: "purpose_account_unassigned",
+    account_id: "acct_non_registered",
+    account_label: "Purpose Non-Registered at Steadyhand ($108K)",
+    account_value_basis_points: 1080000000,
+    ui_action: "assign_to_goal",
+    ...overrides,
+  };
+}
+
 export function mockExternalAsset(
   overrides: Partial<ExternalAssetRow> = {},
 ): ExternalAssetRow {
@@ -358,6 +372,7 @@ export function mockHousehold(
     latest_portfolio_run: mockPortfolioRun(),
     latest_portfolio_failure: null,
     readiness_blockers: [],
+    structured_readiness_blockers: [],
     portfolio_runs: [
       {
         ...mockPortfolioRun(),

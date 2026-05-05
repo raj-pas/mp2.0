@@ -139,7 +139,31 @@
       "generation_failed_inline": "Generation failed ({{reason}})",
       "readiness_blockers_title": "Resolve before generating",
       "stale_chip_label": "Stale: regenerate to refresh ({{signature}})",
-      "integrity_chip_label": "Integrity issue: see ops-runbook ({{signature}})"
+      "integrity_chip_label": "Integrity issue: see ops-runbook ({{signature}})",
+      "unallocated_banner_slot_aria": "Unallocated funds banner slot"
+    },
+    "portfolio": {
+      "blocker": {
+        "purpose_account_unassigned": "{{account_label}} has no goal assignment yet.",
+        "purpose_account_unallocated": "{{account_label}} has unassigned funds.",
+        "purpose_account_zero_value": "{{account_label}} needs a current value before generation.",
+        "purpose_account_pct_not_100": "{{account_label}} goal percentages do not sum to 100%.",
+        "goal_missing_target_date": "{{goal_label}} needs a target date or horizon.",
+        "goal_invalid_risk_score": "{{goal_label}} needs a 1-5 risk score.",
+        "household_invalid_risk_score": "Household needs a 1-5 risk score.",
+        "no_accounts": "Add at least one account before generation.",
+        "no_goals": "Add at least one goal before generation.",
+        "unsupported_account_type": "{{account_label}} has an unsupported account type.",
+        "missing_link_amount": "{{account_label}} → {{goal_label}} needs dollars or percentage assigned.",
+        "mixed_amount_pct": "{{account_label}} mixes dollar and percentage assignments — pick one."
+      },
+      "ui_action": {
+        "assign_to_goal": "Assign",
+        "edit_account_value": "Edit value",
+        "set_goal_horizon": "Set horizon",
+        "set_household_risk": "Set risk",
+        "open_review_workspace": "Open review"
+      }
     },
     "account": {
       "back_to_household": "Back to household",

@@ -194,6 +194,53 @@ export type PortfolioGenerationFailure = {
 };
 
 /**
+ * Structured advisor-actionable blocker preventing portfolio generation.
+ * Mirrors `web/api/types.py::PortfolioGenerationBlocker` (TypedDict).
+ *
+ * Per plan v20 §A1.27 + Round 14 #3 LOCKED:
+ *   The 12 codes cover every branch in
+ *   `portfolio_generation_blockers_for_household`, and the 5
+ *   ui_actions map to advisor-friendly fix CTAs (Round 9 #11 LOCKED —
+ *   no bypass; every blocker has a fix path).
+ *
+ * Closes G11 UUID-leak: `account_label` carries the canon-vocab
+ * humanized form ("Purpose RRSP at Steadyhand ($890K)") built by
+ * `account_helpers.advisor_account_label` server-side; raw external_ids
+ * never reach the rendered string.
+ *
+ * `account_value_basis_points` and `account_unallocated_basis_points`
+ * are integer basis points (1 bp = 0.0001 = 0.01%); the rendering
+ * layer divides by 10000 + formats via `formatCad`.
+ */
+export type PortfolioGenerationBlocker = {
+  code:
+    | "purpose_account_unassigned"
+    | "purpose_account_unallocated"
+    | "purpose_account_zero_value"
+    | "purpose_account_pct_not_100"
+    | "goal_missing_target_date"
+    | "goal_invalid_risk_score"
+    | "household_invalid_risk_score"
+    | "no_accounts"
+    | "no_goals"
+    | "unsupported_account_type"
+    | "missing_link_amount"
+    | "mixed_amount_pct";
+  account_id?: string;
+  account_label?: string;
+  account_value_basis_points?: number;
+  account_unallocated_basis_points?: number;
+  goal_id?: string;
+  goal_label?: string;
+  ui_action:
+    | "assign_to_goal"
+    | "edit_account_value"
+    | "set_goal_horizon"
+    | "set_household_risk"
+    | "open_review_workspace";
+};
+
+/**
  * Legacy JSONField list seeded by `load_synthetic_personas` and
  * historical commits. Each row is `{type?, value, description?}`.
  * R1 introduced the canonical `ExternalHolding` model + endpoints,
@@ -233,6 +280,14 @@ export type HouseholdDetail = {
    * was no persistent UI signal of unmet readiness.
    */
   readiness_blockers: string[];
+  /**
+   * Structured TypedDict-shaped blockers per plan v20 §A1.27.
+   * ADDITIVE companion to `readiness_blockers` — frontend prefers this
+   * field when present (renders structured BlockerBanner with per-
+   * blocker fix CTAs) and falls back to humanized strings on older
+   * payloads. `null` when no engine output context exists.
+   */
+  structured_readiness_blockers: PortfolioGenerationBlocker[] | null;
   portfolio_runs: PortfolioRun[];
 };
 

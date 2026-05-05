@@ -117,6 +117,7 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
     latest_portfolio_run = serializers.SerializerMethodField()
     latest_portfolio_failure = serializers.SerializerMethodField()
     readiness_blockers = serializers.SerializerMethodField()
+    structured_readiness_blockers = serializers.SerializerMethodField()
     portfolio_runs = serializers.SerializerMethodField()
 
     class Meta:
@@ -136,6 +137,7 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
             "latest_portfolio_run",
             "latest_portfolio_failure",
             "readiness_blockers",
+            "structured_readiness_blockers",
             "portfolio_runs",
         ]
 
@@ -148,6 +150,75 @@ class HouseholdDetailSerializer(serializers.ModelSerializer):
     def get_latest_portfolio_run(self, obj: models.Household) -> dict | None:
         run = obj.portfolio_runs.order_by("-created_at").first()
         return PortfolioRunSerializer(run, context=self.context).data if run else None
+
+    def get_structured_readiness_blockers(self, obj: models.Household) -> list[dict] | None:
+        """Structured TypedDict-shaped blockers per plan v20 §A1.27 / Round 14 #3.
+
+        ADDITIVE companion to `readiness_blockers` (the humanized
+        list[str] surfaced for backwards-compat). Frontend reads
+        `structured_blocker_list` when present, falling back to the
+        humanized strings on older payloads.
+
+        Returns `None` when no engine output exists AND no review
+        workspace is open — preserves the §3.16 backwards-compat
+        contract (pre-tag GET on a fresh household must not crash).
+
+        Emits a rate-limited `portfolio_generation_blocker_surfaced`
+        audit event per §A1.23 schema, deduped on
+        (household, len(blockers), first_code) so a household with
+        unchanged blocker state doesn't emit on every GET. The dedup
+        mirrors the existing `AuditEvent.objects.filter(...).exists()`
+        pattern used in views.py.
+        """
+        from web.api.review_state import (
+            portfolio_generation_blockers_structured_for_household,
+        )
+        from web.audit.models import AuditEvent
+
+        try:
+            structured = portfolio_generation_blockers_structured_for_household(obj)
+        except Exception:  # noqa: BLE001 — defensive; never fail the GET
+            return None
+
+        if not structured:
+            return []
+
+        # §A1.23 audit metadata schema:
+        #   action: portfolio_generation_blocker_surfaced
+        #   metadata: {
+        #     "blocker_count": int,
+        #     "blocker_codes": list[str],  # closed Literal set; PII-safe
+        #     "first_code": str,           # for dedup keying
+        #   }
+        # Rate-limited dedup: skip emission if same (count, first_code)
+        # exists within last 24h on this household (mirror of the
+        # existing pattern; full window-based dedup is out of P11 scope).
+        try:
+            blocker_codes = [b["code"] for b in structured]
+            first_code = blocker_codes[0]
+            already_emitted = AuditEvent.objects.filter(
+                action="portfolio_generation_blocker_surfaced",
+                entity_type="household",
+                entity_id=obj.external_id,
+                metadata__first_code=first_code,
+                metadata__blocker_count=len(structured),
+            ).exists()
+            if not already_emitted:
+                record_event(
+                    action="portfolio_generation_blocker_surfaced",
+                    entity_type="household",
+                    entity_id=obj.external_id,
+                    actor="system",
+                    metadata={
+                        "blocker_count": len(structured),
+                        "blocker_codes": blocker_codes,
+                        "first_code": first_code,
+                    },
+                )
+        except Exception:  # noqa: BLE001 — audit failures must not block the GET
+            pass
+
+        return list(structured)
 
     def get_latest_portfolio_failure(self, obj: models.Household) -> dict | None:
         """Most recent portfolio_generation_*_failed AuditEvent newer than the

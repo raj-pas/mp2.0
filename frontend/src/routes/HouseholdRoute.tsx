@@ -146,6 +146,19 @@ export function HouseholdRoute() {
         reverting={restoreSnapshot.isPending}
       />
 
+      {/*
+        UnallocatedBanner slot per plan v20 §A1.18 LOCKED layout — sits
+        ABOVE the action sub-bar (and HouseholdPortfolioPanel). The full
+        banner component is owned by P12 (next pair); the slot here is a
+        non-rendering placeholder so structural tests can target the
+        ordering before the component lands. Z-order coord: banner z-10
+        (when shipped) sits BELOW sister's StaleRunOverlay z-20.
+      */}
+      <div
+        data-testid="unallocated-banner-slot"
+        aria-label={t("routes.household.unallocated_banner_slot_aria")}
+      />
+
       <HouseholdPortfolioPanel household={household} />
 
       <section className="flex flex-1 overflow-hidden border border-hairline-2 shadow-sm">

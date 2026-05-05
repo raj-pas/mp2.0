@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HouseholdPortfolioPanel } from "../HouseholdPortfolioPanel";
 import {
+  mockBlocker,
   mockEngineOutput,
   mockFailure,
   mockHousehold,
@@ -299,5 +300,115 @@ describe("HouseholdPortfolioPanel — stale variants (post-tag locked §3.2 + §
       screen.getByRole("button", { name: /routes\.household\.regenerate/i }),
     );
     expect(generateMutate).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P11 — structured portfolio-readiness blockers (plan v20 §A1.27)
+// ---------------------------------------------------------------------------
+
+describe("HouseholdPortfolioPanel — structured blockers (P11)", () => {
+  it("renders the StructuredBlockerBanner when structured_readiness_blockers has entries", () => {
+    const hh = mockHousehold({
+      latest_portfolio_run: null,
+      latest_portfolio_failure: null,
+      structured_readiness_blockers: [
+        mockBlocker({
+          code: "purpose_account_unassigned",
+          account_label: "Purpose RRSP at Steadyhand ($890K)",
+          ui_action: "assign_to_goal",
+        }),
+      ],
+    });
+    render(<HouseholdPortfolioPanel household={hh} />);
+    expect(screen.getByTestId("structured-blocker-banner")).toBeInTheDocument();
+  });
+
+  it("renders one fix-CTA button per blocker (Round 9 #11 LOCKED — no bypass)", () => {
+    const hh = mockHousehold({
+      latest_portfolio_run: null,
+      latest_portfolio_failure: null,
+      structured_readiness_blockers: [
+        mockBlocker({
+          code: "purpose_account_unassigned",
+          ui_action: "assign_to_goal",
+        }),
+        mockBlocker({
+          code: "goal_missing_target_date",
+          goal_id: "g_x",
+          goal_label: "Retirement",
+          ui_action: "set_goal_horizon",
+        }),
+        mockBlocker({
+          code: "household_invalid_risk_score",
+          account_id: undefined,
+          account_label: undefined,
+          account_value_basis_points: undefined,
+          ui_action: "set_household_risk",
+        }),
+      ],
+    });
+    render(<HouseholdPortfolioPanel household={hh} />);
+    const banner = screen.getByTestId("structured-blocker-banner");
+    // 3 blockers → 3 fix-CTA buttons inside the banner.
+    const buttons = banner.querySelectorAll("button[data-ui-action]");
+    expect(buttons).toHaveLength(3);
+    expect(buttons[0]).toHaveAttribute("data-ui-action", "assign_to_goal");
+    expect(buttons[1]).toHaveAttribute("data-ui-action", "set_goal_horizon");
+    expect(buttons[2]).toHaveAttribute("data-ui-action", "set_household_risk");
+  });
+
+  it("falls back to humanized strings when structured_readiness_blockers is null (§3.16 backwards-compat)", () => {
+    const hh = mockHousehold({
+      latest_portfolio_run: null,
+      latest_portfolio_failure: null,
+      structured_readiness_blockers: null,
+      readiness_blockers: ["Purpose account RRSP (acct_xxx) must be assigned to a goal."],
+    });
+    render(<HouseholdPortfolioPanel household={hh} />);
+    expect(screen.queryByTestId("structured-blocker-banner")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Purpose account RRSP \(acct_xxx\) must be assigned/i),
+    ).toBeInTheDocument();
+  });
+
+  it("structured banner sits at z-10 (below sister's StaleRunOverlay z-20 per §A1.19 §3.2)", () => {
+    const hh = mockHousehold({
+      latest_portfolio_run: null,
+      latest_portfolio_failure: null,
+      structured_readiness_blockers: [mockBlocker()],
+    });
+    render(<HouseholdPortfolioPanel household={hh} />);
+    const section = screen.getByRole("status");
+    expect(section.className).toContain("z-10");
+  });
+
+  it("Generate button disabled when structured blockers present (locked #11 — no bypass)", () => {
+    const hh = mockHousehold({
+      latest_portfolio_run: null,
+      latest_portfolio_failure: null,
+      structured_readiness_blockers: [mockBlocker()],
+    });
+    render(<HouseholdPortfolioPanel household={hh} />);
+    expect(
+      screen.getByRole("button", { name: /routes\.household\.generate/i }),
+    ).toBeDisabled();
+  });
+});
+
+// Sister §A1.50 empty-state — falls back to humanized strings on empty.
+describe("HouseholdPortfolioPanel — empty state fallback (§A1.50)", () => {
+  it("test_blocker_banner_empty_state_falls_back_to_humanized_strings", () => {
+    const hh = mockHousehold({
+      latest_portfolio_run: null,
+      latest_portfolio_failure: null,
+      // Empty list (not null) → no banner, but humanized fallback only fires
+      // when humanized list is also non-empty.
+      structured_readiness_blockers: [],
+      readiness_blockers: ["Legacy humanized blocker"],
+    });
+    render(<HouseholdPortfolioPanel household={hh} />);
+    expect(screen.queryByTestId("structured-blocker-banner")).not.toBeInTheDocument();
+    expect(screen.getByText(/Legacy humanized blocker/i)).toBeInTheDocument();
   });
 });
