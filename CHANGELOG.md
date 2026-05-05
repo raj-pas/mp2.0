@@ -5,6 +5,110 @@ adheres to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions follow `vMAJOR.MINOR.PATCH-pre`. The current pilot is
 tagged `v0.1.0-pilot`.
 
+## v0.1.3-pilot-quality-closure — 2026-05-05
+
+Comprehensive Pilot Quality Closure. Closes 14 gaps (G1-G14) across
+multi-entity reconciliation, re-open / re-reconcile flows, structured
+portfolio-readiness blockers, AssignAccountModal, wizard hardening,
+toggles, polish, and durable design-system documentation. 14 commits
+past `v0.1.3-engine-display-polish`; 16 phase deliverables across 7
+sub-agent dispatch pairs per plan v20 §A1.43.
+
+### Added
+
+- **G1 / P1.1** — Cross-doc entity alignment matcher (`extraction/entity_alignment.py`,
+  ~687 LoC). TIGHTENED 2-field threshold per Round 13 #2 LOCKED:
+  people merge requires name+DOB OR name+last-name+last4_account_number;
+  single-field overlap returns 0 → NEW canonical. Eliminates father+son
+  same-surname false-merge. Migration 0011 adds `ExtractedFact.canonical_index`.
+- **G2 / P2.1** — Re-open committed household for new statement.
+  `POST /api/clients/<id>/reopen/` creates new ReviewWorkspace with
+  `source_household` FK, preserves household identity via `_merge_household_state`
+  UPSERT. Migration 0012 adds `ReviewWorkspace.source_household`.
+- **G2 / P2.5** — Re-reconcile entities button. `POST /api/clients/<id>/reconcile/`
+  re-runs `align_facts(...)` over committed facts; opens new workspace if
+  alignment differs (200 noop if not).
+- **G3 / P3.1** — Stale "Phase RN" copy fix: 11 orphan i18n keys deleted +
+  2 live keys rewritten + vocab CI extended with `Phase R[0-9]` pattern.
+- **G4 / P3.2** — ContextPanel controlled `Tabs.Root` + per-kind localStorage
+  persistence (`mp20_ctx_tab_household`/`_account`/`_goal`).
+- **G5 / P3.3** — Section-level Add-fact affordance: per-blocker inline
+  `+` button + bulk `<ResolveAllMissingWizard>` auto-suggested at N≥4
+  (lazy-loaded; 1.73 kB gzip chunk).
+- **G6 / P3.4** — Pre-commit allocation matrix in StatePeekPanel
+  (rows=goals, cols=accounts; cap 8x8 with "+N more" overflow).
+- **G7 / P5** — Wizard ↔ Review schema unification: shared `frontend/src/lib/schemas.ts`
+  + `frontend/src/lib/risk.ts` (canon §11.4 5/15/25/35/45 percentile mapping).
+- **G8 / P6** — `<ToggleFundAssetClass>` on AccountRoute + GoalRoute
+  (per-user global localStorage).
+- **G9 / P7** — `<ToggleCurrentIdeal>` on HouseholdRoute action sub-bar
+  (per-user global localStorage; disabled with tooltip when no PortfolioRun).
+- **G10 / P9 (P2.3)** — HouseholdContext.History.Commits sub-tab surfaces
+  `review_state_committed` + `entities_reconciled_via_button` + `account_assigned_to_goals`
+  + `review_workspace_reopened` + `portfolio_generation_post_*` events.
+- **G11 / P11** — Structured `PortfolioGenerationBlocker` TypedDict (12 codes,
+  5 ui_actions). ADDITIVE refactor preserves sister's `list[str]` shape;
+  new `structured_blocker_list` field on `latest_portfolio_failure`.
+  `advisor_account_label` helper (NEVER includes raw `account.external_id`).
+- **G12 / P12** — `<UnallocatedBanner>` above HouseholdRoute action sub-bar
+  + Treemap virtual `_unallocated` tile rendering (dashed border + striped pattern).
+- **G13 / P13** — `<AssignAccountModal>` (lazy-loaded; 3.01 kB gzip chunk)
+  + `POST /api/clients/<id>/accounts/<id>/assign-goals/` endpoint.
+  $ + % linked inputs with live conversion; full new-goal inline-create;
+  hard-require 100% submit gate; basis-points audit metadata.
+- **G14 / P14** — Wizard Step3Goals account-centric + goal-side hardening
+  (zod superRefine; Continue HARD-BLOCKED until 100% Purpose accounts allocated
+  AND every goal has ≥1 leg + target_amount). Step3 allocation matrix preview
+  + Step5 lazy `<Step5BlockerPreview>` mirrors P11 backend shape.
+- **P0** — Durable design-system + UX research artifact
+  (`docs/agent/design-system-research.md`, 918 lines). 20 cited reference
+  systems + 8 counter-patterns + decision log + lifecycle. Auto-loaded
+  via CLAUDE.md "Start Every Session". Auto-memory entry +
+  `MEMORY.md` index pointer. Cross-references from `ux-spec.md` +
+  `design-system.md` + `post-pilot-improvements.md`.
+- **P8** — `Readiness.missing[].field_path` backend extension (canonical
+  field paths matching `extraction/schemas.py`).
+- **P9** — `AuditEventListView` endpoint with advisor-relevant kind allowlist;
+  paginated 50; entity_id scoped.
+- **P10.x** — Final verification: `docs/agent/pilot-walkthrough-2026-05-04.md`
+  (405 lines structural narrative covering G1-G14) +
+  `docs/agent/pilot-readiness-2026-05-04.md` (271 lines; 8 metric queries
+  with current pre-pilot values).
+
+### Patterns adopted from external systems
+
+YNAB ("every dollar assigned"), Wealthfront/Betterment ("goal-required at
+account-creation"), Salesforce FSC ("household roll-up + one-click assign"),
+Stripe Connect ("complete your profile + structured field-level fix"),
+Lattice/Notion ("field-level validation + summary"), Quicken/Apple Wallet
+("uncategorized prominent"). Full pattern map at
+`docs/agent/design-system-research.md` (~700-900 line living doc, 20 cited
+reference systems with file:line application points).
+
+### Tests + verification
+
+- backend pytest: 872 (sister baseline) → **1,096 passed / 3 skipped / 0 failed** (+224 net new)
+- frontend Vitest: 230 → **391 passed in 43 test files** (+161 net new)
+- Playwright chromium: 13 foundation + 18 regression-coverage + 24 visual-verification + 6 axe pilot-features = **61 chromium**
+- cross-browser: 21+ webkit + firefox cells
+- perf benchmark: **9/9 passing** (locked #18 P50 ≤ 250ms / P99 ≤ 1000ms intact)
+- Hypothesis property tests: **8/8** (3 P1.1 alignment properties + 5 sister status invariants); seeds documented for reproducibility
+- coverage gate: ≥90% on touched modules per sister §3.14 (extraction.entity_alignment 95%; web.api.types 100%; web.api.account_helpers 96%; lib/schemas.ts 100%; lib/risk.ts 100%; AssignAccountModal 99.6%)
+- bundle gzipped: 269.41 kB (sister baseline) → **278.94 kB** (~11 kB headroom under 290 kB cap; lazy code-split for AssignAccountModal + ResolveAllMissingWizard + Step5BlockerPreview)
+- code-reviewer + PII-focused dual review per §A1.40 + Round 11 #18: **0 BLOCKING + 0 CRITICAL + 6 MEDIUM (ALL FIXED) + 1 LOW (WONTFIX with rationale)**
+
+### Locked decisions honored
+
+22 user lock-ins from rounds 7-12 + 4 from round 13 + 4 from round 14 = 30 round-N decisions. Plan canonical at `~/.claude/plans/you-are-continuing-a-playful-hammock.md` §A1.14 + §A1.18 + §A1.31 + §A1.39. Sister §3 decisions (12 of 25 affecting this plan) honored verbatim. Migrated to `docs/agent/decisions.md` per #91 close-out pattern.
+
+### Pilot success criteria
+
+See `docs/agent/pilot-readiness-2026-05-04.md` (8 quantitative metrics: ≥3 advisors with ≥1 onboarding by Fri 2026-05-15; <2 Sev-1 incidents in pilot weeks 1-2; ≥90% real-PII reconcile rate per advisor; ≥7/10 NPS; <$25 Bedrock per advisor/week; <25% manual-entry rate; <30 min median time-to-first-portfolio; ≥80% conflict-resolve rate). All 8 queries return non-error pre-pilot baseline values.
+
+### Rollback
+
+Revert tag `v0.1.3-pilot-quality-closure` → fall back to `v0.1.3-engine-display-polish` (sister) via `pilot-rollback.md` Sev-1 procedure. PortfolioRun + AuditEvent + HouseholdSnapshot are append-only; no DB rollback required. Migration rollback tested per §A1.58 (0011 + 0012 reversible cleanly).
+
 ## v0.1.2-engine-display — 2026-05-04
 
 Engine→UI display integration. Closes the gap between the engine's
