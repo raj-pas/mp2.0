@@ -47,9 +47,39 @@
 
 ### Step 4 — Goal allocation panel (~45s)
 
-**What to say**: "If the advisor wants to override the system-derived risk score for this goal, they pick a band, type a rationale, and save. That fires an audit event with the rationale, advisor, and timestamp — append-only. The optimizer recomputes against the override and the moves panel updates."
+**What to say**: "Notice the small pill in the allocation panel header: 'Engine recommendation' with a run signature. That's the canonical surface — the bars come from the link-first engine's frontier-optimized blend, not calibration reference points. Same pill appears on the optimizer-output widget on the right (improvement % is dollar-weighted across links) and on the moves panel below. If a goal has no engine recommendation yet — say it was never run, or the link is in a degenerate state — these surfaces fall back to calibration with a 'Calibration preview' pill so the advisor always knows the source."
 
-**Optional click**: drag the slider to a different band to show live recompute (don't save unless rehearsed).
+**What to say (override flow)**: "If the advisor wants to override the system-derived risk score for this goal, they pick a band, type a rationale, and save. That fires an audit event with the rationale, advisor, and timestamp — append-only. The engine auto-regenerates synchronously on save."
+
+**Look for**: 'Engine recommendation' pill on allocation + optimizer-output + moves panels (3 distinct pill renders, same component); accent-2 styling distinguishes from calibration variant.
+
+### Step 4.5 — Slider drag → override → engine regenerate (~30s)
+
+**Click**: drag the risk slider to a different band (don't release yet).
+
+**What to say**: "Watch the pills flip while I drag. They go from 'Engine recommendation' to 'Calibration preview (drag mode)' — the bars track the slider live so the advisor can see what the calibration would say at this band. The engine output stays fixed because it's tied to the SAVED config; we don't recompute the frontier on every drag tick."
+
+**Click**: release slider → enter rationale "Demo override per Phase 4.5" → click Save.
+
+**What to say**: "Save fires an AuditEvent and the engine regenerates synchronously — sub-second. Now the pills flip back to 'Engine recommendation' with a NEW run signature; banner timestamp updates within ~500ms. Closed-loop the platform was designed for."
+
+**Look for**: pill flip live during drag (calibration_drag styling, muted); pill flip back to engine post-save with new signature; banner timestamp updates.
+
+### Step 4.6 — CMA republish → stale overlay → regenerate (~60s, optional)
+
+**Click**: open analyst CMA Workbench in another tab (`/cma`); duplicate active CMA; bump expected returns slightly; publish.
+
+**Click**: switch back to Sandra/Mike goal route → reload page.
+
+**What to say**: "Now there's a NEW active CMA, so the run we just generated is invalidated. Notice the engine panels here are dimmed and unfocusable — there's an overlay covering them with 'Recommendation is stale: regenerate to refresh' and a Regenerate button. The advisor cannot act on outdated numbers. The recommendation banner up top also shows a warning chip with the same message. This is the integrity guarantee — the system never lets the advisor commit to recommendations against stale assumptions."
+
+**Click**: click Regenerate inside the overlay.
+
+**What to say**: "Regenerates against the new CMA; overlay dismisses; banner shows fresh run signature. Same closed-loop pattern as the override flow."
+
+**Look for**: muted+pointer-events-none engine panels; warning-bordered overlay with focus on Regenerate; click Regenerate dismisses overlay + reveals fresh engine panels with new run signature in pill.
+
+**Note**: if the integrity check fails (`hash_mismatch` status — e.g. someone tampered with the run row directly), a different overlay fires — danger-bordered, NO Regenerate button, copy says "Engineering has been notified." Backend simultaneously emits an `portfolio_run_integrity_alert` AuditEvent (rate-limited per advisor, per run); ops-runbook §2 documents the engineer response. Advisor cannot act on it; engineering investigates.
 
 ### Step 5 — Switch to /review (~30s)
 

@@ -57,6 +57,56 @@ test.describe("Pilot features smoke", () => {
     expect(results.violations).toEqual([]);
   });
 
+  // ---------------------------------------------------------------------------
+  // Post-tag gap-closure A5 — axe coverage for engine→UI display surfaces.
+  // ---------------------------------------------------------------------------
+  // Sandra/Mike auto-seeds with a current PortfolioRun, so the household route
+  // renders HouseholdPortfolioPanel (engine rollup + top funds) and the goal
+  // route renders RecommendationBanner + GoalAllocationSection + Optimizer
+  // OutputWidget + MovesPanel + StaleRunOverlay/IntegrityAlertOverlay (when
+  // status is non-current). Per locked decisions §3.10 + §3.14 + #109 — these
+  // surfaces are the most-used in pilot and must clear WCAG 2.1 AA on every
+  // commit gate.
+
+  test("household route has zero axe-core WCAG 2.1 AA violations", async ({ page }) => {
+    // Land on home, then navigate via Sandra/Mike link if not auto-selected.
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    const sandraTrigger = page.getByRole("link", { name: /Sandra.*Mike/i }).first();
+    if (await sandraTrigger.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await sandraTrigger.click();
+      await page.waitForLoadState("networkidle");
+    }
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa"])
+      .disableRules(["aria-valid-attr-value"])
+      .analyze();
+    expect(results.violations).toEqual([]);
+  });
+
+  test("goal route has zero axe-core WCAG 2.1 AA violations", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    const sandraTrigger = page.getByRole("link", { name: /Sandra.*Mike/i }).first();
+    if (await sandraTrigger.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await sandraTrigger.click();
+      await page.waitForLoadState("networkidle");
+    }
+    // Drill into the first goal — Sandra/Mike has 3.
+    const firstGoalLink = page
+      .getByRole("link", { name: /Retirement income|Education|Ski cabin/i })
+      .first();
+    if (await firstGoalLink.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await firstGoalLink.click();
+      await page.waitForLoadState("networkidle");
+    }
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa"])
+      .disableRules(["aria-valid-attr-value"])
+      .analyze();
+    expect(results.violations).toEqual([]);
+  });
+
   test("PilotBanner shows on first login + persists dismissal", async ({ page }) => {
     // First-paint state varies by advisor history: a fresh advisor
     // sees the banner, an already-acked advisor doesn't. Both states

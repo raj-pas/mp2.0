@@ -88,14 +88,23 @@ export function RiskSlider({
     setSelectedScore(effectiveScore);
   }, [effectiveScore]);
 
+  // Two distinct semantics (sub-session #3 A5 regression fix):
+  //   - isOverrideDraft: selectedScore differs from the system-derived score;
+  //     gates the SaveOverrideForm so the advisor can confirm/adjust an
+  //     existing saved override AND draft a new one. (Pre-A2 behavior; do
+  //     not change.)
+  //   - isDragPreview: selectedScore differs from the CURRENT effective score
+  //     (saved override OR system, whichever is in effect). Only true while
+  //     the advisor is actively dragging away from the committed value.
+  //     This is the lift-to-parent semantic per locked §3.1 + §3.7 — the
+  //     SourcePill flips to "calibration_drag" only during a real drag, not
+  //     on every page load of a goal that happens to have a saved override.
   const isOverrideDraft = selectedScore !== systemScore;
+  const isDragPreview = selectedScore !== effectiveScore;
 
-  // Lift drag-preview state to the parent so GoalAllocationSection can
-  // flip its source pill to "calibration_drag" while the advisor is
-  // exploring (per locked §3.1 + §3.7).
   useEffect(() => {
-    onPreviewChange?.(isOverrideDraft);
-  }, [isOverrideDraft, onPreviewChange]);
+    onPreviewChange?.(isDragPreview);
+  }, [isDragPreview, onPreviewChange]);
 
   const {
     register,

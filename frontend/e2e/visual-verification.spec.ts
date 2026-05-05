@@ -976,4 +976,74 @@ test.describe("Visual verification — engine→UI display surfaces (v0.1.2-engi
     await expect(panel).toHaveAttribute("aria-live", "polite");
     await expect(panel).toHaveAttribute("role", "status");
   });
+
+  // ---------------------------------------------------------------------------
+  // Post-tag gap-closure A5 — visual baselines for engine SourcePill state.
+  // ---------------------------------------------------------------------------
+  // 2 NEW screenshots covering the engine-pill render on GoalAllocationSection
+  // and OptimizerOutputWidget. The pill is a span with role="status" + the
+  // "Engine recommendation" copy + 8-char run-signature prefix; the visual
+  // contract is the accent-2 background (distinguishes from calibration).
+  // Per locked §3.11 these baselines must be stable across 3 consecutive
+  // runs without --update-snapshots; see post-A5 baseline-stability check.
+
+  test("Goal route — GoalAllocationSection renders engine SourcePill + table (Phase A2)", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+    await pickSandraMike(page);
+    await page.goto("/goal/goal_retirement_income");
+    // The allocation section header carries the SourcePill (role=status with
+    // "Engine recommendation" copy when goal_rollup is present).
+    await expect(
+      page
+        .getByRole("status", { name: /engine recommendation/i })
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
+    // The allocation section is a <section> with the section title from
+    // i18n key goal_allocation.section_title; lock onto it via the engine
+    // pill's parent section.
+    const section = page
+      .locator("section")
+      .filter({
+        has: page.getByRole("status", { name: /engine recommendation/i }),
+      })
+      .first();
+    await expect(section).toBeVisible();
+    await settle(page);
+    await expect(section).toHaveScreenshot(
+      "engine-display-goal-allocation-section-engine-pill.png",
+      { maxDiffPixelRatio: 0.02 },
+    );
+  });
+
+  test("Goal route — OptimizerOutputWidget renders engine SourcePill + 4 stats (Phase A3)", async ({
+    page,
+  }) => {
+    await loginAdvisor(page);
+    await pickSandraMike(page);
+    await page.goto("/goal/goal_retirement_income");
+    // OptimizerOutputWidget header carries an SourcePill identical to
+    // GoalAllocationSection's. Two pills with same role+name on this route
+    // — page.getByRole("status", {name: /engine recommendation/i}) returns
+    // both; pick the second (widget is rendered AFTER allocation section
+    // in DOM order per GoalRoute.tsx render block).
+    const enginePills = page.getByRole("status", {
+      name: /engine recommendation/i,
+    });
+    await expect(enginePills.first()).toBeVisible({ timeout: 15_000 });
+    // Lock onto the widget by filtering sections that contain "improvement"
+    // (one of its stat labels) — distinguishes it from the allocation
+    // section (which contains "current"/"ideal" labels but not "improvement").
+    const widgetSection = page
+      .locator("section")
+      .filter({ hasText: /improvement/i })
+      .first();
+    await expect(widgetSection).toBeVisible();
+    await settle(page);
+    await expect(widgetSection).toHaveScreenshot(
+      "engine-display-optimizer-widget-engine-pill.png",
+      { maxDiffPixelRatio: 0.02 },
+    );
+  });
 });
