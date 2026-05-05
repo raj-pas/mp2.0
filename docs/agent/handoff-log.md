@@ -2,6 +2,65 @@
 
 ---
 
+## 2026-05-05 (post-tag gap-closure sub-session #3 EXTENDED+ continued) — 2nd pilot-blocking fix: CMA Workbench partial-payload save bug
+
+**HEAD:** `78c635a`. 16 commits past tag `v0.1.2-engine-display` at `e5cd859`.
+
+A6.1 Step 8 (CMA republish → stale overlay verification) surfaced a SECOND pilot-blocking bug: the analyst-role CMA Workbench save handlers (`AssumptionsTab` + `CorrelationsTab` in `frontend/src/routes/CmaRoute.tsx`) sent only the EDITED funds/correlations, but the backend's `_apply_cma_patch` (web/api/views.py:3239-3240) treats `fund_assumptions` as a complete replacement — the partial-payload pattern triggered the must-include-every-fund-exactly-once invariant and returned 400 ValueError. Same bug class on correlations (backend `_validate_correlation_payloads` builds expected_pairs from full N×N cross-product). Without this fix, analysts could not publish a new CMA → the stale-overlay flow could never trigger in production → Phase A4's stale-state UX had no upstream cause.
+
+**Fix** (`78c635a`, 1 file, 30 LoC change):
+  - `AssumptionsTab.handleSave`: merge `drafts` onto `sortedFunds` and send all 8 funds (untouched ones at their existing values; round-trip preservation)
+  - `CorrelationsTab.handleSave`: build full N×N pair matrix via existing `correlationFor(row, col)` helper that handles draft-merge + symmetric lookup + diagonal=1.0
+  - Server-side curl reproduced the bug (400 + structured "ValueError" code) and confirmed fix (full payload accepted; sh_builders volatility persisted as 0.13352)
+
+**Real-Chrome A6.1 Step 8 verification post-fix:**
+  - Analyst hard-refreshed CMA Workbench, edited fund assumption, clicked Save assumptions → succeeded with toast
+  - Typed publish note, clicked Publish → succeeded; new active snapshot replaced Default CMA v1
+  - Logged out as analyst → logged in as advisor → navigated to Sandra/Mike Chen household route
+  - **Stale chip visible**: `STALE: REGENERATE TO REFRESH (CD78E7C1)` warning border + Regenerate button (locked #19 mirrors the RecommendationBanner failure pattern); rollup values rendered in muted/lower-saturation gray
+  - Clicked Regenerate → toast `Recommendation refreshed` + new run sig `6FCD19B6` + rollup updated (52.9%/25.6%/13.8%/4.6% → 49.2%/30.0%/13.6%/4.9% reflecting the new CMA's bumped expected_return values flowing into the engine output)
+  - Drilled into Retirement Income goal → banner `RECOMMENDATION 6FCD19B6 · JUST NOW` + engine pill `ENGINE RECOMMENDATION · 6FCD19B6` + new ideal allocation (Income 56.9% vs old 61.4% pre-CMA-bump; Equity 34.8% vs old 29.8%)
+  - End-to-end verified: CMA publish → invalidate active runs → frontend stale chip → Regenerate → engine re-optimize with new CMA → new run + UI refresh
+
+**Test-coverage gap** (NOT addressed in this commit; documented as post-pilot follow-up):
+  - The CMA Workbench has zero Vitest unit tests
+  - foundation.spec.ts CMA test only renders the 5 tabs; never exercises edit + save + publish
+  - pilot-features-smoke + regression-coverage spec only exercise advisor role
+  - Analyst-role surfaces (CMA edit + save + publish) have NO automated coverage; that's why this and the override→engine bug both shipped to A6.1 real-Chrome smoke
+  - **Post-pilot follow-up** (one commit's worth): extend regression-coverage.spec.ts with an analyst-flow describe block (login as analyst → CMA draft → edit one assumption → save → publish → confirm new active snapshot)
+  - For now: this commit ships the fix, documents the gap, relies on locked-#100 real-Chrome smoke to catch this class of bug
+
+**Note on goal-route StaleRunOverlay** (modal-style focus-trap component from Phase A4):
+  - Renders only on goal routes (locked #19: HouseholdPortfolioPanel uses chip pattern; goal route uses modal overlay)
+  - User clicked Regenerate from household chip BEFORE drilling into goal during stale state → modal overlay was not exercised in this real-Chrome pass
+  - Covered by 10 Vitest unit tests in `StaleRunOverlay.test.tsx` (focus-trap, Esc-no-dismiss, Tab-cycle, copy variants, ARIA) + 2 visual baselines
+  - Acceptable to defer; could be re-exercised by republishing CMA + drilling into a goal during stale state
+
+**Gates at HEAD `78c635a`:**
+  - Backend pytest: 878 passed + 2 skipped (unchanged from prior commit; CMA fix is frontend-only)
+  - Frontend: typecheck + lint clean; bundle unchanged (no new deps)
+  - Static guards (vocab CI / PII grep / OpenAPI codegen): all OK
+
+**A6.1 progress** (10-step user-manual smoke; this is the most thorough A6.1 to date):
+  - ✓ Step 1: reset
+  - ✓ Step 2: login
+  - ✓ Step 3: PilotBanner + WelcomeTour absent (pre-acked)
+  - ✓ Step 4: AUM strip + HouseholdPortfolioPanel + treemap + 4-tab right rail
+  - ✓ Step 5: 3 SourcePills engine + AdvisorSummaryPanel + RecommendationBanner
+  - ✓ Step 6: slider drag → calibration_drag pill flip → release → engine flip back
+  - ✓ Step 7: Save override (negative control on retirement_income horizon-cap collapse; positive on ski_cabin → fix → 008F5F87 → CD78E7C1)
+  - ✓ Step 8: CMA republish → stale chip → Regenerate → fresh run 6FCD19B6 (chip pattern; modal overlay deferred)
+  - ⬜ Step 9: HASH_MISMATCH integrity overlay (optional; requires Django shell event insertion; skip-or-defer)
+  - ✓ Step 10: DevTools console clean throughout (implicit; user has not flagged any errors across ~45+ min of testing)
+
+**What's next:** A6.1 effectively complete; A6.2 pilot dress rehearsal (locked #95 reactivated per §3.25) + A7 close-out (subagent reviews + 90% coverage gate + tag cut + delete starter prompt) remain. Estimated 1.5-2 hr.
+
+**Locked decisions honored:** #19 (HouseholdPortfolioPanel chip mirrors RecommendationBanner pattern), #100 (real-Chrome smoke caught both pilot-blocking bugs Vitest+Playwright headless missed), §3.13 (PII discipline preserved — error response uses structured `code` field, no `str(exc)` leak), canon §6.3a (vocabulary).
+
+**Two pilot-blocking bugs caught + fixed in one A6.1 session.** This is one of the most consequential outcomes of the entire post-tag gap-closure effort. Pre-pilot status: ALL 5 original gap-closure gaps closed + override→engine + CMA save handlers — six pilot-blocking issues addressed across the 16 commits past v0.1.2-engine-display.
+
+---
+
 ## 2026-05-05 (post-tag gap-closure sub-session #3 EXTENDED+) — CRITICAL fix for goal_risk_override→engine flow shipped mid-A6.1 USER MANUAL smoke
 
 **HEAD:** `870563b`. 14 commits past tag `v0.1.2-engine-display` at `e5cd859` (A0 + A1 + A2 + sub-#1 close-out + A3 + A4 + chore + sub-#2 close-out + A5 + sub-#3 partial + 3 starter-prompt rewrite docs + A5.5 spec + sub-#3 EXTENDED close-out + **engine_adapter override→engine fix**).
