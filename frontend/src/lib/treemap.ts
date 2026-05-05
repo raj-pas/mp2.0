@@ -10,6 +10,16 @@ export type TreemapNode = {
   label: string;
   value?: number;
   children?: TreemapNode[];
+  /**
+   * Plan v20 §A1.36 (P12 / G12): set on virtual `_unallocated` /
+   * `_unassigned` nodes that the backend emits when an account has
+   * `current_value > sum(legs.allocated_amount)`. Frontend renders
+   * with dashed border + striped pattern + click → AssignAccountModal.
+   */
+  unallocated?: boolean;
+  /** Account ID of the unallocated parent — used by the click handler
+   *  to pre-focus the AssignAccountModal (P13 wires the modal). */
+  account_id?: string;
 };
 
 export type TreemapPayload = {

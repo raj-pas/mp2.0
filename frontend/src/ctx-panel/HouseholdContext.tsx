@@ -1,10 +1,12 @@
 import * as Tabs from "@radix-ui/react-tabs";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Skeleton } from "../components/ui/skeleton";
 import { useRememberedClientId } from "../chrome/ClientPicker";
 import { fundColor } from "../lib/funds";
 import { HouseholdHistoryTab } from "./HouseholdHistoryTab";
+import { HouseholdCommitsSubTab } from "./HouseholdCommitsSubTab";
 import {
   type Account,
   type Holding,
@@ -86,9 +88,68 @@ export function HouseholdContext({ tab: _tab }: HouseholdContextProps) {
       </Tabs.Content>
 
       <Tabs.Content value="history" className="flex-1 overflow-y-auto p-3.5">
-        <HouseholdHistoryTab />
+        <HouseholdHistorySubTabs />
       </Tabs.Content>
     </>
+  );
+}
+
+/**
+ * Plan v20 §A1.36 (P9/P2.3) — History tab now houses two sub-tabs:
+ *   - "Snapshots" (default): existing HouseholdHistoryTab (Compare/Restore
+ *     against append-only HouseholdSnapshot rows).
+ *   - "Commits" (G10): chronological AuditEvent feed for the household —
+ *     `review_state_committed` + re-opens + reconciles + assignments +
+ *     overrides — surfaced via the new `useAuditEventsForHousehold` hook.
+ */
+function HouseholdHistorySubTabs() {
+  const { t } = useTranslation();
+  const [active, setActive] = useState<"snapshots" | "commits">("snapshots");
+  return (
+    <div className="flex flex-col gap-3">
+      <div
+        role="tablist"
+        aria-label={t("ctx.history.subtabs_aria")}
+        className="flex border-b border-hairline"
+      >
+        <SubTabTrigger
+          isActive={active === "snapshots"}
+          onClick={() => setActive("snapshots")}
+          label={t("ctx.history.subtab_snapshots")}
+        />
+        <SubTabTrigger
+          isActive={active === "commits"}
+          onClick={() => setActive("commits")}
+          label={t("ctx.history.subtab_commits")}
+        />
+      </div>
+      {active === "snapshots" ? <HouseholdHistoryTab /> : <HouseholdCommitsSubTab />}
+    </div>
+  );
+}
+
+function SubTabTrigger({
+  isActive,
+  onClick,
+  label,
+}: {
+  isActive: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={isActive}
+      data-state={isActive ? "active" : "inactive"}
+      onClick={onClick}
+      className={`px-2 py-1.5 font-mono text-[10px] uppercase tracking-widest ${
+        isActive ? "border-b-2 border-ink text-ink" : "text-muted hover:text-ink"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 

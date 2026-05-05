@@ -73,6 +73,17 @@ ALLOWED_ENGINE_ACCOUNT_TYPES = {
 
 @dataclass(frozen=True)
 class Readiness:
+    """Engine + construction readiness summary for a reviewed-state dict.
+
+    ``missing`` and ``construction_missing`` rows are ``{section, label,
+    field_path}`` tuples (see :func:`_missing`). Plan v20 §A1.36 (P8)
+    added the canonical ``field_path`` so the frontend P3.3
+    ``<AddBlockerInlineButton>`` can deep-link directly to the affected
+    field. ``field_path`` is empty string ("") for legacy rows or
+    section-level blockers (e.g. "people" with no index when 0
+    members), which the frontend treats as no-deep-link.
+    """
+
     engine_ready: bool
     construction_ready: bool
     kyc_compliance_ready: bool
@@ -223,42 +234,109 @@ def readiness_for_state(state: dict[str, Any]) -> Readiness:
     risk = state.get("risk") or {}
 
     if not household.get("display_name"):
-        missing.append(_missing("household", "Household display name"))
+        missing.append(_missing("household", "Household display name", "household.display_name"))
     if household.get("household_type") not in {"single", "couple"}:
-        missing.append(_missing("household", "Household type"))
+        missing.append(_missing("household", "Household type", "household.household_type"))
     if not people:
-        missing.append(_missing("people", "At least one household member"))
+        missing.append(_missing("people", "At least one household member", "people[0]"))
     elif not any(person.get("dob") or person.get("age") for person in people):
-        missing.append(_missing("people", "At least one member DOB or age"))
+        # Point inline-fix CTA at the first member's DOB field. Advisor can
+        # navigate to subsequent members via the People section UI.
+        missing.append(
+            _missing("people", "At least one member DOB or age", "people[0].date_of_birth")
+        )
 
     if not accounts:
-        missing.append(_missing("accounts", "At least one account"))
+        missing.append(_missing("accounts", "At least one account", "accounts[0]"))
     else:
         if not any(_number(account.get("current_value")) > 0 for account in accounts):
-            missing.append(_missing("accounts", "Account current value"))
+            # Find first account with zero/missing current_value for the deep-link.
+            target_idx = next(
+                (
+                    idx
+                    for idx, acct in enumerate(accounts)
+                    if _number(acct.get("current_value")) <= 0
+                ),
+                0,
+            )
+            missing.append(
+                _missing(
+                    "accounts",
+                    "Account current value",
+                    f"accounts[{target_idx}].current_value",
+                )
+            )
         if not any(
             account.get("holdings") or account.get("missing_holdings_confirmed")
             for account in accounts
         ):
-            missing.append(_missing("accounts", "Holdings or explicit missing-holdings marker"))
+            target_idx = next(
+                (
+                    idx
+                    for idx, acct in enumerate(accounts)
+                    if not (acct.get("holdings") or acct.get("missing_holdings_confirmed"))
+                ),
+                0,
+            )
+            missing.append(
+                _missing(
+                    "accounts",
+                    "Holdings or explicit missing-holdings marker",
+                    f"accounts[{target_idx}].holdings",
+                )
+            )
 
     if not goals:
-        missing.append(_missing("goals", "At least one goal"))
+        missing.append(_missing("goals", "At least one goal", "goals[0]"))
     else:
         if not any(goal.get("target_date") or goal.get("time_horizon_years") for goal in goals):
-            missing.append(_missing("goals", "At least one goal time horizon"))
+            target_idx = next(
+                (
+                    idx
+                    for idx, goal in enumerate(goals)
+                    if not (goal.get("target_date") or goal.get("time_horizon_years"))
+                ),
+                0,
+            )
+            missing.append(
+                _missing(
+                    "goals",
+                    "At least one goal time horizon",
+                    f"goals[{target_idx}].time_horizon_years",
+                )
+            )
 
     if accounts and goals and not links:
-        missing.append(_missing("goal_account_mapping", "Advisor-confirmed goal-account mapping"))
+        missing.append(
+            _missing(
+                "goal_account_mapping",
+                "Advisor-confirmed goal-account mapping",
+                "goal_account_links",
+            )
+        )
     elif links:
         if any(
             link.get("allocated_amount") is None and link.get("allocated_pct") is None
             for link in links
         ):
-            missing.append(_missing("goal_account_mapping", "Allocated dollars or percentage"))
+            target_idx = next(
+                (
+                    idx
+                    for idx, link in enumerate(links)
+                    if link.get("allocated_amount") is None and link.get("allocated_pct") is None
+                ),
+                0,
+            )
+            missing.append(
+                _missing(
+                    "goal_account_mapping",
+                    "Allocated dollars or percentage",
+                    f"goal_account_links[{target_idx}].allocated_amount",
+                )
+            )
         missing.extend(_full_assignment_blockers(accounts, links))
     if not risk.get("household_score") and not household.get("household_risk_score"):
-        missing.append(_missing("risk", "Household risk input"))
+        missing.append(_missing("risk", "Household risk input", "risk.household_score"))
 
     construction_missing = construction_blockers_for_state(state)
     engine_ready = not missing
@@ -287,25 +365,39 @@ def construction_blockers_for_state(state: dict[str, Any]) -> list[dict[str, str
         and household_risk != ""
         and not _risk_value_is_contract_score(household_risk)
     ):
-        blockers.append(_missing("risk", "Household risk must be a 1-5 score"))
+        blockers.append(
+            _missing("risk", "Household risk must be a 1-5 score", "risk.household_score")
+        )
     if len(people) > 2:
-        blockers.append(_missing("people", "Engine supports one or two household members"))
+        blockers.append(
+            _missing("people", "Engine supports one or two household members", "people")
+        )
 
-    for account in accounts:
+    for idx, account in enumerate(accounts):
         if not isinstance(account, dict):
             continue
         account_type = str(account.get("type") or "Non-Registered")
         if account_type not in ALLOWED_ENGINE_ACCOUNT_TYPES:
             blockers.append(
-                _missing("accounts", f"Unsupported engine account type: {account_type}")
+                _missing(
+                    "accounts",
+                    f"Unsupported engine account type: {account_type}",
+                    f"accounts[{idx}].account_type",
+                )
             )
 
-    for goal in goals:
+    for idx, goal in enumerate(goals):
         if not isinstance(goal, dict):
             continue
         score = goal.get("goal_risk_score", 3)
         if not _risk_value_is_contract_score(score):
-            blockers.append(_missing("goals", "Goal risk must be a 1-5 score"))
+            blockers.append(
+                _missing(
+                    "goals",
+                    "Goal risk must be a 1-5 score",
+                    f"goals[{idx}].goal_risk_score",
+                )
+            )
 
     return blockers
 
@@ -592,7 +684,7 @@ def _full_assignment_blockers(
     accounts: list[dict[str, Any]], links: list[dict[str, Any]]
 ) -> list[dict[str, str]]:
     blockers: list[dict[str, str]] = []
-    for account in accounts:
+    for idx, account in enumerate(accounts):
         if account.get("is_held_at_purpose") is False:
             continue
         account_id = str(account.get("id") or "")
@@ -600,7 +692,13 @@ def _full_assignment_blockers(
             continue
         account_links = [link for link in links if str(link.get("account_id")) == account_id]
         if not account_links:
-            blockers.append(_missing("goal_account_mapping", "Every Purpose account assigned"))
+            blockers.append(
+                _missing(
+                    "goal_account_mapping",
+                    "Every Purpose account assigned",
+                    f"accounts[{idx}].goal_account_links",
+                )
+            )
             continue
         account_value = _number(account.get("current_value"))
         if account_value <= 0:
@@ -613,18 +711,36 @@ def _full_assignment_blockers(
             label = (
                 f"Purpose account needs a current value before commit (account id: {account_id})"
             )
-            blockers.append(_missing("accounts", label))
+            blockers.append(_missing("accounts", label, f"accounts[{idx}].current_value"))
             continue
         if all(link.get("allocated_amount") is not None for link in account_links):
             allocated = sum(_number(link.get("allocated_amount")) for link in account_links)
             if abs(allocated - account_value) > Decimal("1.00"):
-                blockers.append(_missing("goal_account_mapping", "Full account-dollar assignment"))
+                blockers.append(
+                    _missing(
+                        "goal_account_mapping",
+                        "Full account-dollar assignment",
+                        f"accounts[{idx}].goal_account_links",
+                    )
+                )
         elif all(link.get("allocated_pct") is not None for link in account_links):
             allocated_pct = sum(_number(link.get("allocated_pct")) for link in account_links)
             if abs(allocated_pct - Decimal("1")) > Decimal("0.0001"):
-                blockers.append(_missing("goal_account_mapping", "Full account-percent assignment"))
+                blockers.append(
+                    _missing(
+                        "goal_account_mapping",
+                        "Full account-percent assignment",
+                        f"accounts[{idx}].goal_account_links",
+                    )
+                )
         else:
-            blockers.append(_missing("goal_account_mapping", "Consistent assignment basis"))
+            blockers.append(
+                _missing(
+                    "goal_account_mapping",
+                    "Consistent assignment basis",
+                    f"accounts[{idx}].goal_account_links",
+                )
+            )
     return blockers
 
 
@@ -1121,8 +1237,28 @@ def serialize_doc_contributed_facts(
     return contributed
 
 
-def _missing(section: str, label: str) -> dict[str, str]:
-    return {"section": section, "label": label}
+def _missing(section: str, label: str, field_path: str = "") -> dict[str, str]:
+    """Build a structured ``Readiness.missing[]`` row.
+
+    Plan v20 §A1.36 (P8): every blocker now carries a canonical
+    ``field_path`` so the frontend can deep-link inline-fix CTAs
+    (P3.3 ``<AddBlockerInlineButton>``) directly to the field.
+
+    Field-path conventions (matching ``extraction/prompts/base.py``
+    ``CANONICAL_FIELD_INVENTORY``):
+
+      household.display_name / household.household_type
+      people[N].date_of_birth / people[N].age
+      accounts[N].current_value / accounts[N].holdings
+      goals[N].time_horizon_years / goals[N].target_date
+      goal_account_links / goal_account_links[N].allocated_amount
+      risk.household_score
+
+    Backwards-compat (sister §3.16): pre-tag households without
+    ``field_path`` continue to render — frontend treats empty
+    string as "no inline-fix CTA available".
+    """
+    return {"section": section, "label": label, "field_path": field_path}
 
 
 def _number(value: Any) -> Decimal:

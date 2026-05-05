@@ -57,6 +57,11 @@ urlpatterns = [
     path("api/clients/", views.ClientListView.as_view(), name="client-list"),
     path("api/clients/<str:household_id>/", views.ClientDetailView.as_view(), name="client-detail"),
     path(
+        "api/clients/<str:household_id>/audit-events/",
+        views.AuditEventListView.as_view(),
+        name="client-audit-events",
+    ),
+    path(
         "api/clients/<str:household_id>/generate-portfolio/",
         views.GeneratePortfolioView.as_view(),
         name="generate-portfolio",

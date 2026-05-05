@@ -1,10 +1,12 @@
 /**
- * HouseholdRoute — P11 structural tests (plan v20 §A1.27 + §A1.18 LOCKED layout).
+ * HouseholdRoute — P11 + P12 structural tests (plan v20 §A1.27 + §A1.18
+ * LOCKED layout).
  *
- * Verifies the UnallocatedBanner placeholder slot sits ABOVE the
- * action sub-bar / HouseholdPortfolioPanel per the locked layout. The
- * full UnallocatedBanner component lands in P12 (next pair) — these
- * tests target the structural slot only.
+ * P11 introduced the unallocated-banner placeholder slot ABOVE the
+ * action sub-bar / HouseholdPortfolioPanel. P12 (this pair) replaced
+ * the placeholder with the actual ``<UnallocatedBanner>`` component.
+ * The placeholder div is retained as a hidden no-op for downstream
+ * structural assertions (§A1.51 cross-phase coexistence).
  */
 import React from "react";
 import { render, screen } from "@testing-library/react";
@@ -78,17 +80,20 @@ describe("HouseholdRoute — UnallocatedBanner placeholder slot (§A1.18 LOCKED)
     expect(screen.getByTestId("unallocated-banner-slot")).toBeInTheDocument();
   });
 
-  it("placeholder slot has aria-label for assistive tech (sister §A11y)", () => {
+  it("placeholder slot is hidden after P12 mounts the real UnallocatedBanner", () => {
+    // P12 replaces the placeholder rendering with the actual
+    // UnallocatedBanner. The placeholder div is retained but hidden so
+    // structural assertions targeting the test-id continue to pass
+    // (§A1.51 — backwards-compat).
     useHouseholdMock.mockReturnValue({
       isPending: false,
       isError: false,
       data: mockHousehold(),
     });
     renderRoute();
-    expect(screen.getByTestId("unallocated-banner-slot")).toHaveAttribute(
-      "aria-label",
-      "routes.household.unallocated_banner_slot_aria",
-    );
+    const slot = screen.getByTestId("unallocated-banner-slot");
+    expect(slot).toHaveAttribute("aria-hidden", "true");
+    expect(slot).toHaveAttribute("hidden");
   });
 
   it("slot sits above HouseholdPortfolioPanel in DOM order (§A1.18 layout)", () => {

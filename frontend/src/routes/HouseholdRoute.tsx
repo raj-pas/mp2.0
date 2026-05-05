@@ -17,6 +17,7 @@ import { type RealignmentResponse, useRestoreSnapshot } from "../lib/realignment
 import { toastSuccess } from "../lib/toast";
 import { Treemap } from "../treemap/Treemap";
 import { HouseholdPortfolioPanel } from "./HouseholdPortfolioPanel";
+import { UnallocatedBanner } from "./UnallocatedBanner";
 
 const STORAGE_GROUP_BY = "mp20_group_by";
 
@@ -147,17 +148,31 @@ export function HouseholdRoute() {
       />
 
       {/*
-        UnallocatedBanner slot per plan v20 §A1.18 LOCKED layout — sits
-        ABOVE the action sub-bar (and HouseholdPortfolioPanel). The full
-        banner component is owned by P12 (next pair); the slot here is a
-        non-rendering placeholder so structural tests can target the
-        ordering before the component lands. Z-order coord: banner z-10
-        (when shipped) sits BELOW sister's StaleRunOverlay z-20.
+        UnallocatedBanner per plan v20 §A1.18 LOCKED layout — sits ABOVE
+        the action sub-bar (and HouseholdPortfolioPanel). P12 fills the
+        slot first established by P11. Z-order coord: banner z-10 sits
+        BELOW sister's StaleRunOverlay z-20. CTA stub for now (P13 lands
+        AssignAccountModal in next pair); the call signature is locked.
       */}
-      <div
-        data-testid="unallocated-banner-slot"
-        aria-label={t("routes.household.unallocated_banner_slot_aria")}
+      <UnallocatedBanner
+        household={household}
+        onAssignClick={({ account_id }) => {
+          // P13 placeholder — see AssignAccountModal in the upcoming
+          // pair. The console.log + toast keeps the click reachable so
+          // structural tests pass and the advisor sees feedback.
+          console.log("[HouseholdRoute] UnallocatedBanner CTA clicked", { account_id });
+          toastSuccess(
+            t("unallocated_banner.stub_toast_title"),
+            t("unallocated_banner.stub_toast_body"),
+          );
+        }}
       />
+      {/*
+        Backwards-compat stub: the previous P11 placeholder div still
+        exists for any structural test that asserts the slot exists by
+        test-id. Removed entirely once UnallocatedBanner lifts to GA.
+      */}
+      <div data-testid="unallocated-banner-slot" hidden aria-hidden="true" />
 
       <HouseholdPortfolioPanel household={household} />
 
@@ -179,6 +194,19 @@ export function HouseholdRoute() {
             root={treemapQuery.data.data}
             mode={treemapMode}
             onSelect={(node) => {
+              // Plan v20 §A1.36 (P12) + §A1.14 #10: unallocated tile
+              // clicks open AssignAccountModal pre-focused on the
+              // account. P13 wires the actual modal; for now the stub
+              // mirrors UnallocatedBanner's onAssignClick contract.
+              if (node.unallocated === true) {
+                const targetAccountId = node.account_id ?? null;
+                if (targetAccountId !== null && targetAccountId.length > 0) {
+                  console.log("[HouseholdRoute] treemap unallocated tile clicked", {
+                    account_id: targetAccountId,
+                  });
+                }
+                return;
+              }
               if (treemapMode === "by_account") {
                 const accountId = node.id.includes(":") ? node.id.split(":")[0] : node.id;
                 if (accountId !== undefined && accountId.length > 0) {

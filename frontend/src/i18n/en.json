@@ -109,6 +109,26 @@
     "deferred": {
       "projections_r4": "Household-level projections coming after pilot. Open any goal for its fan chart today.",
       "no_holdings": "No holdings on file."
+    },
+    "history": {
+      "subtabs_aria": "History sub-tabs",
+      "subtab_snapshots": "Snapshots",
+      "subtab_commits": "Commits",
+      "commits_empty": "No commits or re-opens recorded yet.",
+      "commits_show_more": "Show more ({{remaining}} remaining)",
+      "badge_initial_commit": "Initial commit",
+      "badge_re_open": "Re-open",
+      "workspace_link": "Open workspace",
+      "action": {
+        "review_state_committed": "Review committed",
+        "review_workspace_uncommitted": "Workspace re-opened",
+        "review_workspace_reopened": "Workspace re-opened",
+        "entities_reconciled": "Entities reconciled",
+        "entities_reconciled_via_button": "Entities reconciled (manual)",
+        "account_assigned_to_goals": "Account assigned to goals",
+        "fact_override_applied": "Fact override applied",
+        "review_fact_overridden": "Fact override applied"
+      }
     }
   },
   "routes": {
@@ -469,6 +489,21 @@
     "boundary_unscoped": "An unexpected error occurred.",
     "report_phase_b": "Thanks — error captured locally. Use the Feedback button to send it to ops.",
     "report_this": "Report this"
+  },
+  "unallocated_banner": {
+    "aria_label": "Unallocated funds — assign to goals to unlock recommendation generation",
+    "headline": "{{amount}} unallocated across Purpose accounts",
+    "body": "Assign every dollar to a goal so the optimizer can build a recommendation.",
+    "cta": "Assign now",
+    "cta_per_account_aria": "Assign {{account}} to goals",
+    "row_summary": "{{account}} · {{unallocated}} unallocated",
+    "row_breakdown": "({{allocated}} of {{current}} assigned)",
+    "stub_toast_title": "Assignment flow coming soon",
+    "stub_toast_body": "AssignAccountModal lands next. Click logged."
+  },
+  "treemap_extras": {
+    "unallocated_label": "Unallocated",
+    "unallocated_aria": "Unallocated balance — click to assign to goals"
   },
   "scaffold": {
     "title": "v36 rewrite scaffold ready",

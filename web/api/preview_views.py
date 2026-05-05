@@ -776,11 +776,24 @@ class TreemapDataView(APIView):
 
 
 def _treemap_by_account(household: models.Household) -> dict[str, Any]:
+    """Plan v20 §A1.36 (P12 / G12): emit a virtual ``_unallocated`` child
+    leg per account when ``account.current_value > sum(legs.allocated_amount)``.
+
+    Frontend (``Treemap.tsx``) renders the virtual leg with a dashed
+    border + striped pattern + label "Unallocated" so the advisor can
+    SEE the gap that the BlockerBanner / UnallocatedBanner CTA fixes.
+    Click handler routes to AssignAccountModal (P13).
+
+    Backwards-compat (sister §3.16): fully-allocated households (gap <=
+    $0) emit ZERO virtual legs.
+    """
     children: list[dict[str, Any]] = []
     for account in household.accounts.all():
-        leg_children = []
+        leg_children: list[dict[str, Any]] = []
+        allocated_total = Decimal("0")
         for link in account.goal_allocations.all():
             amount = float(link.allocated_amount or 0)
+            allocated_total += link.allocated_amount or Decimal("0")
             if amount <= 0:
                 continue
             leg_children.append(
@@ -788,6 +801,19 @@ def _treemap_by_account(household: models.Household) -> dict[str, Any]:
                     "id": f"{account.external_id}:{link.goal.external_id}",
                     "label": link.goal.name,
                     "value": amount,
+                }
+            )
+        # Virtual unallocated leg for any account with a positive gap.
+        # Penny-tolerance ($1) avoids spurious tiles from rounding noise.
+        gap = (account.current_value or Decimal("0")) - allocated_total
+        if gap > Decimal("1.00"):
+            leg_children.append(
+                {
+                    "id": f"{account.external_id}:_unallocated",
+                    "label": "Unallocated",
+                    "value": float(gap),
+                    "unallocated": True,
+                    "account_id": account.external_id,
                 }
             )
         children.append(
@@ -802,6 +828,10 @@ def _treemap_by_account(household: models.Household) -> dict[str, Any]:
 
 
 def _treemap_by_goal(household: models.Household) -> dict[str, Any]:
+    """Plan v20 §A1.36 (P12 / G12): in ``by_goal`` mode, surface
+    unallocated balances as a separate top-level "Unassigned" parent
+    group so the advisor sees the gap that no goal yet owns.
+    """
     children: list[dict[str, Any]] = []
     for goal in household.goals.all():
         leg_children = [
@@ -819,6 +849,36 @@ def _treemap_by_goal(household: models.Household) -> dict[str, Any]:
                 "label": goal.name,
                 "value": sum(child["value"] for child in leg_children),
                 "children": leg_children,
+            }
+        )
+
+    # Aggregate per-account unallocated gap into an "Unassigned" parent
+    # group. Each account becomes a leg under Unassigned with the gap
+    # as its value.
+    unassigned_legs: list[dict[str, Any]] = []
+    for account in household.accounts.all():
+        allocated_total = sum(
+            (link.allocated_amount or Decimal("0")) for link in account.goal_allocations.all()
+        )
+        gap = (account.current_value or Decimal("0")) - allocated_total
+        if gap > Decimal("1.00"):
+            unassigned_legs.append(
+                {
+                    "id": f"_unassigned:{account.external_id}",
+                    "label": account.account_type,
+                    "value": float(gap),
+                    "unallocated": True,
+                    "account_id": account.external_id,
+                }
+            )
+    if unassigned_legs:
+        children.append(
+            {
+                "id": "_unassigned",
+                "label": "Unassigned",
+                "value": sum(c["value"] for c in unassigned_legs),
+                "children": unassigned_legs,
+                "unallocated": True,
             }
         )
     return {"id": household.external_id, "label": household.display_name, "children": children}

@@ -475,6 +475,144 @@ def test_treemap_endpoint_by_account_returns_hierarchical_data() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Plan v20 §A1.36 (P12 / G12) — Treemap unallocated virtual tiles
+# ---------------------------------------------------------------------------
+
+
+def _seeded_household_partially_allocated() -> models.Household:
+    """Household with $100k account but only $10k allocated → $90k gap.
+
+    Mirrors the live regression at HEAD `e550edd`: Eren-Mikasa
+    household had $900k AUM but only $10k visible in treemap because
+    the unallocated $890k was never rendered.
+    """
+    User = get_user_model()
+    advisor = User.objects.filter(username="advisor@example.com").first()
+    if advisor is None:
+        advisor = User.objects.create_user(
+            username="advisor@example.com",
+            email="advisor@example.com",
+            password="pw",
+        )
+    household = models.Household.objects.create(
+        external_id="hh_test_p12_unallocated",
+        display_name="P12 Unallocated Household",
+        household_type="couple",
+        household_risk_score=3,
+        owner=advisor,
+    )
+    person = models.Person.objects.create(
+        external_id="p_test_p12_a",
+        household=household,
+        name="P12 Person A",
+        dob=date(1980, 1, 1),
+    )
+    account = models.Account.objects.create(
+        external_id="a_test_p12_rrsp",
+        household=household,
+        owner_person=person,
+        account_type="RRSP",
+        regulatory_objective="growth_and_income",
+        regulatory_time_horizon="3-10y",
+        regulatory_risk_rating="medium",
+        current_value=Decimal("100000.00"),
+    )
+    goal = models.Goal.objects.create(
+        external_id="g_test_p12_retire",
+        household=household,
+        name="Retirement",
+        target_date=date.today() + timedelta(days=365 * 20),
+        necessity_score=4,
+        goal_risk_score=3,
+    )
+    # Only $10k of the $100k account is allocated → $90k unallocated gap.
+    models.GoalAccountLink.objects.create(
+        external_id="gal_test_p12_partial",
+        goal=goal,
+        account=account,
+        allocated_amount=Decimal("10000.00"),
+    )
+    return household
+
+
+@pytest.mark.django_db
+def test_treemap_by_account_emits_virtual_unallocated_leg_when_gap_present() -> None:
+    """G12 — partially-allocated account emits a virtual ``_unallocated`` leg
+    so the advisor SEES the gap (not just the BlockerBanner copy)."""
+    household = _seeded_household_partially_allocated()
+    client = _authenticated_client()
+    response = client.get(
+        reverse("treemap-data") + f"?household_id={household.external_id}&mode=by_account",
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    rrsp = next(c for c in payload["data"]["children"] if c["label"] == "RRSP")
+    leg_labels = {leg["label"] for leg in rrsp["children"]}
+    assert "Unallocated" in leg_labels
+    unalloc_leg = next(leg for leg in rrsp["children"] if leg["label"] == "Unallocated")
+    assert unalloc_leg["unallocated"] is True
+    assert unalloc_leg["account_id"] == "a_test_p12_rrsp"
+    # $90k gap: $100k account - $10k allocated
+    assert unalloc_leg["value"] == 90000.0
+    # Virtual id format
+    assert unalloc_leg["id"] == "a_test_p12_rrsp:_unallocated"
+
+
+@pytest.mark.django_db
+def test_treemap_by_account_no_virtual_leg_when_fully_allocated() -> None:
+    """Sister §3.16 backwards-compat: fully-allocated households render
+    ZERO virtual unallocated legs."""
+    household = _seeded_household()  # $100k allocated to $100k account
+    client = _authenticated_client()
+    response = client.get(
+        reverse("treemap-data") + f"?household_id={household.external_id}&mode=by_account",
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    rrsp = next(c for c in payload["data"]["children"] if c["label"] == "RRSP")
+    leg_labels = {leg["label"] for leg in rrsp["children"]}
+    assert "Unallocated" not in leg_labels
+
+
+@pytest.mark.django_db
+def test_treemap_by_goal_emits_unassigned_parent_group_when_gap_present() -> None:
+    """``by_goal`` mode surfaces unallocated balance as an "Unassigned"
+    parent group at the top level."""
+    household = _seeded_household_partially_allocated()
+    client = _authenticated_client()
+    response = client.get(
+        reverse("treemap-data") + f"?household_id={household.external_id}&mode=by_goal",
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    labels = {c["label"] for c in payload["data"]["children"]}
+    assert "Unassigned" in labels
+    unassigned = next(c for c in payload["data"]["children"] if c["label"] == "Unassigned")
+    assert unassigned["unallocated"] is True
+    assert unassigned["value"] == 90000.0
+    # Each unassigned leg names the account by its account_type.
+    assert any(leg["label"] == "RRSP" for leg in unassigned["children"])
+    rrsp_leg = next(leg for leg in unassigned["children"] if leg["label"] == "RRSP")
+    assert rrsp_leg["unallocated"] is True
+    assert rrsp_leg["account_id"] == "a_test_p12_rrsp"
+
+
+@pytest.mark.django_db
+def test_treemap_by_goal_no_unassigned_group_when_fully_allocated() -> None:
+    """Fully-allocated household has no ``Unassigned`` parent group in
+    by_goal mode."""
+    household = _seeded_household()
+    client = _authenticated_client()
+    response = client.get(
+        reverse("treemap-data") + f"?household_id={household.external_id}&mode=by_goal",
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    labels = {c["label"] for c in payload["data"]["children"]}
+    assert "Unassigned" not in labels
+
+
+# ---------------------------------------------------------------------------
 # Wizard commit
 # ---------------------------------------------------------------------------
 

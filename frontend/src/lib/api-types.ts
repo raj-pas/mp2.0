@@ -68,6 +68,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/clients/{household_id}/audit-events/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Plan v20 §A1.36 (P9/P2.3) — household-scoped advisor audit feed.
+         *
+         *     Returns the chronological audit-event stream for a household, used by
+         *     the HouseholdContext "Commits" sub-tab (G10) to surface initial
+         *     commit + re-open + reconcile + account-assignment + fact-override
+         *     events without requiring analyst access.
+         *
+         *     Query params:
+         *       kind=commits (default): commit-defining events only
+         *       kind=all: full advisor-relevant set including portfolio lifecycle
+         *
+         *     Pagination: page-size=50 default, capped at 200; `page` query param
+         *     selects the page (1-indexed). Mirrors the workspace audit-timeline
+         *     response shape so the frontend can reuse the rendering primitive.
+         *
+         *     Real-PII discipline (canon §11.8.3): the advisor is already
+         *     authenticated + authorized for this household's data via the
+         *     ``can_access_real_pii`` + team scoping; metadata flows back as-is.
+         *     Audit metadata is already PII-scrubbed at write time via
+         *     ``safe_audit_metadata``; this read path does not re-scrub.
+         *
+         *     Backwards-compat (sister §3.16): when an advisor-relevant kind
+         *     has not yet been emitted (e.g. ``account_assigned_to_goals`` lands
+         *     in P13), this endpoint returns 0 of those rows without erroring.
+         */
+        get: operations["clients_audit_events_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/clients/{household_id}/generate-portfolio/": {
         parameters: {
             query?: never;
@@ -1570,6 +1612,26 @@ export interface operations {
         };
     };
     clients_retrieve_2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                household_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    clients_audit_events_retrieve: {
         parameters: {
             query?: never;
             header?: never;

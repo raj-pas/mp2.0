@@ -80,6 +80,32 @@ export function Treemap({ root, mode, onSelect }: TreemapProps) {
         role="img"
         aria-label={t("treemap.aria_label", { mode: t(`treemap.mode_${mode}`) })}
       >
+        {/*
+          Plan v20 §A1.36 (P12): SVG pattern for the virtual `_unallocated`
+          tile. Diagonal stripes signal "unfunded / not assigned" — same
+          visual idiom as YNAB's "Ready to Assign" hot-pink CTA + Quicken's
+          "uncategorized" highlight. Border is dashed in the rect itself.
+        */}
+        <defs>
+          <pattern
+            id="treemap-unallocated-pattern"
+            width="8"
+            height="8"
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <rect width="8" height="8" fill="#F1EDE5" />
+            <line
+              x1="0"
+              y1="0"
+              x2="0"
+              y2="8"
+              stroke="#B87333"
+              strokeWidth="2"
+              opacity="0.55"
+            />
+          </pattern>
+        </defs>
         {leaves.map((leaf, idx) => {
           const node = leaf.data;
           const x0 = leaf.x0 ?? 0;
@@ -90,7 +116,10 @@ export function Treemap({ root, mode, onSelect }: TreemapProps) {
           const h = y1 - y0;
           const value = leaf.value ?? 0;
           const parentLabel = leaf.parent?.data.label;
-          const fill = colorForNode(node, mode, idx);
+          const isUnallocated = node.unallocated === true;
+          const fill = isUnallocated
+            ? "url(#treemap-unallocated-pattern)"
+            : colorForNode(node, mode, idx);
           const interactive = onSelect !== undefined;
           return (
             <g
@@ -98,7 +127,12 @@ export function Treemap({ root, mode, onSelect }: TreemapProps) {
               transform={`translate(${x0}, ${y0})`}
               tabIndex={interactive ? 0 : -1}
               role={interactive ? "button" : "img"}
-              aria-label={`${node.label}, ${formatCadCompact(value)}`}
+              aria-label={
+                isUnallocated
+                  ? `${t("treemap_extras.unallocated_label")} ${node.label}, ${formatCadCompact(value)}`
+                  : `${node.label}, ${formatCadCompact(value)}`
+              }
+              data-testid={isUnallocated ? "treemap-unallocated-tile" : undefined}
               onClick={() => onSelect?.(node)}
               onKeyDown={(event) => {
                 if (!interactive) return;
@@ -113,8 +147,9 @@ export function Treemap({ root, mode, onSelect }: TreemapProps) {
                 width={w}
                 height={h}
                 fill={fill}
-                stroke="rgba(14,17,22,0.18)"
-                strokeWidth={1}
+                stroke={isUnallocated ? "#B87333" : "rgba(14,17,22,0.18)"}
+                strokeWidth={isUnallocated ? 2 : 1}
+                strokeDasharray={isUnallocated ? "6 4" : undefined}
                 className="transition-[filter] duration-150 group-hover:[filter:brightness(1.08)] group-focus-visible:[filter:brightness(1.12)] group-focus-visible:[stroke-width:2]"
               />
               {w > 64 && h > 28 && (
@@ -126,7 +161,7 @@ export function Treemap({ root, mode, onSelect }: TreemapProps) {
                       fontFamily="JetBrains Mono"
                       fontSize={9}
                       letterSpacing="0.12em"
-                      fill="rgba(255,255,255,0.78)"
+                      fill={isUnallocated ? "#1A1F26" : "rgba(255,255,255,0.78)"}
                       style={{ textTransform: "uppercase" }}
                     >
                       {truncate(parentLabel, w / 6)}
@@ -138,7 +173,7 @@ export function Treemap({ root, mode, onSelect }: TreemapProps) {
                     fontFamily="Inter Tight"
                     fontWeight={600}
                     fontSize={13}
-                    fill="#FAF8F4"
+                    fill={isUnallocated ? "#0E1116" : "#FAF8F4"}
                   >
                     {truncate(node.label, w / 7)}
                   </text>
@@ -150,7 +185,7 @@ export function Treemap({ root, mode, onSelect }: TreemapProps) {
                   y={h - 10}
                   fontFamily="Fraunces"
                   fontSize={14}
-                  fill="rgba(255,255,255,0.95)"
+                  fill={isUnallocated ? "#1A1F26" : "rgba(255,255,255,0.95)"}
                 >
                   {formatCadCompact(value)}
                 </text>

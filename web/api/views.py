@@ -10,6 +10,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
+from django.db.models import Q
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -2655,6 +2656,154 @@ class ReviewWorkspaceAuditTimelineView(APIView):
             for event in events_qs
         ]
         return Response({"events": events})
+
+
+# Plan v20 §A1.36 (P9/P2.3) — advisor-relevant audit events for the
+# HouseholdContext "Commits" sub-tab. Distinct from the workspace-scoped
+# ``ReviewWorkspaceAuditTimelineView`` above: this view is scoped to a
+# committed Household and surfaces the cross-workflow audit trail
+# (commits, reconciles, account assignments, fact overrides) so the
+# advisor can audit "what happened to THIS household" without analyst
+# access. The "commits" filter narrows to the audit-defining events the
+# Commits sub-tab renders by default.
+ADVISOR_AUDIT_KIND_ALLOWLIST: dict[str, list[str]] = {
+    # Commit/re-open lifecycle (G10 — re-open audit-trail visibility).
+    "commits": [
+        "review_state_committed",
+        "review_workspace_uncommitted",  # canonical re-open event
+        "review_workspace_reopened",  # forward-compat: future explicit re-open
+        "entities_reconciled",
+        "entities_reconciled_via_button",  # forward-compat: P2.5
+        "account_assigned_to_goals",  # forward-compat: P13
+        "fact_override_applied",  # forward-compat
+        "review_fact_overridden",  # canonical fact-override event
+    ],
+    # Full advisor-relevant set; adds portfolio-generation lifecycle.
+    "all": [
+        "review_state_committed",
+        "review_workspace_uncommitted",
+        "review_workspace_reopened",
+        "entities_reconciled",
+        "entities_reconciled_via_button",
+        "account_assigned_to_goals",
+        "fact_override_applied",
+        "review_fact_overridden",
+        "portfolio_generation_post_review_commit_failed",
+        "portfolio_generation_post_wizard_commit_failed",
+        "portfolio_generation_post_realignment_failed",
+        "portfolio_generation_post_section_approve_failed",
+        "portfolio_generation_post_override_save_failed",
+        "portfolio_generation_post_external_holdings_failed",
+        "portfolio_generation_post_manual_failed",
+        "portfolio_generation_skipped_post_review_commit",
+        "portfolio_generation_skipped_post_wizard_commit",
+        "portfolio_generation_skipped_post_realignment",
+        "portfolio_generation_skipped_post_section_approve",
+        "portfolio_generation_skipped_post_override_save",
+        "portfolio_run_declined",
+        "household_snapshot_created",
+        "household_snapshot_restored",
+        "household_wizard_committed",
+        "realignment_applied",
+        "goal_risk_override_created",
+    ],
+}
+
+
+class AuditEventListView(APIView):
+    """Plan v20 §A1.36 (P9/P2.3) — household-scoped advisor audit feed.
+
+    Returns the chronological audit-event stream for a household, used by
+    the HouseholdContext "Commits" sub-tab (G10) to surface initial
+    commit + re-open + reconcile + account-assignment + fact-override
+    events without requiring analyst access.
+
+    Query params:
+      kind=commits (default): commit-defining events only
+      kind=all: full advisor-relevant set including portfolio lifecycle
+
+    Pagination: page-size=50 default, capped at 200; `page` query param
+    selects the page (1-indexed). Mirrors the workspace audit-timeline
+    response shape so the frontend can reuse the rendering primitive.
+
+    Real-PII discipline (canon §11.8.3): the advisor is already
+    authenticated + authorized for this household's data via the
+    ``can_access_real_pii`` + team scoping; metadata flows back as-is.
+    Audit metadata is already PII-scrubbed at write time via
+    ``safe_audit_metadata``; this read path does not re-scrub.
+
+    Backwards-compat (sister §3.16): when an advisor-relevant kind
+    has not yet been emitted (e.g. ``account_assigned_to_goals`` lands
+    in P13), this endpoint returns 0 of those rows without erroring.
+    """
+
+    permission_classes = [IsAuthenticated]
+    DEFAULT_PAGE_SIZE = 50
+    MAX_PAGE_SIZE = 200
+
+    def get(self, request, household_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response({"detail": "Role cannot access real-client PII."}, status=403)
+        household = get_object_or_404(_household_queryset(request.user), external_id=household_id)
+        kind = (request.query_params.get("kind") or "commits").strip().lower()
+        if kind not in ADVISOR_AUDIT_KIND_ALLOWLIST:
+            return Response(
+                {"detail": "Invalid kind. Use 'commits' or 'all'.", "code": "invalid_kind"},
+                status=400,
+            )
+        allowlist = ADVISOR_AUDIT_KIND_ALLOWLIST[kind]
+
+        try:
+            page_size = min(
+                int(request.query_params.get("page_size") or self.DEFAULT_PAGE_SIZE),
+                self.MAX_PAGE_SIZE,
+            )
+            page_size = max(page_size, 1)
+        except (TypeError, ValueError):
+            page_size = self.DEFAULT_PAGE_SIZE
+        try:
+            page = max(int(request.query_params.get("page") or 1), 1)
+        except (TypeError, ValueError):
+            page = 1
+
+        # Match audit events scoped to this household by either:
+        #   (a) entity_type=household + entity_id matches household.external_id
+        #   (b) metadata.household_id matches (for events emitted on
+        #       review_workspace / portfolio_run with household_id stamped
+        #       into metadata — review_state_committed is the canonical
+        #       example).
+        events_qs = (
+            AuditEvent.objects.filter(action__in=allowlist)
+            .filter(
+                Q(entity_type="household", entity_id=household.external_id)
+                | Q(metadata__household_id=household.external_id)
+            )
+            .order_by("-created_at")
+        )
+        total = events_qs.count()
+        offset = (page - 1) * page_size
+        page_events = events_qs[offset : offset + page_size]
+        events = [
+            {
+                "id": event.pk,
+                "action": event.action,
+                "actor": event.actor,
+                "entity_type": event.entity_type,
+                "entity_id": event.entity_id,
+                "metadata": event.metadata,
+                "created_at": event.created_at.isoformat() if event.created_at else None,
+            }
+            for event in page_events
+        ]
+        return Response(
+            {
+                "events": events,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "kind": kind,
+            }
+        )
 
 
 class ReviewWorkspaceUncommitView(APIView):
