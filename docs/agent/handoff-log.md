@@ -2,6 +2,39 @@
 
 ---
 
+## 2026-05-04 PM (post-tag gap-closure sub-session #3 of 3 PARTIAL) — Phase A5 complete; A5.5+A6+A7 remaining
+
+**HEAD:** `bd90cf9`. 9 commits past tag `v0.1.2-engine-display` at `e5cd859`.
+
+Sub-session #3 entered at HEAD `7c041f2` with Phase A5 + A5.5 + A6 + A7 in scope (5-7 hr estimated). The user authorized "Continue into Phase A5 now (lighter; ~75 min)" with explicit "Halt before A5.5 (the 3-4 hr Playwright regression suite) for /compact"; Phase A5 took longer than the 75 min estimate because a Phase A2 production bug surfaced via the new visual baseline test and required a regression-test-first fix mid-A5. Sub-session #3 is now PARTIAL: A5 done; A5.5 + A6 + A7 deferred to next session.
+
+**Phase A5 — demo script + axe coverage + visual baselines + cross-browser (commit `bd90cf9`).** The deliverables landed exactly per plan §A5:
+
+1. **Demo script** (`docs/agent/demo-script-2026-05-04.md`): Step 4 expanded with engine→UI talking points (SourcePill on allocation + optimizer + moves; engine vs calibration distinction; accent-2 styling; fallback semantics for goals without engine rollups). NEW Step 4.5 (slider drag → calibration_drag pill flip → save → engine pill flip back + new run signature within ~500ms; demonstrates the closed-loop locked §3.1 + locked #74 + Phase A2 wiring). NEW Step 4.6 (analyst CMA Workbench → publish new CMA → reload Sandra/Mike goal route → muted+overlay covers engine panels with "Recommendation is stale: regenerate to refresh" + warning chip on RecommendationBanner; click Regenerate → overlay dismisses + new run renders + chip clears; demonstrates locked §3.2 4-status routing). Step 4.6 also notes the hash_mismatch path (engineering-only overlay; no Regenerate; backend audit fired per Phase A1).
+
+2. **axe coverage** (`frontend/e2e/pilot-features-smoke.spec.ts`): NEW `test("household route has zero axe-core WCAG 2.1 AA violations")` + `test("goal route has zero axe-core WCAG 2.1 AA violations")` mirroring lines 35-58 pattern (login + navigate + AxeBuilder analyze + assert violations.length === 0). 4 → 6 axe routes; both pass on chromium. The disableRules(["aria-valid-attr-value"]) carry-over preserves the Radix UI :r1: ID workaround documented at line 41-44.
+
+3. **Visual baselines** (`frontend/e2e/visual-verification.spec.ts`): NEW `test("Goal route — GoalAllocationSection renders engine SourcePill + table (Phase A2)")` (baseline at engine-display-goal-allocation-section-engine-pill-chromium-darwin.png, 18.5 KB) + `test("Goal route — OptimizerOutputWidget renders engine SourcePill + 4 stats (Phase A3)")` (baseline at engine-display-optimizer-widget-engine-pill-chromium-darwin.png, 11 KB). 32 → 34 visual baselines. Per locked §3.11 ran 3 consecutive times: --update-snapshots run + 2 stability runs WITHOUT --update-snapshots; all 3 runs passed with 0 pixel diffs.
+
+4. **Cross-browser cells** (`frontend/e2e/cross-browser-smoke.spec.ts`) per locked §3.15 — 3 NEW tests × 2 non-chromium browsers = 6 NEW cells: SourcePill engine variant render on goal route allocation table; Regenerate button on RecommendationBanner is keyboard-focusable (verifies Radix forwardRef pattern works on cross-browser); OptimizerOutputWidget renders engine improvement_pct without throwing (catches the find-link helper + reduce-blend arithmetic on Safari/Firefox). All 22 cross-browser cells passing (11 webkit + 11 firefox; 8 pre-existing + 3 new each).
+
+**REGRESSION FIX caught mid-A5 (no separate commit; lands with A5).** The new visual baseline test for Phase A2 (GoalAllocationSection engine SourcePill) failed initially because the rendered page showed `calibration_drag` pills instead of `engine`. Investigation: Sandra/Mike's `goal_retirement_income` has a saved GoalRiskOverride at score=1, while the system-derived `goal_risk_score` is 3. RiskSlider.tsx:91 had `const isOverrideDraft = selectedScore !== systemScore;` which is correct for the form-visibility use case (existing pre-A2 behavior — the SaveOverrideForm renders to let advisor adjust the saved override) but WRONG for the new SourcePill callback: on mount with selectedScore=1 (initialized from effectiveScore=1) and systemScore=3, isOverrideDraft was true, the useEffect fired `onPreviewChange(true)`, GoalRoute's `isPreviewingOverride` was lifted to true, and all 3 engine pills rendered calibration_drag. Fix: split into two semantics — `isOverrideDraft` (existing, `selectedScore !== systemScore`, gates form visibility) + new `isDragPreview` (`selectedScore !== effectiveScore`, fires onPreviewChange only when actively drafting away from the committed effective score). NEW Vitest regression test `frontend/src/components/ui/__tests__/RiskSlider.test.tsx` (2 tests): one assertions the no-override case (system=3, effective=3 → onPreviewChange(false) on mount); the other locks the saved-override regression (system=3, effective=1, isOverridden=true → onPreviewChange(false) on mount, NOT (true)). Bug existed since sub-session #1 commit `c5a7e02`; escaped Vitest because the GoalAllocationSection mocks didn't render RiskSlider directly. Visible to the live goal route only on goals with saved overrides — Sandra/Mike's `goal_retirement_income` is the canonical case.
+
+**Gates at HEAD `bd90cf9` (sub-session #3 partial close-out):**
+- Backend pytest: **872 passed + 2 skipped** (unchanged — A5 frontend-only)
+- Frontend Vitest: **230 passed in 26 files** (was 228 in 25 at sub-session #2 close-out; +2 RiskSlider regression)
+- typecheck/lint/build clean
+- Bundle: **269.41 kB gzipped** (essentially unchanged from sub-session #2; under 290 kB locked #85; ~21 kB headroom)
+- Static guards (vocab CI / PII grep / OpenAPI codegen): all OK
+- Theme tokens (accent-2 / warning / danger / muted) verified per §3.10
+- Cross-browser: 22 cells (11 webkit + 11 firefox) passing
+- visual-verification chromium: 34 (was 32) — 3-run stability per §3.11 confirmed
+- pilot-features-smoke chromium (axe): 6 routes (was 4) all passing
+
+**What's next — sub-session #3 remainder (Phase A5.5 + A6 + A7).** Estimated 4-5 hr. Boot via THIS log entry + `docs/agent/post-tag-gap-closure-starter-prompt.md` + plan §A5.5/A6/A7 sections. **A5.5** ships NEW `frontend/e2e/regression-coverage.spec.ts` (~700-900 LoC, 15 automated browser tests for pre-existing flows per §3.20 — login + client picker pagination, Wizard Step 1-5, ReviewWorkspace upload+drain, ConflictPanel single resolve, DocDetailPanel Esc close (regression guard for b14a199), bulk conflict resolve, defer + auto-resurface, section approve, household commit + auto-trigger, override → regenerate cycle, CMA Workbench publish, Methodology 10 sections, FeedbackModal Esc, PilotBanner ack, WelcomeTour ack). **A6** USER MANUAL — real-Chrome smoke per locked #100 + 8-step dress rehearsal per §3.25. **A7** close-out — code-reviewer subagent dispatch + PII-focused review + 90% coverage gate per §3.14 + tag `v0.1.3-engine-display-polish` per §3.22 + delete starter prompt + close-out commit. **Cumulative test bar at HEAD post-A5:** 872 backend pytest + 230 Vitest in 26 files + 13 foundation e2e + 34 visual-verification + 22 cross-browser + 6 pilot-features (axe) = 1177 tests passing across all suites. Sub-session #3 remainder will add ~+15 chromium Playwright (regression suite) for a final cumulative target of ~1200 tests at A7 + cut tag.
+
+---
+
 ## 2026-05-04 PM (post-tag gap-closure sub-session #2 of 3) — Phase A3 + A4 complete
 
 **HEAD:** `64ab152`. 6 commits past tag `v0.1.2-engine-display` at `e5cd859` (A0 docs + A1 backend + A2 frontend + A3 OptimizerOutputWidget + A4 stale-state UX + cleanup chore).

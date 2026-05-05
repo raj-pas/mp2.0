@@ -1,10 +1,12 @@
 # Post-tag Gap-Closure — High-Fidelity Starter Prompt
 
-**Compiled:** 2026-05-04 PM (post sub-session #1 close-out)
-**Authoritative for:** sub-session #2 + #3 post-`/compact` boot
+**Compiled:** 2026-05-04 PM (post sub-session #3 PARTIAL close-out — A5 done; A5.5+A6+A7 remaining)
+**Authoritative for:** sub-session #3 remainder post-`/compact` boot (Phase A5.5 + A6 + A7)
 **Lifecycle:** deleted at A7 close-out per locked decision §3.8
 **Owns:** mission + vision + reading list + pre-flight gates + per-phase deliverable specs + anti-patterns + first concrete action
 **Does NOT own:** Implementation line-by-line (in `~/.claude/plans/i-want-you-to-jolly-beacon.md`); historical narrative (in `docs/agent/handoff-log.md`)
+
+**ENTRY POINT FOR FRESH /compact BOOT:** read MEMORY.md → THIS file → `docs/agent/handoff-log.md` last entry (covers A5 + RiskSlider regression fix + 3-run baseline stability) → `docs/agent/session-state.md` → plan file §A5.5/A6/A7. Then run §3 pre-flight (expect HEAD `bd90cf9`, 872 backend, 230 Vitest in 26 files, bundle 269.41 kB). Begin work at Phase A5.5 (NEW `frontend/e2e/regression-coverage.spec.ts` with 15 automated tests per §3.20).
 
 > **Read in order. Do not skim. Do not skip ahead. The user has been burned by "I'll just glance" — this document exists because the dossier is load-bearing.**
 
