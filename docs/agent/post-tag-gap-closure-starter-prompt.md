@@ -14,7 +14,7 @@
 3. Read [`docs/agent/handoff-log.md`](handoff-log.md) — last 1-3 entries (sub-session #1, #2, #3-partial close-outs)
 4. Read [`docs/agent/session-state.md`](session-state.md) — top headline only
 5. Read `~/.claude/plans/i-want-you-to-jolly-beacon.md` — §3 table (25 locked decisions) + §A5.5 + §A6 + §A7 sections
-6. Run §3 pre-flight in this prompt — expect HEAD `f900adf` (this rewrite is the most recent commit; code state unchanged from `0ccdd29`), 872 backend pytest, 230 Vitest in 26 files, bundle 269.41 kB gzipped, all static gates clean
+6. Run §3 pre-flight in this prompt — expect HEAD at `b21ce7b` or later (the rewrite landed at `f900adf`; the self-reference fix at `b21ce7b`; code state unchanged from `0ccdd29`), 872 backend pytest, 230 Vitest in 26 files, bundle 269.41 kB gzipped, all static gates clean
 7. Output the [§15 first-message template](#15-first-message-to-the-user-post-boot-template) — under 100 words
 8. Begin **Phase A5.5** (NEW `frontend/e2e/regression-coverage.spec.ts`) — see [§2 active scope](#2-active-scope-a55--a6--a7-only) + plan file §A5.5
 
@@ -343,13 +343,15 @@ git tag -l "v0.1*"   # confirm: v0.1.0-pilot + v0.1.1-improved-intake + v0.1.2-e
 
 **Run BEFORE any code change. Halt + AskUserQuestion if any gate red.**
 
-### Sub-session #3 remainder entry baseline (HEAD: `f900adf`)
+### Sub-session #3 remainder entry baseline (HEAD: `b21ce7b` or later)
 ```bash
 cd /Users/saranyaraj/Projects/github-repo/mp2.0
 
 # 1. HEAD + working tree state
-git status --short --branch          # expect: clean tree at f900adf (only test-results/ untracked, ignored)
-git log --oneline -4                 # expect: f900adf (this rewrite) → 0ccdd29 → bd90cf9 → 7c041f2
+git status --short --branch          # expect: clean tree (test-results/ if present is gitignored)
+git log --oneline -5                 # expect chain (newest → oldest):
+                                     #   b21ce7b (self-ref fix) → f900adf (rewrite) → 0ccdd29 → bd90cf9 → 7c041f2
+                                     # OR a more recent docs commit on top — that's fine if it's docs-only
 git tag -l "v0.1*"                   # expect: v0.1.0-pilot + v0.1.1-improved-intake + v0.1.2-engine-display
                                      # NEW v0.1.3-engine-display-polish cuts at A7.5
 
@@ -393,7 +395,7 @@ ls ~/Library/Caches/ms-playwright/ | grep -E "chromium|webkit|firefox"
 # expect: at least one of each
 ```
 
-If gate (1) shows HEAD ≠ `f900adf`, the working tree drifted (someone committed beyond this prompt's compile point). Halt + read recent git log before proceeding.
+If gate (1) shows HEAD before `b21ce7b` (i.e., `0ccdd29` or earlier), this prompt is from a future state and the actual HEAD is rolled back — halt + ask user. If HEAD is past `b21ce7b` and the recent commits are docs-only (`docs(...)` prefix), proceed; if there are unexpected `feat(...)` or `test(...)` commits, halt + read recent git log to understand what changed.
 
 If gate (6) shows `status` ≠ `"current"` OR `has_links=false` OR `has_rollup=false`, the engine path is broken — investigate before any code change. Sandra/Mike's engine output is needed for A5.5 regression tests (override→regenerate flow + commit + auto-trigger).
 
@@ -706,7 +708,7 @@ If steps 1-7 fail, halt + ask user. Never proceed against a broken or unexpected
 
 1. §3 pre-flight gate red BEFORE any code change
 2. Engine probe at sub-session entry returns ≠ 200 with valid output
-3. HEAD has drifted unexpectedly past `f900adf` (someone committed beyond this prompt's compile point)
+3. HEAD has drifted unexpectedly past `b21ce7b` with NON-docs commits (someone shipped code beyond this prompt's compile point)
 4. Bundle size grows past 290 kB gzipped (locked #85)
 5. Vocab CI flags any new copy
 6. PII grep guard fails on a new commit
@@ -761,7 +763,7 @@ After §3 pre-flight + §12 mode determination:
 ```
 Booted from post-tag-gap-closure-starter-prompt.md.
 
-HEAD: <commit>          # expected: f900adf (or later if user committed in between)
+HEAD: <commit>          # expected: b21ce7b or later docs-only commit
 Pre-flight: <pass/fail per gate>
   - Backend pytest: <count> passed (expected: 872 + 2 skipped)
   - Vitest: <count> in <files> (expected: 230 in 26)
