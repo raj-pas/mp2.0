@@ -374,15 +374,23 @@ function AssumptionsTab({
   }
 
   function handleSave() {
-    const fundUpdates = Object.entries(drafts).map(([fund_id, draft]) => ({
-      fund_id,
-      expected_return: draft.er,
-      volatility: draft.vol,
-    }));
-    if (fundUpdates.length === 0) {
+    if (Object.keys(drafts).length === 0) {
       toastError(t("cma.no_changes_to_save"));
       return;
     }
+    // Backend _apply_cma_patch (web/api/views.py:3239-3240) treats
+    // fund_assumptions as a complete replacement, not a partial update:
+    // "must include every existing CMA fund exactly once." Merge edits
+    // onto the full snapshot's funds and send all of them. Same pattern
+    // as the correlations handler below.
+    const fundUpdates = sortedFunds.map((fund) => {
+      const draft = drafts[fund.fund_id];
+      return {
+        fund_id: fund.fund_id,
+        expected_return: draft?.er ?? fund.expected_return,
+        volatility: draft?.vol ?? fund.volatility,
+      };
+    });
     patchMutation.mutate(
       { fund_assumptions: fundUpdates },
       {
@@ -575,15 +583,24 @@ function CorrelationsTab({
   }
 
   function handleSave() {
-    const updates: CmaCorrelation[] = [];
-    for (const [key, correlation] of Object.entries(drafts)) {
-      const [row_fund_id, col_fund_id] = key.split("__");
-      if (!row_fund_id || !col_fund_id) continue;
-      updates.push({ row_fund_id, col_fund_id, correlation });
-    }
-    if (updates.length === 0) {
+    if (Object.keys(drafts).length === 0) {
       toastError(t("cma.no_changes_to_save"));
       return;
+    }
+    // Backend _validate_correlation_payloads (web/api/views.py:3314+)
+    // expects the complete N×N pair set built from snapshot.fund_assumptions
+    // (every (row, col) cross-product). Send the full matrix with edits
+    // merged in via correlationFor(); the backend deletes existing rows
+    // and recreates from this list, so partial payloads fail validation.
+    const updates: CmaCorrelation[] = [];
+    for (const row of fundIds) {
+      for (const col of fundIds) {
+        updates.push({
+          row_fund_id: row,
+          col_fund_id: col,
+          correlation: correlationFor(row, col),
+        });
+      }
     }
     patchMutation.mutate(
       { correlations: updates },
