@@ -153,7 +153,7 @@ def _goal_to_engine(goal: models.Goal) -> Goal:
             )
             for link in goal.account_allocations.all()
         ],
-        goal_risk_score=goal.goal_risk_score,
+        goal_risk_score=effective_goal_risk_score(goal),
         status=goal.status,
         notes=goal.notes,
     )
@@ -308,7 +308,7 @@ def committed_construction_snapshot(household: models.Household) -> dict:
                 "target_date": goal.target_date.isoformat(),
                 "necessity_score": goal.necessity_score,
                 "current_funded_amount": str(goal.current_funded_amount),
-                "goal_risk_score": goal.goal_risk_score,
+                "goal_risk_score": effective_goal_risk_score(goal),
                 "account_allocations": [
                     {
                         "id": link.external_id,
@@ -369,6 +369,34 @@ def active_goal_override(goal: models.Goal) -> EngineGoalRiskOverride | None:
         descriptor=latest.descriptor,  # type: ignore[arg-type]
         rationale=latest.rationale,
     )
+
+
+def effective_goal_risk_score(goal: models.Goal) -> int | None:
+    """Return the effective goal_risk_score for engine optimization.
+
+    The effective score is the latest GoalRiskOverride.score_1_5 if one
+    exists, else the system-derived Goal.goal_risk_score. This is the
+    single source of truth for what the engine optimizes against — used
+    by both `_goal_to_engine` (engine input mapping) and
+    `committed_construction_snapshot` (input_hash computation) so the
+    REUSED-path detection and the engine output stay consistent.
+
+    Without this resolution, saved overrides round-trip through the
+    audit log + DB but never reach the engine: the input_hash matches
+    the no-override seeded run, the REUSED path returns the seed, and
+    the override mechanism becomes audit-only theatre. Surfaced in
+    real-Chrome smoke 2026-05-04 (locked #100) on Sandra/Mike's
+    `goal_ski_cabin` (8yr horizon, no horizon-cap collapse) — the
+    advisor saved Cautious=1, the engine continued returning the
+    Balanced-growth=4 (system) blend.
+
+    Latest-row-wins per locked decision #6. Append-only override table.
+    """
+
+    latest = goal.risk_overrides.order_by("-created_at", "-id").first()
+    if latest is None:
+        return goal.goal_risk_score
+    return latest.score_1_5
 
 
 def current_holdings_to_pct(account: models.Account) -> dict[str, float]:

@@ -223,14 +223,15 @@ def test_full_advisor_lifecycle_emits_canonical_audits_at_each_trigger() -> None
     assert realignment_audit is not None
     assert realignment_audit.metadata.get("source") == "realignment"
 
-    # ---- Step 4: override via API → audits + REUSED ---------------
-    # GoalRiskOverride creation does NOT mutate
-    # `committed_construction_snapshot` (which reads goal.goal_risk_score
-    # directly); the override is a parallel append-only record. So this
-    # step exercises the override audit path + the override trigger
-    # (which fires `_trigger_and_audit(source="override")`) — but the
-    # generated PortfolioRun for the override path REUSES the realignment
-    # run because run_signature is unchanged.
+    # ---- Step 4: override via API → audits + GENERATED -------------
+    # Per fix-2026-05-04 (locked #100 real-Chrome smoke surfaced the bug):
+    # `committed_construction_snapshot` and `_goal_to_engine` now consult
+    # `effective_goal_risk_score(goal)` which resolves the latest
+    # GoalRiskOverride. An override that changes the effective score
+    # (here: score 3 system → score 5 override) produces a different
+    # input_hash and a new PortfolioRun row. Pre-fix, the override was
+    # invisible to the engine and REUSED was incorrectly hit; that
+    # behavior was a real production bug masquerading as REUSED.
     response_4 = client.post(
         reverse("goal-risk-override-create", args=["goal_retirement_income"]),
         {
@@ -247,31 +248,36 @@ def test_full_advisor_lifecycle_emits_canonical_audits_at_each_trigger() -> None
         f"Override endpoint failed: {response_4.status_code} {response_4.content!r}"
     )
     run_count_after_4 = models.PortfolioRun.objects.filter(household=hh).count()
-    # Override doesn't change input snapshot → REUSED (no new run row).
-    assert run_count_after_4 == run_count, (
-        f"GoalRiskOverride doesn't change committed_construction_snapshot; "
-        f"override trigger must hit REUSED path. Run count went "
+    # Override changes effective score → fresh input_hash → GENERATED new run.
+    assert run_count_after_4 == run_count + 1, (
+        f"GoalRiskOverride that changes effective score must produce a new "
+        f"PortfolioRun via fresh input_hash. Run count went "
         f"{run_count} → {run_count_after_4}"
     )
+    run_count = run_count_after_4
+    override_run = (
+        models.PortfolioRun.objects.filter(household=hh).order_by("-created_at").first()
+    )
+    assert override_run is not None
     audit_count_after_4 = _portfolio_audit_count(hh)
-    # Override fires _trigger_and_audit(source="override") which finds the
-    # signature match → emits portfolio_run_reused audit.
+    # Override fires _trigger_and_audit(source="override") which generates a
+    # new run → emits portfolio_run_generated audit (locked #16 canonical naming).
     assert audit_count_after_4 == audit_count + 1, (
-        f"Override trigger must emit exactly 1 portfolio_run_reused audit; "
+        f"Override trigger must emit exactly 1 portfolio_run_generated audit; "
         f"audit count went {audit_count} → {audit_count_after_4}"
     )
     audit_count = audit_count_after_4
     override_audit = (
         AuditEvent.objects.filter(
-            action="portfolio_run_reused",
-            entity_id=realignment_run.external_id,
+            action="portfolio_run_generated",
+            entity_id=override_run.external_id,
         )
         .order_by("-created_at")
         .first()
     )
     assert override_audit is not None, (
-        "Override trigger must emit a portfolio_run_reused audit on the "
-        "realignment run (same signature)."
+        "Override trigger must emit a portfolio_run_generated audit on the "
+        "newly-created run (different signature from realignment run)."
     )
     assert override_audit.metadata.get("source") == "override", (
         f"Override audit metadata.source must be 'override'; got "
@@ -324,10 +330,12 @@ def test_full_advisor_lifecycle_emits_canonical_audits_at_each_trigger() -> None
         f"Expected exactly 6 portfolio_run_* audits across lifecycle; "
         f"got {audit_count}. Failed cumulative-1-per-trigger invariant."
     )
-    # Run count must be 3: auto-seed + realignment + manual (steps 2 +
-    # 4 + 6 were REUSED, no new rows).
-    assert run_count == 3, (
-        f"Expected 3 distinct PortfolioRuns (auto-seed + realignment + manual); got {run_count}"
+    # Run count must be 4: auto-seed (step 1) + realignment (step 3) +
+    # override (step 4, fresh signature post-fix-2026-05-04) + manual
+    # (step 5). Steps 2 + 6 were REUSED with no new rows.
+    assert run_count == 4, (
+        f"Expected 4 distinct PortfolioRuns (auto-seed + realignment + "
+        f"override + manual); got {run_count}"
     )
 
     # PortfolioRunEvent monotonic chain: every run has at least one
