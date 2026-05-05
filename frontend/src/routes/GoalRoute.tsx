@@ -217,7 +217,12 @@ export function GoalRoute() {
       <AdvisorSummaryPanel household={household} goalId={goal.id} />
 
       <div className="grid grid-cols-2 gap-3">
-        <OptimizerOutputWidget householdId={household.id} goalId={goal.id} />
+        <OptimizerOutputWidget
+          householdId={household.id}
+          goalId={goal.id}
+          household={household}
+          isPreviewingOverride={isPreviewingOverride}
+        />
         <MovesPanel
           householdId={household.id}
           goalId={goal.id}
