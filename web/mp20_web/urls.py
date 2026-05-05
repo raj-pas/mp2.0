@@ -82,6 +82,11 @@ urlpatterns = [
         name="portfolio-run-audit-export",
     ),
     path(
+        "api/clients/<str:household_id>/accounts/<str:account_id>/assign-goals/",
+        views.AssignAccountToGoalsView.as_view(),
+        name="assign-account-to-goals",
+    ),
+    path(
         "api/clients/<str:household_id>/planning-versions/",
         views.PlanningVersionListView.as_view(),
         name="planning-version-list",

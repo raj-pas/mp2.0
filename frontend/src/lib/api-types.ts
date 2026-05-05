@@ -68,6 +68,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/clients/{household_id}/accounts/{account_id}/assign-goals/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST /api/clients/<household_id>/accounts/<account_id>/assign-goals/
+         *
+         *     Phase P13 — assign a Purpose-held account's full balance to one or more
+         *     goals (existing OR new-inline). Hard-requires 100% allocation per
+         *     §A1.14 #6; partial allocations are rejected at the boundary.
+         *
+         *     Request body shape (locked in plan v20 §A1.28):
+         *     ```
+         *     {
+         *       "rationale": str,         # ≥4 chars; never stored in audit metadata text
+         *       "assignments": [
+         *         # Existing goal:
+         *         {"goal_id": "<external_id>",
+         *          "allocated_amount_basis_points": int},
+         *         # New inline goal:
+         *         {"goal_id": "new",
+         *          "new_goal": {"name": str,
+         *                       "target_amount_basis_points": int,
+         *                       "necessity_score": 1-5,
+         *                       "risk_score": 1-5,
+         *                       "target_date": "YYYY-MM-DD"},
+         *          "allocated_amount_basis_points": int},
+         *         ...
+         *       ]
+         *     }
+         *     ```
+         *
+         *     Validation (raises 400 with structured `{detail, code}`):
+         *       - Rationale length ≥ 4 chars (`empty_rationale` / `rationale_too_short`)
+         *       - At least one assignment (`no_assignments`)
+         *       - No duplicate goal_ids in assignments (`duplicate_goal_id`)
+         *       - All non-"new" goal_ids exist on the household (`unknown_goal`)
+         *       - All allocated_amount_basis_points > 0 (`zero_allocation_per_goal`)
+         *       - New-goal payload has full required fields (`new_goal_missing_fields`)
+         *       - Sum of allocated_amount_basis_points == account.current_value_basis_points
+         *         within 1 bp tolerance → `AccountAssignmentRollupMismatch` (mapped 400)
+         *
+         *     Atomic + select_for_update on Household per locked #30. Auto-trigger
+         *     fires INLINE post-assignment via `_trigger_and_audit(source="goal_assignment")`
+         *     per locked #74 (no transaction.on_commit; response IS truth).
+         *
+         *     Audit event `account_assigned_to_goals` per §A1.23 schema:
+         *       - account_id, assignment_count, total_assigned_basis_points
+         *       - new_goal_count, rationale_present, rationale_length
+         *       - NEVER: rationale text, raw allocated_amount, member/goal names
+         *
+         *     Returns 200 with `HouseholdDetailSerializer.data` on success (auto-trigger
+         *     side-effect updates `latest_portfolio_run` + `readiness_blockers`).
+         */
+        post: operations["clients_accounts_assign_goals_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/clients/{household_id}/audit-events/": {
         parameters: {
             query?: never;
@@ -1616,6 +1682,27 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                household_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    clients_accounts_assign_goals_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
                 household_id: string;
             };
             cookie?: never;

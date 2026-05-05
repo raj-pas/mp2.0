@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch } from "./api";
 
@@ -363,4 +363,77 @@ export function findGoalLinkRecommendations(
   const run = household?.latest_portfolio_run;
   if (!run?.output?.link_recommendations) return [];
   return run.output.link_recommendations.filter((rec) => rec.goal_id === goalId);
+}
+
+// --------------------------------------------------------------------
+// P13 — AssignAccountToGoals (plan v20 §A1.28).
+// Wire shape mirrors `AssignAccountToGoalsView` in web/api/views.py.
+// Uses basis points throughout (1 bp = 0.0001 dollars) so the wire never
+// carries floats; all $-math lives in the modal's input layer.
+// --------------------------------------------------------------------
+
+export type AssignAccountNewGoalPayload = {
+  name: string;
+  target_amount_basis_points: number;
+  necessity_score: number;
+  risk_score: number;
+  /** ISO YYYY-MM-DD string. */
+  target_date: string;
+};
+
+export type AssignAccountAssignment =
+  | {
+      goal_id: string; // existing external_id
+      allocated_amount_basis_points: number;
+    }
+  | {
+      goal_id: "new";
+      new_goal: AssignAccountNewGoalPayload;
+      allocated_amount_basis_points: number;
+    };
+
+export type AssignAccountPayload = {
+  rationale: string;
+  assignments: AssignAccountAssignment[];
+};
+
+export const treemapQueryKeyAny = (id: string) => ["treemap", id] as const;
+export const auditEventsQueryKey = (householdId: string) =>
+  ["audit_events", householdId] as const;
+
+/**
+ * `useAssignAccountToGoals(householdId, accountId)` — POSTs to
+ * `/api/clients/<id>/accounts/<aid>/assign-goals/`. On success invalidates
+ * (per §A1.57 cache-invalidation contract):
+ *   - household detail (refetches HouseholdDetail incl. readiness_blockers
+ *     + latest_portfolio_run from auto-trigger side-effect)
+ *   - treemap (per-mode, since allocations changed)
+ *   - audit_events (Commits sub-tab + audit timeline)
+ * Sister contract: `portfolio_run` is NOT invalidated directly — it
+ * comes nested under `household` and refetches with it.
+ */
+export function useAssignAccountToGoals(
+  householdId: string | null,
+  accountId: string | null,
+) {
+  const queryClient = useQueryClient();
+  return useMutation<HouseholdDetail, Error, AssignAccountPayload>({
+    mutationFn: (payload) => {
+      if (householdId === null || accountId === null) {
+        return Promise.reject(new Error("household + account ids required"));
+      }
+      return apiFetch<HouseholdDetail>(
+        `/api/clients/${encodeURIComponent(householdId)}/accounts/${encodeURIComponent(accountId)}/assign-goals/`,
+        { method: "POST", body: payload },
+      );
+    },
+    onSuccess: () => {
+      if (householdId === null) return;
+      // Sister §A1.57: household → treemap (any mode) → audit_events.
+      // We invalidate the wider treemap key prefix so all modes refetch.
+      queryClient.invalidateQueries({ queryKey: householdQueryKey(householdId) });
+      queryClient.invalidateQueries({ queryKey: treemapQueryKeyAny(householdId) });
+      queryClient.invalidateQueries({ queryKey: auditEventsQueryKey(householdId) });
+    },
+  });
 }

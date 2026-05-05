@@ -25,9 +25,20 @@ import { toastError } from "../lib/toast";
 
 interface HouseholdPortfolioPanelProps {
   household: HouseholdDetail;
+  /**
+   * P13 / §A1.51 P11×P13: invoked when the structured BlockerBanner's
+   * "Assign" `ui_action` button is clicked for a `purpose_account_*`
+   * blocker code. Parent route opens `<AssignAccountModal>` pre-focused
+   * on the account_id. Optional — if absent, button is a no-op (cross-
+   * phase contract is wired at the route layer per §A1.43).
+   */
+  onAssignAccountClick?: (params: { account_id: string }) => void;
 }
 
-export function HouseholdPortfolioPanel({ household }: HouseholdPortfolioPanelProps) {
+export function HouseholdPortfolioPanel({
+  household,
+  onAssignAccountClick,
+}: HouseholdPortfolioPanelProps) {
   const { t } = useTranslation();
   const generate = useGeneratePortfolio(household.id);
   const rollup = findHouseholdRollup(household);
@@ -121,7 +132,10 @@ export function HouseholdPortfolioPanel({ household }: HouseholdPortfolioPanelPr
           </Button>
         </div>
         {hasStructured && structured !== null ? (
-          <StructuredBlockerBanner blockers={structured} />
+          <StructuredBlockerBanner
+            blockers={structured}
+            onAssignAccountClick={onAssignAccountClick}
+          />
         ) : humanized.length > 0 ? (
           <div className="mt-3 border-t border-hairline pt-3">
             <p className="font-mono text-[10px] uppercase tracking-widest text-warning mb-2">
@@ -289,8 +303,10 @@ export function HouseholdPortfolioPanel({ household }: HouseholdPortfolioPanelPr
  */
 function StructuredBlockerBanner({
   blockers,
+  onAssignAccountClick,
 }: {
   blockers: PortfolioGenerationBlocker[];
+  onAssignAccountClick?: (params: { account_id: string }) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -319,15 +335,21 @@ function StructuredBlockerBanner({
               <button
                 type="button"
                 onClick={() => {
-                  // P11 placeholder: real handlers wire in P12 (Unallocated
-                  // Banner) + P13 (AssignAccountModal) sub-agents.
-                  // eslint-disable-next-line no-console
-                  console.log("blocker.ui_action", {
-                    code: blocker.code,
-                    ui_action: blocker.ui_action,
-                    account_id: blocker.account_id,
-                    goal_id: blocker.goal_id,
-                  });
+                  // §A1.51 P11×P13 — `assign_to_goal` ui_action with an
+                  // account_id targets AssignAccountModal at that account.
+                  if (
+                    blocker.ui_action === "assign_to_goal" &&
+                    typeof blocker.account_id === "string" &&
+                    blocker.account_id.length > 0 &&
+                    onAssignAccountClick !== undefined
+                  ) {
+                    onAssignAccountClick({ account_id: blocker.account_id });
+                    return;
+                  }
+                  // Other ui_actions wire in subsequent pairs (edit_account_value,
+                  // set_goal_horizon, set_household_risk, open_review_workspace).
+                  // No-op until those handlers ship; advisor sees the
+                  // copy + button affordance but click is harmless.
                 }}
                 className="font-mono text-[10px] uppercase tracking-wider text-warning border border-warning px-2 py-0.5 hover:bg-warning hover:text-paper-2"
                 data-ui-action={blocker.ui_action}

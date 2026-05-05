@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
@@ -18,6 +18,13 @@ import { toastSuccess } from "../lib/toast";
 import { Treemap } from "../treemap/Treemap";
 import { HouseholdPortfolioPanel } from "./HouseholdPortfolioPanel";
 import { UnallocatedBanner } from "./UnallocatedBanner";
+
+/**
+ * P13 / §A1.20 bundle code-split — AssignAccountModal lazy-loads on
+ * first open (UnallocatedBanner CTA / Treemap unallocated tile click /
+ * BlockerBanner ui_action). Until opened, no JS for the modal is shipped.
+ */
+const AssignAccountModal = lazy(() => import("../modals/AssignAccountModal"));
 
 const STORAGE_GROUP_BY = "mp20_group_by";
 
@@ -42,6 +49,13 @@ export function HouseholdRoute() {
   const [realignOpen, setRealignOpen] = useState(false);
   const [latestRealign, setLatestRealign] = useState<RealignmentResponse | null>(null);
   const restoreSnapshot = useRestoreSnapshot(rememberedId);
+
+  // P13 — AssignAccountModal open state. `null` accountId means the
+  // modal is closed. Set to a non-null account_id by:
+  //   - UnallocatedBanner CTA click  (per §A1.14 #10)
+  //   - Treemap virtual unallocated tile click  (per §A1.14 #10 + §A1.51 P12×P13)
+  //   - HouseholdPortfolioPanel BlockerBanner "Assign" ui_action  (§A1.51 P11×P13)
+  const [assignTargetAccountId, setAssignTargetAccountId] = useState<string | null>(null);
 
   if (rememberedId === null) {
     return <HouseholdEmpty message={t("routes.household.select_first")} />;
@@ -151,22 +165,38 @@ export function HouseholdRoute() {
         UnallocatedBanner per plan v20 §A1.18 LOCKED layout — sits ABOVE
         the action sub-bar (and HouseholdPortfolioPanel). P12 fills the
         slot first established by P11. Z-order coord: banner z-10 sits
-        BELOW sister's StaleRunOverlay z-20. CTA stub for now (P13 lands
-        AssignAccountModal in next pair); the call signature is locked.
+        BELOW sister's StaleRunOverlay z-20. P13 wires the CTA to
+        AssignAccountModal pre-focused on the affected account.
       */}
       <UnallocatedBanner
         household={household}
-        onAssignClick={({ account_id }) => {
-          // P13 placeholder — see AssignAccountModal in the upcoming
-          // pair. The console.log + toast keeps the click reachable so
-          // structural tests pass and the advisor sees feedback.
-          console.log("[HouseholdRoute] UnallocatedBanner CTA clicked", { account_id });
-          toastSuccess(
-            t("unallocated_banner.stub_toast_title"),
-            t("unallocated_banner.stub_toast_body"),
-          );
-        }}
+        onAssignClick={({ account_id }) => setAssignTargetAccountId(account_id)}
       />
+
+      {/*
+        P13 lazy-loaded AssignAccountModal — open state is managed at the
+        route level so the same modal handles UnallocatedBanner CTA +
+        Treemap unallocated tile click + HouseholdPortfolioPanel
+        BlockerBanner "Assign" ui_action (§A1.51 cross-phase contract).
+        Suspense fallback is null since the chunk is small (~6 kB) and
+        the trigger interactions are click-instigated (not on-load).
+      */}
+      <Suspense fallback={null}>
+        <AssignAccountModal
+          open={assignTargetAccountId !== null}
+          onOpenChange={(o) => {
+            if (!o) setAssignTargetAccountId(null);
+          }}
+          household={household}
+          accountId={assignTargetAccountId}
+          onAssigned={() => {
+            toastSuccess(
+              t("assign_account.toast_success_title"),
+              t("assign_account.toast_success_body"),
+            );
+          }}
+        />
+      </Suspense>
       {/*
         Backwards-compat stub: the previous P11 placeholder div still
         exists for any structural test that asserts the slot exists by
@@ -174,7 +204,10 @@ export function HouseholdRoute() {
       */}
       <div data-testid="unallocated-banner-slot" hidden aria-hidden="true" />
 
-      <HouseholdPortfolioPanel household={household} />
+      <HouseholdPortfolioPanel
+        household={household}
+        onAssignAccountClick={({ account_id }) => setAssignTargetAccountId(account_id)}
+      />
 
       <section className="flex flex-1 overflow-hidden border border-hairline-2 shadow-sm">
         {treemapQuery.isPending && (
@@ -194,16 +227,13 @@ export function HouseholdRoute() {
             root={treemapQuery.data.data}
             mode={treemapMode}
             onSelect={(node) => {
-              // Plan v20 §A1.36 (P12) + §A1.14 #10: unallocated tile
-              // clicks open AssignAccountModal pre-focused on the
-              // account. P13 wires the actual modal; for now the stub
-              // mirrors UnallocatedBanner's onAssignClick contract.
+              // Plan v20 §A1.36 (P12) + §A1.14 #10 + §A1.51 P12×P13:
+              // unallocated tile clicks open AssignAccountModal
+              // pre-focused on the account.
               if (node.unallocated === true) {
                 const targetAccountId = node.account_id ?? null;
                 if (targetAccountId !== null && targetAccountId.length > 0) {
-                  console.log("[HouseholdRoute] treemap unallocated tile clicked", {
-                    account_id: targetAccountId,
-                  });
+                  setAssignTargetAccountId(targetAccountId);
                 }
                 return;
               }

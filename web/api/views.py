@@ -142,6 +142,23 @@ class CMAValidationError(ValueError):
         self.diagnostics = diagnostics or {}
 
 
+class AccountAssignmentRollupMismatch(ValueError):
+    """Sum of `allocated_amount_basis_points` across assignments doesn't match
+    the account's `current_value_basis_points` (within 1 bp tolerance).
+
+    Mirrors sister's typed-exception pattern (`EngineKillSwitchBlocked`,
+    `NoActiveCMASnapshot`, etc.) per locked #59. Per §A1.14 #6 — hard-require
+    100% allocation; partial assignments are rejected at the endpoint. Per
+    canon §11.8.3 — the exception message is structural only ("Sum of
+    allocated_amount_basis_points (X) does not match account current_value
+    (Y) within 1 bp tolerance"); no rationale text or PII appears.
+
+    Used by `AssignAccountToGoalsView` (P13). Caller maps to a 400 response
+    with `safe_response_payload(exc)` + structured `failure_code=
+    "AccountAssignmentRollupMismatch"`.
+    """
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 class LocalLoginView(APIView):
     authentication_classes = []
@@ -1045,6 +1062,467 @@ class PortfolioRunAuditExportView(APIView):
         )
         run.refresh_from_db()
         return Response(_sanitized_portfolio_audit_export(run, verification))
+
+
+class AssignAccountToGoalsView(APIView):
+    """POST /api/clients/<household_id>/accounts/<account_id>/assign-goals/
+
+    Phase P13 — assign a Purpose-held account's full balance to one or more
+    goals (existing OR new-inline). Hard-requires 100% allocation per
+    §A1.14 #6; partial allocations are rejected at the boundary.
+
+    Request body shape (locked in plan v20 §A1.28):
+    ```
+    {
+      "rationale": str,         # ≥4 chars; never stored in audit metadata text
+      "assignments": [
+        # Existing goal:
+        {"goal_id": "<external_id>",
+         "allocated_amount_basis_points": int},
+        # New inline goal:
+        {"goal_id": "new",
+         "new_goal": {"name": str,
+                      "target_amount_basis_points": int,
+                      "necessity_score": 1-5,
+                      "risk_score": 1-5,
+                      "target_date": "YYYY-MM-DD"},
+         "allocated_amount_basis_points": int},
+        ...
+      ]
+    }
+    ```
+
+    Validation (raises 400 with structured `{detail, code}`):
+      - Rationale length ≥ 4 chars (`empty_rationale` / `rationale_too_short`)
+      - At least one assignment (`no_assignments`)
+      - No duplicate goal_ids in assignments (`duplicate_goal_id`)
+      - All non-"new" goal_ids exist on the household (`unknown_goal`)
+      - All allocated_amount_basis_points > 0 (`zero_allocation_per_goal`)
+      - New-goal payload has full required fields (`new_goal_missing_fields`)
+      - Sum of allocated_amount_basis_points == account.current_value_basis_points
+        within 1 bp tolerance → `AccountAssignmentRollupMismatch` (mapped 400)
+
+    Atomic + select_for_update on Household per locked #30. Auto-trigger
+    fires INLINE post-assignment via `_trigger_and_audit(source="goal_assignment")`
+    per locked #74 (no transaction.on_commit; response IS truth).
+
+    Audit event `account_assigned_to_goals` per §A1.23 schema:
+      - account_id, assignment_count, total_assigned_basis_points
+      - new_goal_count, rationale_present, rationale_length
+      - NEVER: rationale text, raw allocated_amount, member/goal names
+
+    Returns 200 with `HouseholdDetailSerializer.data` on success (auto-trigger
+    side-effect updates `latest_portfolio_run` + `readiness_blockers`).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    # Sum-mismatch tolerance — 1 bp == 1/10000 of a dollar at the smallest
+    # representable account value. Matches §A1.50 boundary spec ("Sum exact
+    # match within 1bp tolerance").
+    _BP_TOLERANCE = 1
+    _RATIONALE_MIN_LENGTH = 4
+    _MIN_RISK_SCORE = 1
+    _MAX_RISK_SCORE = 5
+    _MIN_NECESSITY = 1
+    _MAX_NECESSITY = 5
+
+    def post(self, request, household_id: str, account_id: str):  # noqa: ANN001
+        if not can_access_real_pii(request.user):
+            return Response(
+                {"detail": "Role cannot access real-client PII."}, status=403
+            )
+
+        rationale_raw = request.data.get("rationale")
+        rationale = (rationale_raw or "").strip() if isinstance(rationale_raw, str) else ""
+        rationale_length = len(rationale)
+        if rationale_length < self._RATIONALE_MIN_LENGTH:
+            return Response(
+                {
+                    "detail": (
+                        "Rationale is required (≥4 chars) — capture why this "
+                        "assignment is being made for the audit trail."
+                    ),
+                    "code": "rationale_too_short",
+                },
+                status=400,
+            )
+
+        assignments_raw = request.data.get("assignments")
+        if not isinstance(assignments_raw, list) or len(assignments_raw) == 0:
+            return Response(
+                {
+                    "detail": "Provide at least one goal assignment.",
+                    "code": "no_assignments",
+                },
+                status=400,
+            )
+
+        # Validate per-row shape, collect basis-point totals, detect dupes.
+        # Defer DB lookups until we hold the row lock inside the atomic.
+        seen_goal_ids: set[str] = set()
+        normalized: list[dict] = []
+        total_assigned_bp = 0
+        new_goal_count = 0
+        for idx, raw in enumerate(assignments_raw):
+            if not isinstance(raw, dict):
+                return Response(
+                    {
+                        "detail": f"Assignment row {idx} is not an object.",
+                        "code": "invalid_assignment_shape",
+                    },
+                    status=400,
+                )
+            goal_id = raw.get("goal_id")
+            if not isinstance(goal_id, str) or not goal_id:
+                return Response(
+                    {
+                        "detail": f"Assignment row {idx} missing goal_id.",
+                        "code": "missing_goal_id",
+                    },
+                    status=400,
+                )
+            allocated_bp_raw = raw.get("allocated_amount_basis_points")
+            if not isinstance(allocated_bp_raw, int) or isinstance(allocated_bp_raw, bool):
+                return Response(
+                    {
+                        "detail": (
+                            f"Assignment row {idx} allocated_amount_basis_points "
+                            "must be an integer (basis points)."
+                        ),
+                        "code": "invalid_allocation_basis_points",
+                    },
+                    status=400,
+                )
+            if allocated_bp_raw <= 0:
+                return Response(
+                    {
+                        "detail": (
+                            f"Assignment row {idx} must allocate >0 basis points "
+                            "per goal — empty assignments are not allowed."
+                        ),
+                        "code": "zero_allocation_per_goal",
+                    },
+                    status=400,
+                )
+            is_new_goal = goal_id == "new"
+            new_goal_payload = None
+            if is_new_goal:
+                new_goal_payload = raw.get("new_goal")
+                err = self._validate_new_goal_payload(new_goal_payload, idx)
+                if err is not None:
+                    return err
+                # Synthesize a unique sentinel so duplicate "new" rows are still
+                # distinguishable in seen_goal_ids accounting.
+                dedup_key = f"__new__:{idx}"
+                new_goal_count += 1
+            else:
+                dedup_key = goal_id
+            if dedup_key in seen_goal_ids:
+                return Response(
+                    {
+                        "detail": (
+                            f"Duplicate goal_id {goal_id!r} in assignments list — "
+                            "consolidate the rows before submitting."
+                        ),
+                        "code": "duplicate_goal_id",
+                    },
+                    status=400,
+                )
+            seen_goal_ids.add(dedup_key)
+            total_assigned_bp += allocated_bp_raw
+            normalized.append(
+                {
+                    "goal_id": goal_id,
+                    "is_new_goal": is_new_goal,
+                    "new_goal_payload": new_goal_payload,
+                    "allocated_amount_basis_points": allocated_bp_raw,
+                }
+            )
+
+        # Atomic + select_for_update on Household — serializes concurrent
+        # assignment attempts on the same household per locked #30. Audit
+        # emission lives INSIDE the atomic so a rollback drops both the
+        # link writes and the audit row together (sister §3.5 invariant
+        # via `record_event`).
+        try:
+            with transaction.atomic():
+                household = (
+                    _household_queryset(request.user)
+                    .select_for_update(of=("self",))
+                    .filter(external_id=household_id)
+                    .first()
+                )
+                if household is None:
+                    raise _NotFoundError("Household not found.")
+                try:
+                    account = household.accounts.select_for_update().get(
+                        external_id=account_id
+                    )
+                except models.Account.DoesNotExist as exc:
+                    raise _NotFoundError("Account not found in this household.") from exc
+
+                # Convert account.current_value to basis points (1 bp = 0.0001
+                # = 0.01%). Account values are stored as Decimal with 2 dp;
+                # 1 bp at $1.00 == 1; basis points scale at 10_000 per dollar.
+                account_value_bp = int(
+                    (account.current_value * Decimal(10_000)).quantize(Decimal("1"))
+                )
+                bp_diff = total_assigned_bp - account_value_bp
+                if abs(bp_diff) > self._BP_TOLERANCE:
+                    raise AccountAssignmentRollupMismatch(
+                        "Sum of allocated_amount_basis_points "
+                        f"({total_assigned_bp}) does not match account "
+                        f"current_value_basis_points ({account_value_bp}) "
+                        f"within {self._BP_TOLERANCE} bp tolerance."
+                    )
+
+                # Resolve existing goals + verify each non-"new" id exists.
+                existing_goals_by_id = {
+                    g.external_id: g
+                    for g in household.goals.select_for_update().all()
+                }
+                for row in normalized:
+                    if row["is_new_goal"]:
+                        continue
+                    if row["goal_id"] not in existing_goals_by_id:
+                        raise _BadRequest(
+                            f"Unknown goal_id {row['goal_id']!r} on this household.",
+                            code="unknown_goal",
+                        )
+
+                # Create new Goal rows for "new" entries (full fields per
+                # §A1.14 #17). Mirrors `_merge_household_state` UPSERT
+                # semantics: external_id is generated server-side.
+                created_goals: list[models.Goal] = []
+                for row in normalized:
+                    if not row["is_new_goal"]:
+                        continue
+                    payload = row["new_goal_payload"]
+                    target_amount_bp = payload["target_amount_basis_points"]
+                    target_amount = (Decimal(target_amount_bp) / Decimal(10_000)).quantize(
+                        Decimal("0.01")
+                    )
+                    new_goal = models.Goal.objects.create(
+                        external_id=models.uuid_string(),
+                        household=household,
+                        name=payload["name"],
+                        target_amount=target_amount,
+                        target_date=payload["target_date"],
+                        necessity_score=payload["necessity_score"],
+                        goal_risk_score=payload["risk_score"],
+                    )
+                    created_goals.append(new_goal)
+                    # Record the actual external_id so link creation can find
+                    # the goal via the same dict.
+                    row["resolved_goal"] = new_goal
+
+                # Track the (goal_id) set we're persisting so we can DELETE
+                # any leftover links to this account whose goals aren't in
+                # the assignments list. The request is the FULL restatement
+                # of how this account is split — sum-validator enforces 100%
+                # against the account value, so any non-listed goal must
+                # have its leg removed to keep the post-condition consistent.
+                kept_goal_pks: list[int] = []
+                for row in normalized:
+                    if row["is_new_goal"]:
+                        goal = row["resolved_goal"]
+                    else:
+                        goal = existing_goals_by_id[row["goal_id"]]
+                    allocated_amount = (
+                        Decimal(row["allocated_amount_basis_points"]) / Decimal(10_000)
+                    ).quantize(Decimal("0.01"))
+                    # UPSERT (account, goal) link; allocated_pct cleared so
+                    # engine reads canonical dollar amount per goal-leg.
+                    link, _created = models.GoalAccountLink.objects.update_or_create(
+                        goal=goal,
+                        account=account,
+                        defaults={
+                            "allocated_amount": allocated_amount,
+                            "allocated_pct": None,
+                        },
+                    )
+                    if _created and not link.external_id:
+                        link.external_id = models.uuid_string()
+                        link.save(update_fields=["external_id"])
+                    kept_goal_pks.append(goal.pk)
+
+                # Drop legacy links to this account whose goal isn't named
+                # in the assignments list. Closes the otherwise-leaky window
+                # where re-assigning to a subset of goals would leave stale
+                # legs that double-count the account balance.
+                models.GoalAccountLink.objects.filter(account=account).exclude(
+                    goal_id__in=kept_goal_pks
+                ).delete()
+
+                actor = _actor(request)
+                # §A1.23 audit metadata schema — counts + bp + lengths only;
+                # rationale TEXT never appears (canon §11.8.3 PII discipline).
+                record_event(
+                    action="account_assigned_to_goals",
+                    entity_type="household",
+                    entity_id=household.external_id,
+                    actor=actor,
+                    metadata=safe_audit_metadata(
+                        None,
+                        account_id=str(account.external_id),
+                        assignment_count=len(normalized),
+                        total_assigned_basis_points=total_assigned_bp,
+                        account_value_basis_points=account_value_bp,
+                        new_goal_count=new_goal_count,
+                        rationale_present=True,
+                        rationale_length=rationale_length,
+                    ),
+                )
+        except AccountAssignmentRollupMismatch as exc:
+            return Response(
+                safe_response_payload(
+                    exc,
+                    total_assigned_basis_points=total_assigned_bp,
+                ),
+                status=400,
+            )
+        except _BadRequest as exc:
+            return Response({"detail": exc.detail, "code": exc.code}, status=400)
+        except _NotFoundError as exc:
+            return Response({"detail": exc.detail}, status=404)
+
+        # Auto-trigger fires INLINE post-assignment per locked #74 — no
+        # transaction.on_commit; response IS truth. Failure is sister-shape:
+        # typed-skip emits its own audit + returns None; unexpected emits
+        # `*_failed` audit. Either way the assignment commit lands +
+        # the response carries fresh HouseholdDetailSerializer.data.
+        _trigger_and_audit(household, request.user, source="goal_assignment")
+
+        # Re-fetch with prefetch_related so the serializer doesn't N+1.
+        household_refreshed = (
+            _household_queryset(request.user).get(external_id=household.external_id)
+        )
+        return Response(HouseholdDetailSerializer(household_refreshed).data)
+
+    def _validate_new_goal_payload(self, payload, idx: int):  # noqa: ANN001, ANN201
+        """Return None on pass, or a 400 Response on failure."""
+        if not isinstance(payload, dict):
+            return Response(
+                {
+                    "detail": (
+                        f"Assignment row {idx} declares goal_id='new' but is "
+                        "missing the new_goal payload."
+                    ),
+                    "code": "new_goal_missing_payload",
+                },
+                status=400,
+            )
+        name = payload.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return Response(
+                {
+                    "detail": (
+                        f"Assignment row {idx} new_goal.name is required."
+                    ),
+                    "code": "new_goal_missing_name",
+                },
+                status=400,
+            )
+        target_amount_bp = payload.get("target_amount_basis_points")
+        if not isinstance(target_amount_bp, int) or isinstance(target_amount_bp, bool):
+            return Response(
+                {
+                    "detail": (
+                        f"Assignment row {idx} new_goal.target_amount_basis_points "
+                        "must be an integer (basis points)."
+                    ),
+                    "code": "new_goal_missing_target",
+                },
+                status=400,
+            )
+        if target_amount_bp <= 0:
+            return Response(
+                {
+                    "detail": (
+                        f"Assignment row {idx} new_goal.target_amount_basis_points "
+                        "must be > 0."
+                    ),
+                    "code": "new_goal_invalid_target",
+                },
+                status=400,
+            )
+        necessity = payload.get("necessity_score")
+        if (
+            not isinstance(necessity, int)
+            or isinstance(necessity, bool)
+            or necessity < self._MIN_NECESSITY
+            or necessity > self._MAX_NECESSITY
+        ):
+            return Response(
+                {
+                    "detail": (
+                        f"Assignment row {idx} new_goal.necessity_score must be "
+                        f"an integer in [{self._MIN_NECESSITY}, {self._MAX_NECESSITY}]."
+                    ),
+                    "code": "new_goal_invalid_necessity",
+                },
+                status=400,
+            )
+        risk = payload.get("risk_score")
+        if (
+            not isinstance(risk, int)
+            or isinstance(risk, bool)
+            or risk < self._MIN_RISK_SCORE
+            or risk > self._MAX_RISK_SCORE
+        ):
+            return Response(
+                {
+                    "detail": (
+                        f"Assignment row {idx} new_goal.risk_score must be an "
+                        f"integer in [{self._MIN_RISK_SCORE}, {self._MAX_RISK_SCORE}]."
+                    ),
+                    "code": "new_goal_invalid_risk",
+                },
+                status=400,
+            )
+        target_date_raw = payload.get("target_date")
+        if not isinstance(target_date_raw, str):
+            return Response(
+                {
+                    "detail": (
+                        f"Assignment row {idx} new_goal.target_date must be a "
+                        "YYYY-MM-DD string."
+                    ),
+                    "code": "new_goal_missing_target_date",
+                },
+                status=400,
+            )
+        try:
+            target_date = datetime.fromisoformat(target_date_raw).date()
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    "detail": (
+                        f"Assignment row {idx} new_goal.target_date must parse "
+                        "as YYYY-MM-DD."
+                    ),
+                    "code": "new_goal_invalid_target_date",
+                },
+                status=400,
+            )
+        # Mutate in place so the atomic-block reader has a date object.
+        payload["target_date"] = target_date
+        payload["name"] = name.strip()
+        return None
+
+
+class _BadRequest(Exception):
+    def __init__(self, detail: str, *, code: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.code = code
+
+
+class _NotFoundError(Exception):
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
 
 
 class PlanningVersionListView(APIView):

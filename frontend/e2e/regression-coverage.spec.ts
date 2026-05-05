@@ -605,15 +605,15 @@ test.describe("Regression coverage — household + goal", () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test("UnallocatedBanner — renders + CTA fires console.log with account_id (P12 / G12)", async ({
+  test("UnallocatedBanner — CTA opens AssignAccountModal pre-focused on account (P12+P13 / §A1.51)", async ({
     page,
   }) => {
-    // Plan v20 §A1.36 (P12) e2e regression guard. Picks the seeded
-    // synthetic Sandra/Mike Chen household first; if that household is
-    // fully allocated (the seed default), the banner is hidden — that
-    // is itself the §A1.50 boundary case. We assert reachable behavior
-    // either way: the banner is either fully allocated (no banner) or
-    // partially allocated (banner + click logs account_id).
+    // Plan v20 §A1.36 (P12) + §A1.28 (P13) e2e regression guard. Picks
+    // the seeded synthetic Sandra/Mike Chen household first; if that
+    // household is fully allocated (the seed default), the banner is
+    // hidden — that is itself the §A1.50 boundary case. When partially
+    // allocated, clicking "Assign now" opens AssignAccountModal pre-
+    // focused on the account (cross-phase contract per §A1.51 P12×P13).
     await loginAdvisor(page);
     await pickSandraMike(page);
     const banner = page.getByTestId("unallocated-banner");
@@ -624,20 +624,17 @@ test.describe("Regression coverage — household + goal", () => {
       !isVisible,
       "Sandra/Mike is fully allocated — UnallocatedBanner hidden as designed (§A1.50)",
     );
-    // Capture console output. The HouseholdRoute CTA stub (P13 wires
-    // the modal) logs `[HouseholdRoute] UnallocatedBanner CTA clicked`
-    // with the account_id payload.
-    const logs: string[] = [];
-    page.on("console", (msg) => {
-      if (msg.type() === "log") logs.push(msg.text());
-    });
     await page.getByRole("button", { name: /Assign now/i }).first().click();
-    // Wait for the synthetic console.log to land.
-    await page.waitForTimeout(500);
-    const matched = logs.some((line) =>
-      line.includes("UnallocatedBanner CTA clicked"),
-    );
-    expect(matched).toBe(true);
+    // AssignAccountModal opens — title + sum-validator + rationale field.
+    await expect(
+      page.locator("[data-testid='assign-rows']"),
+    ).toBeVisible({ timeout: 5_000 });
+    await expect(
+      page.locator("[data-testid='assign-sum-validator']"),
+    ).toBeVisible();
+    await expect(
+      page.locator("[data-testid='assign-submit']"),
+    ).toBeVisible();
   });
 
   test("Override → regenerate cycle — engine pill flips on save (engine→UI A2/A3 regression guard)", async ({

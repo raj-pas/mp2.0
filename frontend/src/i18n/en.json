@@ -501,6 +501,37 @@
     "stub_toast_title": "Assignment flow coming soon",
     "stub_toast_body": "AssignAccountModal lands next. Click logged."
   },
+  "assign_account": {
+    "title": "Assign account to goals",
+    "intro": "Assign all of {{account}} ({{amount}}) across one or more goals. Every dollar must land in a goal before recommendations can be generated.",
+    "rationale_label": "Rationale (audit trail)",
+    "rationale_placeholder": "Why is this assignment being made?",
+    "rationale_min": "At least {{min}} characters required.",
+    "rationale_ok": "Recorded with the assignment for audit trail.",
+    "ready_balanced": "100% assigned — ready to apply.",
+    "ready_not_balanced": "Adjust amounts so the assigned total equals the account balance.",
+    "apply": "Assign",
+    "applying": "Assigning…",
+    "add_existing_row": "Add existing goal",
+    "add_new_goal_row": "Create new goal inline",
+    "remove_row": "Remove this assignment row",
+    "row_goal_label": "Goal receiving funds from {{account}}",
+    "row_dollars_label": "Allocation in dollars",
+    "row_pct_label": "Allocation as percent of account",
+    "option_new_goal": "+ Create new goal…",
+    "sum_label": "{{assigned}} assigned of {{total}} ({{pct}}%)",
+    "toast_success_title": "Assignment recorded",
+    "toast_success_body": "Recommendation regenerating in the background.",
+    "error_title": "Assignment failed",
+    "error_generic": "Assignment could not be applied. Try again or contact ops.",
+    "new_goal": {
+      "name_label": "Goal name",
+      "target_label": "Target amount",
+      "target_date_label": "Target date",
+      "necessity_label": "Necessity (1 = need-to-have, 5 = must-have)",
+      "risk_label": "Risk score (1 = cautious, 5 = growth-oriented)"
+    }
+  },
   "treemap_extras": {
     "unallocated_label": "Unallocated",
     "unallocated_aria": "Unallocated balance — click to assign to goals"

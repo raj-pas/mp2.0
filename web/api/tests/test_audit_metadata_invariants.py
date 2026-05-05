@@ -72,6 +72,8 @@ CANONICAL_SOURCES = [
     "fact_override",
     "section_approve",
     "synthetic_load",
+    # P13 — `_trigger_and_audit(source="goal_assignment")` per AssignAccountToGoalsView.
+    "goal_assignment",
 ]
 
 # PII patterns (per locked #99 description).
@@ -313,3 +315,83 @@ def test_property_audit_action_naming_canonical_unexpected_failure(source) -> No
     metadata = failed_events.first().metadata
     assert metadata["source"] == source
     assert metadata["failure_code"] == "RuntimeError"
+
+
+# ---------------------------------------------------------------------------
+# P13 — `account_assigned_to_goals` audit metadata never leaks rationale text
+# ---------------------------------------------------------------------------
+
+
+# Tighter cap: each iteration runs engine.optimize() inline via auto-trigger
+# per locked #74; max_examples=3 keeps wall-time bounded while still
+# exercising 3 distinct random rationale payloads (statistical confidence
+# at this layer comes from the parameterized + non-property-based tests in
+# test_assign_account_to_goals.py — this property test is the
+# raw-string-leak invariant guard).
+P13_HYPO_SETTINGS = dict(
+    max_examples=3,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow],
+)
+
+
+@pytest.mark.django_db
+@given(
+    rationale=st.text(
+        alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-:.",
+        min_size=10,
+        max_size=80,
+    ),
+)
+@settings(**P13_HYPO_SETTINGS)
+def test_property_p13_assign_account_audit_metadata_no_rationale_text(rationale) -> None:
+    """P13 invariant — `account_assigned_to_goals` audit metadata stores
+    rationale_length but NEVER the rationale text body.
+
+    Per canon §11.8.3 + §A1.23 schema: counts + bp + lengths only. Mirrors
+    sister Property 2 for the new endpoint, so any future regression that
+    accidentally captures `rationale=` into metadata trips this test.
+
+    Patches `_trigger_and_audit` to a no-op so the property test doesn't
+    pay for engine.optimize() wall-time on every Hypothesis iteration —
+    we're isolating the audit-emission code path, not the trigger plumbing.
+    """
+    from rest_framework.test import APIClient
+
+    hh = _bootstrap_full_demo()
+    user = _make_user()
+    account = hh.accounts.first()
+    assert account is not None
+    goal = hh.goals.first()
+    assert goal is not None
+    account_value_bp = int(account.current_value * 10_000)
+
+    client = APIClient()
+    client.force_authenticate(user=user)
+    with patch("web.api.views._trigger_and_audit", return_value=None):
+        resp = client.post(
+            f"/api/clients/{hh.external_id}/accounts/{account.external_id}/assign-goals/",
+            {
+                "rationale": rationale,
+                "assignments": [
+                    {
+                        "goal_id": goal.external_id,
+                        "allocated_amount_basis_points": account_value_bp,
+                    },
+                ],
+            },
+            format="json",
+        )
+    assert resp.status_code == 200, resp.data
+
+    events = AuditEvent.objects.filter(
+        action="account_assigned_to_goals", entity_id=hh.external_id
+    ).order_by("-id")
+    assert events.exists()
+    metadata = events.first().metadata
+    metadata_json = json.dumps(metadata)
+    assert rationale not in metadata_json, (
+        f"P13 PII leak: rationale text leaked into audit metadata: {metadata_json}"
+    )
+    assert metadata.get("rationale_length") == len(rationale)
+    assert metadata.get("rationale_present") is True
