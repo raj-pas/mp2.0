@@ -8,10 +8,11 @@
 ## Time budget: 30 min total
 - 6 min — show what works post-commit (Sandra/Mike full flow)
 - 3 min — show secondary committed couple (David & Margaret Hartman) for variety
-- 6 min — show full RECONCILIATION UI pre-commit (Werhya: 5 docs, ConflictPanel, MissingPanel, SectionApprovalPanel, StatePeekPanel)
-- 4 min — show real-PII stress case (Niesner over-fragmentation: 11/30/18, 28 merge candidates)
+- 4 min — show synthetic ingestion: Bennett review (4 docs, full reconciliation pipeline)
+- 4 min — show real-PII ingestion: Werhya review (5 docs, real client variety)
+- 3 min — show real-PII stress case (Niesner over-fragmentation: 11/30/18, 28 merge candidates)
 - 4 min — show the matcher Tier-2 fix landed (commit 7274485)
-- 4 min — walk the plan (37 lock-ins, 8 phases, 14-tier test strategy)
+- 3 min — walk the plan (37 lock-ins, 8 phases, 14-tier test strategy)
 - 3 min — Q&A / next steps
 
 ---
@@ -58,12 +59,38 @@ Talk track:
 
 ---
 
-## Part 3 (6 min) — Pre-commit RECONCILIATION UI: Werhya real-PII workspace
+## Part 3 (4 min) — Pre-commit RECONCILIATION UI: Bennett review (synthetic young couple)
+
+**Switch to /review → Bennett review**
+
+Talk track:
+> "This is where the advisor lives during onboarding. Synthetic young couple — Liam & Sophia Bennett, both professionals in their early 30s, two young kids, $626K Steadyhand AUM across 5 accounts. 4 docs uploaded, full Bedrock extraction pipeline, reconciliation completed. Pre-commit."
+
+**Walk:**
+1. **/review queue** — Bennett review workspace with `review_ready` status pill
+2. **Open Bennett review** → ReviewScreen full layout:
+   - **DocsPanel (left)** — 4 docs all reconciled: Bennett_KYC.md, Bennett_Statement_Q1_2026.md, Bennett_Meeting_Note_2026_03.md, Bennett_Profile.md
+   - **ProcessingPanel** — extraction completed (~76s wall-clock via Bedrock)
+   - **ConflictPanel** — "Field disagreements (2)" — advisor adjudicates with rationale + evidence_ack
+   - **MergeCandidateGroup** (post-Phase-B1) — "Possible duplicates (15)" — extraction created 7 person canonicals across 4 docs (Liam fragmented to 3, Sophia fragmented to 3, plus a mixed canonical); matcher Tier-2 surfaces them all at score 90 for advisor merge
+   - **MissingPanel** — required-section blockers
+   - **StatePeekPanel** — reviewed_state preview: people=7 (should collapse to 4 post-merge: Liam, Sophia, Emma, Noah), accounts=5, goals=6
+   - **SectionApprovalPanel** — household / people / accounts / goals / goal_account_mapping / risk
+3. **DocDetailPanel** — click any doc → slide-out with per-fact provenance, redacted evidence quotes, source pill, confidence chip
+
+**Key callouts:**
+- Real Bedrock extraction (`global.anthropic.claude-sonnet-4-6` in ca-central-1)
+- This is the FULL ingestion pipeline working end-to-end on synthetic data
+- Phase B1 matcher surfaces 15 merge candidates; once UI ships (Phase B2), advisor merges → people drops 7 → 4
+
+---
+
+## Part 4 (4 min) — Pre-commit RECONCILIATION UI: Werhya real-PII workspace
 
 **Switch to /review → Werhya**
 
 Talk track:
-> "This is where the advisor lives during onboarding. Real-PII single-person workspace, 5 docs uploaded, extraction completed. Pre-commit. Let me walk you through the full reconciliation UI."
+> "Same pipeline on REAL Steadyhand client docs. Single-person household, 5 docs, real KYC + meeting notes + identity docs. Different fragmentation profile but same UI."
 
 **Walk:**
 1. **/review queue** — workspace queue shows in-flight workspaces with status pills (review_ready, processing). Werhya is review_ready.
@@ -87,9 +114,9 @@ Talk track:
 
 ---
 
-## Part 4 (4 min) — Real-PII stress case: Niesner couple workspace
+## Part 5 (3 min) — Real-PII stress case: Niesner couple workspace
 
-**Switch to /review → Niesner review (demo prep)**
+**Switch to /review → Niesner Review**
 
 Talk track:
 > "This is a real Steadyhand client couple. We uploaded 13 docs through the canon-compliant path. Extraction completed; reviewed_state populated. But end-of-session real-PII verification surfaced something synthetic tests missed."
@@ -104,7 +131,7 @@ Talk track:
 
 ---
 
-## Part 5 (4 min) — The matcher Tier-2 fix just shipped backend (commit 7274485)
+## Part 6 (4 min) — The matcher Tier-2 fix just shipped backend (commit 7274485)
 
 Talk track:
 > "We solved this with a third state — merge candidates. Tier-1 stays tight; Tier-2 surfaces medium-confidence pairs to the advisor for adjudication. Just landed in the last hour."
@@ -136,7 +163,7 @@ Sample candidates:
 
 ---
 
-## Part 6 (4 min) — The plan: 37 lock-ins, 8 phases, 14-tier test strategy
+## Part 7 (3 min) — The plan: 37 lock-ins, 8 phases, 14-tier test strategy
 
 **Show:** `~/.claude/plans/you-are-continuing-a-playful-hammock.md` (1547 lines)
 
@@ -181,7 +208,7 @@ Talk track:
 
 ---
 
-## Part 7 (3 min) — Q&A + Next Steps
+## Part 8 (3 min) — Q&A + Next Steps
 
 **Anticipated questions:**
 
@@ -213,7 +240,7 @@ cd frontend && npm run dev
 
 # Login: advisor@example.com / change-this-local-password (env var)
 
-# Niesner workspace URL: navigate via /review → "Niesner review (demo prep)"
+# Niesner workspace URL: navigate via /review → "Niesner Review"
 # Sandra & Mike URL: navigate via TopBar ClientPicker → "Sandra & Mike Chen"
 ```
 
