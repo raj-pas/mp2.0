@@ -1,10 +1,12 @@
 # Post-tag Gap-Closure — High-Fidelity Starter Prompt
 
-**Compiled:** 2026-05-04 PM (post sub-session #3 EXTENDED close-out — A0+A1+A2+A3+A4+A5+A5.5 done; A6 USER MANUAL + A7 close-out remaining)
-**Authoritative for:** sub-session #3 remainder post-`/compact` boot (Phase A6 + A7)
-**Lifecycle:** deleted at A7 close-out per locked decision §3.8
-**Owns:** mission + vision + reading list + pre-flight gates + active per-phase specs + anti-patterns + first concrete action + cumulative state at HEAD `d8c908a` (or later docs-only commit; A5.5 spec landed)
+**Compiled:** 2026-05-05 (post sub-session #3 EXTENDED+ FINAL close-out — A0+A1+A2+A3+A4+A5+A5.5+A6.1 done + 2 pilot-blocking fixes shipped + **TAG `v0.1.3-engine-display-polish` CUT at `979a692`**; A6.2 dress rehearsal + A7 close-out polish remaining)
+**Authoritative for:** post-tag final-polish session boot (Phase A6.2 + A7 final)
+**Lifecycle:** deleted at A7 close-out polish completion per locked decision §3.8 (still load-bearing for next session)
+**Owns:** mission + vision + reading list + pre-flight gates + remaining-phase specs + anti-patterns + first concrete action + cumulative state at HEAD `979a692` (tag `v0.1.3-engine-display-polish`) or later docs-only commit
 **Does NOT own:** implementation line-by-line (in `~/.claude/plans/i-want-you-to-jolly-beacon.md`); historical narrative per phase (in `docs/agent/handoff-log.md`)
+
+**TAG STATUS:** `v0.1.3-engine-display-polish` at `979a692` is the pilot rollback boundary. Subsequent commits (A6.2 polish + A7 final close-out + decisions.md migration) land *past* the tag and don't shift the rollback target. The user pushes Mon 2026-05-08 morning before pilot launch; do NOT push without explicit authorization.
 
 > **READ IN ORDER. DO NOT SKIM. DO NOT SKIP AHEAD.** This document is load-bearing because the user has been burned by every shortcut: "I'll just glance at the dossier" → re-introduces fixed bugs; "git add -A is fine, I won't have stray files" → committed runtime artifacts in 8350090; "the slider semantic looks right" → permanently flipped pills to calibration_drag (caught only by visual baseline). The cost of reading this prompt end-to-end is 15 minutes; the cost of skipping it is half a sub-session.
 
@@ -112,16 +114,22 @@ The work is **production-grade software for a limited user set; no excuses, no c
 
 ---
 
-## §2. Active scope — A6 + A7 only
+## §2. Active scope — A6.2 dress rehearsal + A7 final close-out only
 
-**Done so far** (skip these — they're committed, tested, and verified):
+**Done so far** (skip these — they're committed, tested, verified, and the tag is cut):
 - ~~Phase A0~~ — pre-flight + baselines fixed at `f6e2ef8`
 - ~~Phase A1~~ — backend stale-lifecycle contract pinned at `95dfd01`
 - ~~Phase A2~~ — SourcePill + GoalAllocationSection + MovesPanel + slider state lift at `c5a7e02`
 - ~~Phase A3~~ — OptimizerOutputWidget engine-first at `c212793`
 - ~~Phase A4~~ — Stale-state UX (4 status variants + 2 overlays) at `8350090`
 - ~~Phase A5~~ — Demo + axe + visual baselines + cross-browser + RiskSlider regression fix at `bd90cf9`
-- ~~Phase A5.5~~ — **Automated browser regression coverage at `d8c908a`** (NEW `frontend/e2e/regression-coverage.spec.ts` — 15 chromium tests passing 2/2 consecutive runs at 19s + 18.5s with zero flakes per §3.20)
+- ~~Phase A5.5~~ — Automated browser regression coverage at `d8c908a`
+- ~~Phase A6.1~~ — Real-Chrome smoke walked Steps 1-8; 2 pilot-blocking bugs caught: override→engine fix at `870563b` + CMA Workbench full-payload fix at `78c635a`
+- ~~Phase A7.1~~ — code-reviewer subagent: CLEAN PASS (0 blocking, 0 critical, 3 post-pilot nice-to-haves)
+- ~~Phase A7.2~~ — PII-focused review: CLEAN PASS (scripts/check-pii-leaks.sh OK at HEAD)
+- ~~Phase A7.3~~ — pre-push CI smoke: 878 backend pytest + 230 Vitest in 26 files + all static guards green
+- ~~Phase A7.4~~ — engine_adapter.py 98% line coverage (well above 90% gate per §3.14)
+- ~~Phase A7.5 (partial)~~ — **TAG `v0.1.3-engine-display-polish` CUT at `979a692`** — the pilot rollback boundary
 
 **Remaining** (the active scope — your work for this session):
 

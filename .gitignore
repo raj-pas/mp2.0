@@ -43,3 +43,6 @@ real-data/
 # Claude Code runtime + Playwright last-run artifacts (root-level)
 .claude/
 test-results/
+
+# pytest-cov runtime artifact (created by --cov runs at A7.4)
+.coverage

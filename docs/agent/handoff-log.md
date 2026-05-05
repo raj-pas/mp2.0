@@ -2,6 +2,35 @@
 
 ---
 
+## 2026-05-05 (post-tag gap-closure sub-session #3 EXTENDED+ FINAL) — TAG `v0.1.3-engine-display-polish` CUT; A6.2 + final A7 polish deferred to next session
+
+**HEAD:** `979a692` tagged as `v0.1.3-engine-display-polish`. 17 commits past tag `v0.1.2-engine-display` at `e5cd859`. All four tags now exist: v0.1.0-pilot + v0.1.1-improved-intake + v0.1.2-engine-display + v0.1.3-engine-display-polish.
+
+**Final actions this session** (A7 partial close-out):
+- A7.1: dispatched `pr-review-toolkit:code-reviewer` subagent on cumulative diff `e5cd859..HEAD`. CLEAN PASS — 0 blocking, 0 critical findings. Three nice-to-have post-pilot items documented (integrity-alert dedup race under concurrent GETs; OptimizerOutputWidget engine-vs-calibration metric semantic difference; Stale chip Regenerate aria-busy preference). All three are documented design or known-pattern limitations; none gate pilot launch.
+- A7.2: PII-focused review pass — `scripts/check-pii-leaks.sh` OK at HEAD; new audit metadata uses structural fields only (run_external_id, household_id, status, engine_version); no `str(exc)` paths in audit emission; no real client identifiers in i18n strings or test fixtures. CLEAN PASS.
+- A7.3: pre-push CI smoke — 878 backend pytest passing + 2 skipped (Vitest 230 in 26 files; bundle 269.41 kB gzipped under 290 kB locked #85 cap; typecheck/lint/build clean; vocab CI / PII grep / OpenAPI codegen all OK). The pre-existing concurrency_stress + migration_rollbacks test-isolation flake reproduced under coverage instrumentation; passes in isolation per per-file runs. Documented in session-state historical block.
+- A7.4: engine_adapter.py coverage — **98% line coverage** from full backend test suite (60 statements, 1 missed). Well above the §3.14 90% gate. The new `effective_goal_risk_score` helper (28 LoC at lines 374-398) is at 100% coverage via the 6-test regression suite at `web/api/tests/test_goal_risk_override_engine_flow.py`.
+- A7.5 PARTIAL: **TAG `v0.1.3-engine-display-polish` cut at `979a692`** with a verbose annotated message documenting the gap-closure scope, the 2 critical fixes, the test bar, the rollback boundary semantics, and the deferred-to-next-session work. Tag-listing confirms 4 tags now exist.
+
+**Deferred to next session** (decision: end-of-night fatigue + the 2 most consequential bugs are caught + tagged):
+- A6.2 pilot dress rehearsal (~45 min user time per locked §3.25 reactivated): walk the 8-step pilot launch demo IN ACTUAL Chrome with stopwatch per `docs/agent/demo-script-2026-05-04.md`; flag any step >threshold (8s non-trigger / 10s trigger per locked #88); document timings.
+- A7 final close-out polish: starter prompt deletion (per locked §3.8 lifecycle); decisions.md migration of the 25 §3 locked-this-session decisions to a "Post-tag gap-closure (2026-05-04/05)" sub-section under existing "Engine→UI Display Integration"; final close-out commit; auto-memory file update at `~/.claude/projects/.../memory/project_engine_ui_display.md`.
+- Push authorization: user pushes Mon 2026-05-08 morning before pilot launch.
+
+**This session's net contribution to v0.1.3-engine-display-polish:**
+- 17 commits past v0.1.2-engine-display at this tag boundary
+- 2 critical pilot-blocking bugs caught + fixed via real-Chrome smoke (locked #100 paid for itself)
+- A6.1 Steps 1-8 verified end-to-end in real Chrome
+- All 5 original gap-closure done-criteria CLOSED
+- Test bar: 878 backend (was 854 baseline; +24); 230 Vitest in 26 files (was 177 in 19; +53); 68 chromium Playwright (was 32 baseline; +36); 22 cross-browser cells; engine_adapter.py 98% coverage; 0 blocking findings from 2 subagent reviews
+
+**Locked decisions honored at tag cut:** #5, #6, #18, #19, #44, #45, #56, #61, #64, #68, #74, #80, #81, #85, #88, #99, #100, #X.10 (prior locked decisions); §3.1, §3.2, §3.3, §3.4, §3.5, §3.7, §3.8, §3.9, §3.10, §3.11, §3.13, §3.14, §3.15, §3.16, §3.17, §3.18, §3.20, §3.22 (locked-this-session decisions). Six §3 decisions remain active for the deferred work: §3.12 (pre-push CI smoke executed; documented), §3.19 (no new perf benchmarks; honored by omission), §3.21 (4-state JSON snapshot fixtures shipped at A1; honored), §3.23 (no telemetry; honored by omission), §3.24 (no rate limit; honored by omission), §3.25 (A6.2 dress rehearsal; deferred).
+
+**Boot for next session:** `docs/agent/post-tag-gap-closure-starter-prompt.md` (still load-bearing; deletes at full A7 close-out per §3.8). HEAD pointer expects `v0.1.3-engine-display-polish` (i.e., `979a692`) or later docs-only commit. The two remaining concrete actions are entirely manageable in 60-90 min total.
+
+---
+
 ## 2026-05-05 (post-tag gap-closure sub-session #3 EXTENDED+ continued) — 2nd pilot-blocking fix: CMA Workbench partial-payload save bug
 
 **HEAD:** `78c635a`. 16 commits past tag `v0.1.2-engine-display` at `e5cd859`.
