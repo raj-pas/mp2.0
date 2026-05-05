@@ -18,7 +18,6 @@ import { z } from "zod";
 
 import {
   BaseAccountSchema,
-  BaseGoalAccountLinkSchema,
   BaseGoalSchema,
   BasePersonSchema,
   CANON_ACCOUNT_TYPES,
@@ -54,8 +53,6 @@ const accountSchema = BaseAccountSchema.extend({
    */
   missing_holdings_confirmed: z.boolean().default(false),
 });
-
-const goalLegSchema = BaseGoalAccountLinkSchema;
 
 const goalSchema = BaseGoalSchema;
 

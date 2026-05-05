@@ -30,9 +30,9 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.management import call_command
 from django.urls import reverse
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 from rest_framework.test import APIClient
-
 from web.api import models
 from web.audit.models import AuditEvent
 
@@ -83,7 +83,11 @@ def _client_for(user: User) -> APIClient:
         max_size=5,
     )
 )
-@settings(deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=20)
+@settings(
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+    max_examples=20,
+)
 def test_status_is_deterministic_for_event_set(household_with_run, event_types) -> None:
     """For any set of events on a run, calling `_portfolio_run_status`
     twice returns the same value (pure function of the event log).
@@ -119,7 +123,11 @@ def test_status_is_deterministic_for_event_set(household_with_run, event_types) 
     advisor_count=st.integers(min_value=1, max_value=5),
     get_count=st.integers(min_value=1, max_value=10),
 )
-@settings(deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=10)
+@settings(
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+    max_examples=10,
+)
 def test_integrity_audit_dedup_invariant(household_with_run, advisor_count, get_count) -> None:
     """Across N advisors x M GETs on a hash_mismatch run, exactly N
     audit rows are emitted (one per distinct advisor; M GETs dedup).
@@ -137,10 +145,7 @@ def test_integrity_audit_dedup_invariant(household_with_run, advisor_count, get_
     # Use UUID-unique advisor emails per example to avoid cross-example
     # dedup carryover (audit table is append-only, can't reset).
     seed = uuid.uuid4().hex[:8]
-    advisors = [
-        _advisor(f"hypo_dedup_{seed}_{i}@example.com")
-        for i in range(advisor_count)
-    ]
+    advisors = [_advisor(f"hypo_dedup_{seed}_{i}@example.com") for i in range(advisor_count)]
     before = AuditEvent.objects.filter(
         action="portfolio_run_integrity_alert",
         entity_id=run.external_id,
@@ -169,7 +174,11 @@ def test_integrity_audit_dedup_invariant(household_with_run, advisor_count, get_
 
 @pytest.mark.django_db(transaction=True)
 @given(invalidate_count=st.integers(min_value=1, max_value=5))
-@settings(deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=8)
+@settings(
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+    max_examples=8,
+)
 def test_invalidated_by_cma_is_idempotent(household_with_run, invalidate_count) -> None:
     """Multiple INVALIDATED_BY_CMA events on the same run produce the
     same `status='invalidated'` (idempotent flip).
@@ -209,7 +218,11 @@ _LONG_DIGIT = re.compile(r"\b\d{10,}\b")  # 10+ contiguous digits
         max_size=50,
     )
 )
-@settings(deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=10)
+@settings(
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+    max_examples=10,
+)
 def test_audit_metadata_has_no_pii_patterns(household_with_run, noise) -> None:
     """For any random text noise potentially flowing through the audit
     path (e.g., via `note` or `reason_code` on PortfolioRunEvent),
@@ -269,7 +282,11 @@ _CANONICAL_ACTIONS = frozenset(
 
 @pytest.mark.django_db(transaction=True)
 @given(event_types=st.lists(st.sampled_from(_RUN_EVENT_TYPES), min_size=1, max_size=3))
-@settings(deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=10)
+@settings(
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+    max_examples=10,
+)
 def test_status_observation_emits_only_canonical_actions(household_with_run, event_types) -> None:
     """For any event sequence + any GET pattern, the only audit actions
     emitted by the status-observation path are members of the canonical

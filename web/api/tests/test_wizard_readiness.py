@@ -166,7 +166,8 @@ def test_wizard_commit_response_missing_holdings_false_is_NOT_a_blocker() -> Non
     body = response.json()
     # No blockers — engine succeeds (just with a warning in the run output).
     assert body["readiness_blockers"] == [], (
-        f"missing_holdings_confirmed=false alone should NOT block; got {body['readiness_blockers']!r}"
+        "missing_holdings_confirmed=false alone should NOT block; got "
+        f"{body['readiness_blockers']!r}"
     )
 
 

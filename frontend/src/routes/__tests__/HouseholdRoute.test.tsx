@@ -14,13 +14,14 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type * as HouseholdLibModule from "../../lib/household";
+import type * as ClientsLibModule from "../../lib/clients";
+import type * as ReactRouterDomModule from "react-router-dom";
 import { mockHousehold } from "../../__tests__/__fixtures__/household";
 
 const useHouseholdMock = vi.fn();
 vi.mock("../../lib/household", async () => {
-  const actual = await vi.importActual<typeof import("../../lib/household")>(
-    "../../lib/household",
-  );
+  const actual = await vi.importActual<typeof HouseholdLibModule>("../../lib/household");
   return {
     ...actual,
     useHousehold: () => useHouseholdMock(),
@@ -48,8 +49,7 @@ const reconcileMutateMock = vi.fn();
 const useReopenMock = vi.fn();
 const useReconcileMock = vi.fn();
 vi.mock("../../lib/clients", async () => {
-  const actual =
-    await vi.importActual<typeof import("../../lib/clients")>("../../lib/clients");
+  const actual = await vi.importActual<typeof ClientsLibModule>("../../lib/clients");
   return {
     ...actual,
     useReopenHousehold: () => useReopenMock(),
@@ -59,8 +59,7 @@ vi.mock("../../lib/clients", async () => {
 
 const navigateMock = vi.fn();
 vi.mock("react-router-dom", async () => {
-  const actual =
-    await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+  const actual = await vi.importActual<typeof ReactRouterDomModule>("react-router-dom");
   return {
     ...actual,
     useNavigate: () => navigateMock,

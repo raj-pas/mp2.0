@@ -381,7 +381,9 @@ class PortfolioRunSummarySerializer(serializers.ModelSerializer):
         if request is not None:
             user = getattr(request, "user", None)
             if user is not None and getattr(user, "is_authenticated", False):
-                actor = getattr(user, "email", None) or getattr(user, "username", "system") or "system"
+                actor = (
+                    getattr(user, "email", None) or getattr(user, "username", "system") or "system"
+                )
         already_emitted = AuditEvent.objects.filter(
             action="portfolio_run_integrity_alert",
             entity_type="portfolio_run",

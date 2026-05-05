@@ -32,7 +32,6 @@ from django.contrib.auth.models import Group
 from django.core.management import call_command
 from django.urls import reverse
 from rest_framework.test import APIClient
-
 from web.api import models
 from web.audit.models import AuditEvent
 

@@ -96,7 +96,7 @@ export type ReopenResponse = {
 
 export function useReopenHousehold(householdId: string | null) {
   const queryClient = useQueryClient();
-  return useMutation<ReopenResponse, Error, void>({
+  return useMutation<ReopenResponse, Error, undefined>({
     mutationFn: () => {
       if (householdId === null) {
         return Promise.reject(new Error("household id required"));
@@ -127,7 +127,7 @@ export type ReconcileResponse =
 
 export function useReconcileHousehold(householdId: string | null) {
   const queryClient = useQueryClient();
-  return useMutation<ReconcileResponse, Error, void>({
+  return useMutation<ReconcileResponse, Error, undefined>({
     mutationFn: () => {
       if (householdId === null) {
         return Promise.reject(new Error("household id required"));

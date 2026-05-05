@@ -38,7 +38,7 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
-from django.db import connections, connection
+from django.db import connection, connections
 from django.urls import reverse
 from rest_framework.test import APIClient
 from web.api import models
@@ -119,9 +119,7 @@ def test_happy_path_existing_goal_only_creates_link_and_audit() -> None:
     ).count()
     assert post_audit == pre_audit + 1
     metadata = (
-        AuditEvent.objects.filter(
-            action="account_assigned_to_goals", entity_id=hh.external_id
-        )
+        AuditEvent.objects.filter(action="account_assigned_to_goals", entity_id=hh.external_id)
         .order_by("-id")
         .first()
         .metadata
@@ -131,9 +129,7 @@ def test_happy_path_existing_goal_only_creates_link_and_audit() -> None:
     assert metadata["total_assigned_basis_points"] == bp
     assert metadata["new_goal_count"] == 0
     assert metadata["rationale_present"] is True
-    assert metadata["rationale_length"] == len(
-        "Allocate full RRSP to retirement goal."
-    )
+    assert metadata["rationale_length"] == len("Allocate full RRSP to retirement goal.")
 
 
 # ---------------------------------------------------------------------------
@@ -184,9 +180,7 @@ def test_sum_1bp_over_rejected_with_structured_code() -> None:
     # Atomic rollback — pre-existing synthetic link is unchanged at its
     # seeded value (Emma → acct_non_registered = $68K from
     # personas/sandra_mike_chen/client_state.json).
-    pre_link = models.GoalAccountLink.objects.filter(
-        goal=goal, account=account
-    ).first()
+    pre_link = models.GoalAccountLink.objects.filter(goal=goal, account=account).first()
     assert pre_link is None or pre_link.allocated_amount == Decimal("68000.00")
 
 
@@ -302,9 +296,7 @@ def test_long_rationale_metadata_only_stores_length() -> None:
     )
     assert resp.status_code == 200
     event = (
-        AuditEvent.objects.filter(
-            action="account_assigned_to_goals", entity_id=hh.external_id
-        )
+        AuditEvent.objects.filter(action="account_assigned_to_goals", entity_id=hh.external_id)
         .order_by("-id")
         .first()
     )
@@ -407,9 +399,7 @@ def test_new_goal_inline_create_round_trip() -> None:
     assert new_goal.goal_risk_score == 3
     # Audit metadata reflects new_goal_count=1.
     event = (
-        AuditEvent.objects.filter(
-            action="account_assigned_to_goals", entity_id=hh.external_id
-        )
+        AuditEvent.objects.filter(action="account_assigned_to_goals", entity_id=hh.external_id)
         .order_by("-id")
         .first()
     )
@@ -542,9 +532,7 @@ def test_atomic_rollback_on_partial_failure_no_audit_leak() -> None:
     def _boom(*args, **kwargs):
         raise IntegrityError("Forced integrity violation for test_atomic_rollback")
 
-    with patch.object(
-        models.GoalAccountLink.objects, "update_or_create", side_effect=_boom
-    ):
+    with patch.object(models.GoalAccountLink.objects, "update_or_create", side_effect=_boom):
         client = APIClient()
         client.force_authenticate(user=user)
         try:

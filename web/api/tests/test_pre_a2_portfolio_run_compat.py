@@ -277,17 +277,14 @@ def test_pre_tag_household_with_hash_mismatch_emits_integrity_alert() -> None:
     assert response.json()["latest_portfolio_run"]["status"] == "hash_mismatch"
     after = AuditEvent.objects.filter(action="portfolio_run_integrity_alert").count()
     assert after - before == 1, (
-        f"Pre-tag household integrity alert MUST emit on first GET; "
-        f"got delta {after - before}"
+        f"Pre-tag household integrity alert MUST emit on first GET; got delta {after - before}"
     )
 
     # Dedup on second GET still works (per §3.5).
     response2 = client.get(reverse("client-detail", args=[hh.external_id]))
     assert response2.status_code == 200
     final = AuditEvent.objects.filter(action="portfolio_run_integrity_alert").count()
-    assert final == after, (
-        f"Second GET must dedup; got delta {final - after} on repeat GET"
-    )
+    assert final == after, f"Second GET must dedup; got delta {final - after} on repeat GET"
 
 
 _EXPECTED_TOP_LEVEL_KEYS = {
@@ -449,9 +446,7 @@ def test_household_detail_snapshot_status_invalidated() -> None:
 def test_household_detail_snapshot_status_declined() -> None:
     """Pin the response shape for `status='declined'` (per §3.21)."""
     hh = _bootstrap_full_demo()
-    _seed_run_event(
-        hh, models.PortfolioRunEvent.EventType.ADVISOR_DECLINED, "snapshot_declined"
-    )
+    _seed_run_event(hh, models.PortfolioRunEvent.EventType.ADVISOR_DECLINED, "snapshot_declined")
     client = _advisor_client()
     response = client.get(reverse("client-detail", args=[hh.external_id]))
     assert response.status_code == 200
@@ -473,9 +468,7 @@ def test_household_detail_snapshot_status_hash_mismatch() -> None:
     response payload.
     """
     hh = _bootstrap_full_demo()
-    _seed_run_event(
-        hh, models.PortfolioRunEvent.EventType.HASH_MISMATCH, "snapshot_hash_mismatch"
-    )
+    _seed_run_event(hh, models.PortfolioRunEvent.EventType.HASH_MISMATCH, "snapshot_hash_mismatch")
     client = _advisor_client()
     response = client.get(reverse("client-detail", args=[hh.external_id]))
     assert response.status_code == 200

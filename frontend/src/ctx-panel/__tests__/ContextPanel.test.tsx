@@ -23,12 +23,11 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { mockAccount, mockGoal, mockHousehold } from "../../__tests__/__fixtures__/household";
+import type * as HouseholdLib from "../../lib/household";
 
 const useHouseholdMock = vi.fn();
 vi.mock("../../lib/household", async () => {
-  const actual = await vi.importActual<typeof import("../../lib/household")>(
-    "../../lib/household",
-  );
+  const actual = await vi.importActual<typeof HouseholdLib>("../../lib/household");
   return {
     ...actual,
     useHousehold: () => useHouseholdMock(),

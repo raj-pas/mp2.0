@@ -1,5 +1,15 @@
 # MP2.0 Session State
 
+**Last updated:** 2026-05-05 (Pair 7b sub-agent — **P10 FINAL VERIFICATION + DUAL CODE-REVIEW + WALKTHROUGH + PILOT-READINESS** complete; **READY-TO-TAG `v0.1.3-pilot-quality-closure`**; main thread cuts the tag after sub-agent return)
+**Branch:** `feature/ux-rebuild` (14 commits past sister tag `v0.1.3-engine-display-polish` once P10 commit lands)
+**HEAD (post-P10 commit pending):** TBD; pre-P10 was `928e421` (Pair 7a; ALL 16 phase deliverables P0-P14 shipped across Pair 1-7a)
+**Sister tag:** `v0.1.3-engine-display-polish` (`979a692`)
+**Phase:** **Pair 7b CLOSE-OUT — P10.1-P10.8 complete; READY-TO-TAG.** All 14 G## gaps closed. §A1.31 gate suite: 1,087 backend pytest + 391 Vitest + 13 foundation + 18 regression-coverage (+2 skipped) + 24 visual-verification + 6 pilot-features axe + 21 cross-browser (1 firefox flake passed on rerun) + 9/9 perf + bundle 278.94 kB gzipped under 290 kB cap + Hypothesis 8/8 with 1 real-bug surfaced + fixed (alice-smith vs bob-smith shared-DOB property invariant tightened to identity-stable fields). Dual code-review: 6 MEDIUM findings fixed; 1 LOW deferred-with-rationale; 0 BLOCKING; 0 CRITICAL per Round 11 #18. Niesner re-extract SKIPPED (workspace not in dev DB; demo restore Mon 2026-05-04 will re-seed). Bedrock spend $0.36 cumulative. NEW docs: `pilot-walkthrough-2026-05-04.md` (470 LoC) + `pilot-readiness-2026-05-04.md` (270 LoC with all 8 metric queries live). Main thread next: cut `v0.1.3-pilot-quality-closure` tag + update CHANGELOG.md per §A1.39 + push (user authorizes Mon 2026-05-08 AM).
+
+---
+
+## Pre-P10 historical state (preserved; superseded by Pair 7b above)
+
 **Last updated:** 2026-05-05 (post-tag gap-closure sub-session #3 EXTENDED+ FINAL — **TAG `v0.1.3-engine-display-polish` CUT at HEAD `979a692`** per locked §3.22. A6.1 Steps 1-8 verified in real Chrome with **2 critical pilot-blocking fixes** caught + shipped (`870563b` override→engine; `78c635a` CMA Workbench full-payload). A7.1 + A7.2 subagent reviews returned CLEAN PASS (0 blocking, 0 critical, 3 post-pilot nice-to-haves). engine_adapter.py 98% coverage (well above 90% gate per §3.14). The tag serves as the pilot rollback boundary; user pushes Mon 2026-05-08 morning. **Deferred to next session:** A6.2 pilot dress rehearsal (~45 min user time per locked §3.25) + A7 close-out polish (starter prompt deletion + decisions.md migration to "Post-tag gap-closure (2026-05-04/05)" sub-section). The starter prompt at `docs/agent/post-tag-gap-closure-starter-prompt.md` STAYS for the next session boot.)
 **Branch:** `feature/ux-rebuild` (17 commits past tag `v0.1.2-engine-display`; tag `v0.1.3-engine-display-polish` at `979a692`)
 **HEAD:** `979a692` (CMA fix docs close-out) tagged as **`v0.1.3-engine-display-polish`**. All four tags now exist: v0.1.0-pilot + v0.1.1-improved-intake + v0.1.2-engine-display + v0.1.3-engine-display-polish.

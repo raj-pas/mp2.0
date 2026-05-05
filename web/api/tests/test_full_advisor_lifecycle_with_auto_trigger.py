@@ -255,9 +255,7 @@ def test_full_advisor_lifecycle_emits_canonical_audits_at_each_trigger() -> None
         f"{run_count} → {run_count_after_4}"
     )
     run_count = run_count_after_4
-    override_run = (
-        models.PortfolioRun.objects.filter(household=hh).order_by("-created_at").first()
-    )
+    override_run = models.PortfolioRun.objects.filter(household=hh).order_by("-created_at").first()
     assert override_run is not None
     audit_count_after_4 = _portfolio_audit_count(hh)
     # Override fires _trigger_and_audit(source="override") which generates a
