@@ -46,6 +46,52 @@ const STEP_FIELDS: Record<StepNumber, FieldPath<WizardDraft>[]> = {
   5: [],
 };
 
+/**
+ * Step 3 hard-block gate (P14 §A1.14 #5 + #16 LOCKED).
+ *
+ * Continue is disabled when EITHER:
+ *   - any account-centric superRefine issue exists at
+ *     `accounts.<i>.current_value` (sum of legs ≠ account value), OR
+ *   - any goal-side superRefine issue exists at
+ *     `goals.<i>.target_amount` or `goals.<i>.legs` (zero legs / no target).
+ *
+ * Mirrors the backend portfolio-readiness gate exactly. Eliminates the
+ * schema-mismatch failure mode that prompted G14 (advisor commits a
+ * partially-allocated household; engine refuses to generate post-commit).
+ */
+function hasStep3HardBlockError(
+  errors: ReturnType<typeof useForm<WizardDraft>>["formState"]["errors"],
+): boolean {
+  const accountErrors = errors.accounts;
+  if (Array.isArray(accountErrors)) {
+    for (const err of accountErrors) {
+      if (err?.current_value?.message !== undefined) return true;
+    }
+  }
+  const goalErrors = errors.goals;
+  if (Array.isArray(goalErrors)) {
+    for (const err of goalErrors) {
+      if (err?.target_amount?.message !== undefined) return true;
+      if (err?.legs !== undefined) {
+        // legs may have:
+        //   - `.root.message` (array-level superRefine emission;
+        //     react-hook-form wraps array-level errors under .root)
+        //   - `.message` (alternative shape some zod issues take)
+        //   - per-leg child errors as array elements
+        // Any one of these constitutes a hard-block.
+        const legs = err.legs as {
+          root?: { message?: string };
+          message?: string;
+        } & Array<unknown>;
+        if (legs.root?.message !== undefined) return true;
+        if (legs.message !== undefined) return true;
+        if (Array.isArray(legs) && legs.length > 0) return true;
+      }
+    }
+  }
+  return false;
+}
+
 export function HouseholdWizard() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -102,6 +148,13 @@ export function HouseholdWizard() {
     const fields = STEP_FIELDS[step];
     const ok = fields.length === 0 ? true : await form.trigger(fields);
     if (!ok) return;
+    // P14 hard-block (§A1.14 #5 + #16): Continue cannot advance from
+    // Step 3 if any account-centric or goal-side invariant fails. The
+    // button itself is disabled below; this is a defense-in-depth
+    // check in case `trigger()` misses an issue (e.g. when the user
+    // just edited a leg but the debounced superRefine hasn't fired
+    // yet).
+    if (step === 3 && hasStep3HardBlockError(form.formState.errors)) return;
     if (step < 5) setStep((step + 1) as StepNumber);
   }
 
@@ -209,7 +262,17 @@ export function HouseholdWizard() {
               <span>{t("polish_b.wizard.save_draft")}</span>
             </Button>
             {step < 5 ? (
-              <Button type="button" size="sm" onClick={goNext} disabled={commit.isPending}>
+              <Button
+                type="button"
+                size="sm"
+                onClick={goNext}
+                disabled={
+                  commit.isPending ||
+                  // P14 hard-block (§A1.14 #5 + #16 LOCKED): Continue
+                  // literally disabled when Step 3 invariants fail.
+                  (step === 3 && hasStep3HardBlockError(form.formState.errors))
+                }
+              >
                 <span>{t("wizard.nav.next")}</span>
                 <ChevronRight aria-hidden className="h-3 w-3" />
               </Button>

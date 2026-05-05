@@ -267,6 +267,71 @@ test.describe("Regression coverage — wizard onboarding", () => {
         .catch(() => false));
     expect(stillOnStep1).toBe(true);
   });
+
+  // P14 §A1.14 #5 + #16 LOCKED — wizard partial-allocation hard-block.
+  test("Wizard — partial-allocation hard-block (P14 §A1.14 #5 + #16)", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await loginAdvisor(page);
+    await page.getByRole("button", { name: /select client/i }).click();
+    await page
+      .getByRole("button", { name: /Add new household/i })
+      .first()
+      .click();
+    await expect(page).toHaveURL(/\/wizard\/new$/);
+
+    // Step 1 — fill in minimal identity fields to advance.
+    await page.getByPlaceholder(/Yeager Household/i).fill("P14 Hard Block Test");
+    const memberInputs = page.locator('input[name^="members."]');
+    await memberInputs.nth(0).fill("Pilot Member");
+    // The DOB input is type=date; second member input.
+    const dobInput = page.locator('input[type="date"][name="members.0.dob"]');
+    await dobInput.fill("1980-01-01");
+    await page.getByRole("button", { name: /^Next$/ }).click();
+
+    // Step 2 — accept defaults; the risk-profile defaults satisfy zod.
+    await page.getByRole("button", { name: /^Next$/ }).click();
+
+    // Step 3 — fill account with $100K but goal leg with only $10K.
+    // This triggers BOTH:
+    //   - account-centric (sum 10K ≠ 100K) hard-block
+    //   - goal-side gate is satisfied (positive leg + target_amount)
+    // The Continue button MUST be disabled.
+    const valueInput = page.locator('input[name="accounts.0.current_value"]');
+    await valueInput.fill("100000");
+    await page.locator('input[name="goals.0.name"]').fill("Retirement");
+    await page
+      .locator('input[type="date"][name="goals.0.target_date"]')
+      .fill("2050-01-01");
+    await page
+      .locator('input[name="goals.0.target_amount"]')
+      .fill("500000");
+    await page
+      .locator('input[name="goals.0.legs.0.allocated_amount"]')
+      .fill("10000");
+
+    // Wait briefly for the onChange superRefine to fire.
+    await page.waitForTimeout(500);
+
+    const nextBtn = page.getByRole("button", { name: /^Next$/ });
+    // Hard-block invariant — the button is disabled.
+    await expect(nextBtn).toBeDisabled({ timeout: 5_000 });
+
+    // Field-level error renders for the under-allocated account (i18n
+    // key surface — matches "wizard.step3.account_unallocated").
+    await expect(
+      page.getByText(/unassigned across goals|account_unallocated/i).first(),
+    ).toBeVisible({ timeout: 5_000 });
+
+    // Fix the allocation — bring the leg up to $100K. The button
+    // should now enable.
+    await page
+      .locator('input[name="goals.0.legs.0.allocated_amount"]')
+      .fill("100000");
+    await page.waitForTimeout(500);
+    await expect(nextBtn).toBeEnabled({ timeout: 5_000 });
+  });
 });
 
 // =============================================================================

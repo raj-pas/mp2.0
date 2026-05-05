@@ -389,12 +389,20 @@
       "goal_name_placeholder": "Retirement, Education, …",
       "goal_date_label": "Target date",
       "goal_necessity_label": "Tier",
-      "goal_target_placeholder": "Target amount (optional)",
+      "goal_target_placeholder": "Target amount (required)",
       "legs_title": "Account legs",
       "add_leg": "Add leg",
       "remove_leg": "Remove leg",
       "leg_account_label": "Account",
-      "leg_amount_placeholder": "Allocated amount"
+      "leg_amount_placeholder": "Allocated amount",
+      "account_allocation_indicator": "{{allocated}} assigned of {{account_value}} ({{pct}})",
+      "account_unallocated": "{{account_label}} has {{unallocated}} unassigned across goals. Assign or re-goal in the legs below.",
+      "goal_legs_required": "{{goal_label}} needs at least one account leg with a positive allocated amount.",
+      "goal_target_required": "{{goal_label}} needs a target amount before commit.",
+      "matrix_title": "Allocation matrix preview",
+      "matrix_header_goal": "Goal",
+      "matrix_overflow_more": "+{{count}} more",
+      "matrix_unnamed_goal": "Goal {{index}}"
     },
     "step4": {
       "title": "External holdings (optional)",
@@ -422,7 +430,15 @@
       "goal_horizon": "Target date {{date}}",
       "preflight_title": "Resolve before generating recommendation",
       "preflight_allocation_mismatch": "Account total {{account}} ≠ goal allocations {{allocated}}. Adjust legs in Step 3 so they sum to the account total.",
-      "preflight_footer": "These are advisor hints. The household will commit either way; you can resolve gaps after."
+      "preflight_footer": "These are advisor hints. The household will commit either way; you can resolve gaps after.",
+      "blocker_preview": {
+        "title": "These will block the recommendation engine",
+        "footer": "Fix in Step 3 before committing — the engine refuses to generate when these are unresolved.",
+        "purpose_account_unallocated": "{{unallocated}} of {{account_value}} is not assigned to any goal.",
+        "goal_missing_target_amount": "Target amount required.",
+        "goal_zero_legs": "At least one positive account leg required.",
+        "generic": "Unresolved item ({{code}})."
+      }
     }
   },
   "empty": {

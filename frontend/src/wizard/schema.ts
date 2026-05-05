@@ -104,6 +104,18 @@ const externalHoldingSchema = z
     }
   });
 
+/**
+ * Account-centric tolerance: legs allocated to a Purpose account must sum
+ * to its `current_value` within $0.01 (1 cent — equivalent to the backend
+ * `Decimal("1.00")` tolerance applied to dollar amounts in
+ * `web/api/review_state.py:380-385`).
+ *
+ * Locked decision §A1.14 #5: HARD-BLOCK Continue until every Purpose
+ * account is fully allocated. Mirrors backend portfolio-readiness gate
+ * EXACTLY so wizard commit cannot succeed-then-fail at the engine.
+ */
+const ACCOUNT_ALLOCATION_TOLERANCE = 0.01;
+
 export const wizardSchema = z
   .object({
     display_name: z.string().trim().min(1, "Household name required."),
@@ -156,6 +168,105 @@ export const wizardSchema = z
           });
         }
       });
+    });
+
+    // ─────────────────────────────────────────────────────────────────
+    // Account-centric hard-block (P14 / §A1.14 #5 LOCKED).
+    //
+    // Wizard accounts default to is_held_at_purpose=True (see
+    // web/api/review_state.py:1025), so we apply this gate to ALL
+    // wizard-created accounts. Sum of legs.allocated_amount across
+    // every goal must equal account.current_value within 1 cent.
+    //
+    // Edge cases (per §A1.50 P14 row):
+    //   - current_value = 0 → trivially passes (sum 0 == 0)
+    //   - 1bp value + 1bp leg → passes (within tolerance)
+    //   - 1 account / 1 goal → still must satisfy the gate
+    //   - non-numeric current_value → skip (the field-level zod
+    //     refinement on accountSchema will already flag it; the
+    //     account-centric gate would emit a noisy duplicate error)
+    // ─────────────────────────────────────────────────────────────────
+    draft.accounts.forEach((account, accIdx) => {
+      const acctValue = Number(account.current_value);
+      if (!Number.isFinite(acctValue)) return;
+      let allocated = 0;
+      for (const goal of draft.goals) {
+        for (const leg of goal.legs) {
+          if (leg.account_index === accIdx) {
+            const legAmount = Number(leg.allocated_amount);
+            if (Number.isFinite(legAmount)) allocated += legAmount;
+          }
+        }
+      }
+      if (Math.abs(allocated - acctValue) > ACCOUNT_ALLOCATION_TOLERANCE) {
+        const unallocated = acctValue - allocated;
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          // i18n key — translation happens in the surface (Step3Goals).
+          // params encode the account label + the unallocated amount so
+          // the wizard can render compact CAD without reformatting.
+          message: JSON.stringify({
+            key: "wizard.step3.account_unallocated",
+            params: {
+              account_label: `${account.account_type} #${accIdx + 1}`,
+              account_value: acctValue,
+              allocated,
+              unallocated,
+            },
+          }),
+          path: ["accounts", accIdx, "current_value"],
+        });
+      }
+    });
+
+    // ─────────────────────────────────────────────────────────────────
+    // Goal-side hard-block (P14 / §A1.14 #16 LOCKED).
+    //
+    // Every goal must have:
+    //   (a) at least one leg with positive allocated_amount, AND
+    //   (b) target_amount > 0
+    //
+    // Mirrors backend portfolio-readiness gate (a goal with zero legs
+    // or zero target produces a degenerate optimization input).
+    //
+    // Edge cases (per §A1.50 P14 row):
+    //   - 0 legs → emit at goals.<i>.legs (the zod min(1) on legs
+    //     already covers this; we add a redundant guard here so the
+    //     hard-block is consistent regardless of legs.length)
+    //   - 1 leg allocated_amount = 0 → emit at goals.<i>.legs (no
+    //     positive leg means the goal is funded with zero dollars)
+    //   - target_amount empty / 0 → emit at goals.<i>.target_amount
+    // ─────────────────────────────────────────────────────────────────
+    draft.goals.forEach((goal, gIdx) => {
+      const hasPositiveLeg = goal.legs.some((leg) => {
+        const amount = Number(leg.allocated_amount);
+        return Number.isFinite(amount) && amount > 0;
+      });
+      if (!hasPositiveLeg) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: JSON.stringify({
+            key: "wizard.step3.goal_legs_required",
+            params: { goal_label: goal.name || `Goal ${gIdx + 1}` },
+          }),
+          path: ["goals", gIdx, "legs"],
+        });
+      }
+      const targetAmount = Number(goal.target_amount);
+      if (
+        !goal.target_amount ||
+        !Number.isFinite(targetAmount) ||
+        targetAmount <= 0
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: JSON.stringify({
+            key: "wizard.step3.goal_target_required",
+            params: { goal_label: goal.name || `Goal ${gIdx + 1}` },
+          }),
+          path: ["goals", gIdx, "target_amount"],
+        });
+      }
     });
   });
 

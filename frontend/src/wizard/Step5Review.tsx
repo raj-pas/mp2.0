@@ -15,11 +15,19 @@
  * helpful hint, not a gate (advisor can still commit if they choose
  * to address gaps later).
  */
+import { Suspense, lazy } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 
 import { type WizardDraft } from "./schema";
 import { formatCad } from "../lib/format";
+
+/**
+ * Pre-commit blocker preview is code-split per §A1.20 — only loads
+ * when the advisor reaches Step 5. Verified post-build via
+ * `du -k dist/assets/Step5BlockerPreview*.js` < 100 kB cap.
+ */
+const Step5BlockerPreview = lazy(() => import("./Step5BlockerPreview"));
 
 interface AccountAllocationBlocker {
   index: number;
@@ -156,6 +164,14 @@ export function Step5Review() {
           </p>
         </aside>
       )}
+
+      {/* Structured blocker preview (P14 / §A1.51 P11×P14 cross-phase).
+          Mirrors P11 backend `PortfolioGenerationBlocker` shape so the
+          advisor sees the SAME copy as on HouseholdRoute post-commit.
+          Lazy-loaded per §A1.20. */}
+      <Suspense fallback={null}>
+        <Step5BlockerPreview />
+      </Suspense>
 
       <div className="grid grid-cols-2 gap-5">
         <Section title={t("wizard.step5.identity")}>
