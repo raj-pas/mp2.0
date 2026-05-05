@@ -3,7 +3,7 @@
 **Compiled:** 2026-05-04 PM (post sub-session #3 PARTIAL close-out — A0+A1+A2+A3+A4+A5 done; A5.5+A6+A7 remaining)
 **Authoritative for:** sub-session #3 remainder post-`/compact` boot (Phase A5.5 + A6 + A7)
 **Lifecycle:** deleted at A7 close-out per locked decision §3.8
-**Owns:** mission + vision + reading list + pre-flight gates + active per-phase specs + anti-patterns + first concrete action + cumulative state at HEAD `0ccdd29`
+**Owns:** mission + vision + reading list + pre-flight gates + active per-phase specs + anti-patterns + first concrete action + cumulative state at HEAD `f900adf` (this rewrite) on top of code state at `0ccdd29`
 **Does NOT own:** implementation line-by-line (in `~/.claude/plans/i-want-you-to-jolly-beacon.md`); historical narrative per phase (in `docs/agent/handoff-log.md`)
 
 > **READ IN ORDER. DO NOT SKIM. DO NOT SKIP AHEAD.** This document is load-bearing because the user has been burned by every shortcut: "I'll just glance at the dossier" → re-introduces fixed bugs; "git add -A is fine, I won't have stray files" → committed runtime artifacts in 8350090; "the slider semantic looks right" → permanently flipped pills to calibration_drag (caught only by visual baseline). The cost of reading this prompt end-to-end is 15 minutes; the cost of skipping it is half a sub-session.
@@ -14,7 +14,7 @@
 3. Read [`docs/agent/handoff-log.md`](handoff-log.md) — last 1-3 entries (sub-session #1, #2, #3-partial close-outs)
 4. Read [`docs/agent/session-state.md`](session-state.md) — top headline only
 5. Read `~/.claude/plans/i-want-you-to-jolly-beacon.md` — §3 table (25 locked decisions) + §A5.5 + §A6 + §A7 sections
-6. Run §3 pre-flight in this prompt — expect HEAD `0ccdd29`, 872 backend pytest, 230 Vitest in 26 files, bundle 269.41 kB gzipped, all static gates clean
+6. Run §3 pre-flight in this prompt — expect HEAD `f900adf` (this rewrite is the most recent commit; code state unchanged from `0ccdd29`), 872 backend pytest, 230 Vitest in 26 files, bundle 269.41 kB gzipped, all static gates clean
 7. Output the [§15 first-message template](#15-first-message-to-the-user-post-boot-template) — under 100 words
 8. Begin **Phase A5.5** (NEW `frontend/e2e/regression-coverage.spec.ts`) — see [§2 active scope](#2-active-scope-a55--a6--a7-only) + plan file §A5.5
 
@@ -23,9 +23,9 @@
 ## §0. Mission — what this work is, why it matters, what's at stake
 
 ### The narrow mission
-Close 5 unaddressed functional/UX gaps from the original 2,786-line Engine→UI Display Integration plan (`/Users/saranyaraj/Documents/tmp_Engine to UI Display Integration Plan_Demo and Pilot.md`) that shipped at tag `v0.1.2-engine-display` with **~75%** of its done-criteria. The work lands as **additive commits past the tag**, then cuts a NEW tag `v0.1.3-engine-display-polish` at Phase A7 close-out per locked §3.22. **At HEAD `0ccdd29` the work is 10 commits past the tag; 4 of 5 gaps are closed; only A5.5+A6+A7 remain.**
+Close 5 unaddressed functional/UX gaps from the original 2,786-line Engine→UI Display Integration plan (`/Users/saranyaraj/Documents/tmp_Engine to UI Display Integration Plan_Demo and Pilot.md`) that shipped at tag `v0.1.2-engine-display` with **~75%** of its done-criteria. The work lands as **additive commits past the tag**, then cuts a NEW tag `v0.1.3-engine-display-polish` at Phase A7 close-out per locked §3.22. **At HEAD `f900adf` the work is 11 commits past the tag (10 functional + this rewrite); 4 of 5 gaps are closed; only A5.5+A6+A7 remain.**
 
-### The 5 gaps (audited against the original plan; status at HEAD `0ccdd29`)
+### The 5 gaps (audited against the original plan; status at HEAD `f900adf`)
 
 | # | Gap | Status | Where closed |
 |---|---|---|---|
@@ -59,7 +59,7 @@ The work is **production-grade software for a limited user set; no excuses, no c
 
 ---
 
-## §1. Cumulative inventory — what already shipped at HEAD `0ccdd29`
+## §1. Cumulative inventory — what already shipped at HEAD `f900adf`
 
 **10 commits past tag `v0.1.2-engine-display` at `e5cd859`** (full chain in `git log --oneline e5cd859..HEAD`):
 
@@ -76,8 +76,9 @@ The work is **production-grade software for a limited user set; no excuses, no c
 | `7c041f2` | (close-out #2) | Sub-session #2 handoff entry + session-state refresh | 0 (docs only) |
 | `bd90cf9` | A5 | Demo script Step 4 expanded + NEW Step 4.5 (slider drag → calibration_drag pill flip → save → engine flip back) + NEW Step 4.6 (CMA republish → stale overlay → Regenerate cycle) + axe coverage on Goal + Household routes (4→6 axe routes) + 2 visual baselines for engine SourcePill (32→34 chromium baselines; 3-run stable per §3.11) + 6 cross-browser cells per §3.15 (3 tests × 2 non-chromium = 8→11 per browser, 22 total) + **RiskSlider semantic-split regression fix** (caught Phase A2 production bug via the new visual baseline test; split `isOverrideDraft` form-visibility flag from new `isDragPreview` callback flag) + NEW RiskSlider.test.tsx with 2 regression tests | +2 Vitest (RiskSlider regression) |
 | `0ccdd29` | (close-out #3 partial) | Sub-session #3 PARTIAL handoff entry + session-state refresh + starter-prompt entry-point pointer | 0 (docs only) |
+| `f900adf` | (docs) | Starter prompt deep rewrite for sub-session #3 remainder boot — incorporates 5 new gotcha classes from this session, narrows §2 to active scope (A5.5+A6+A7), refreshes pre-flight HEAD/counts | 0 (docs only) |
 
-**Cumulative test bar at HEAD `0ccdd29`** (each must verify in §3 pre-flight):
+**Cumulative test bar at HEAD `f900adf`** (code unchanged from `0ccdd29`; only docs at `f900adf`; each must verify in §3 pre-flight):
 - Backend pytest: **872 passed + 2 skipped** (was 854 baseline at v0.1.2-engine-display; +18 net new from A1)
 - Backend perf budget (in isolation): **9 passed**
 - Frontend Vitest: **230 passed in 26 files** (was 177 in 19 baseline; +53 net new across A1-A5)
@@ -342,13 +343,13 @@ git tag -l "v0.1*"   # confirm: v0.1.0-pilot + v0.1.1-improved-intake + v0.1.2-e
 
 **Run BEFORE any code change. Halt + AskUserQuestion if any gate red.**
 
-### Sub-session #3 remainder entry baseline (HEAD: `0ccdd29`)
+### Sub-session #3 remainder entry baseline (HEAD: `f900adf`)
 ```bash
 cd /Users/saranyaraj/Projects/github-repo/mp2.0
 
 # 1. HEAD + working tree state
-git status --short --branch          # expect: clean tree at 0ccdd29 (only test-results/ untracked, ignored)
-git log --oneline -3                 # expect: 0ccdd29 → bd90cf9 → 7c041f2
+git status --short --branch          # expect: clean tree at f900adf (only test-results/ untracked, ignored)
+git log --oneline -4                 # expect: f900adf (this rewrite) → 0ccdd29 → bd90cf9 → 7c041f2
 git tag -l "v0.1*"                   # expect: v0.1.0-pilot + v0.1.1-improved-intake + v0.1.2-engine-display
                                      # NEW v0.1.3-engine-display-polish cuts at A7.5
 
@@ -392,7 +393,7 @@ ls ~/Library/Caches/ms-playwright/ | grep -E "chromium|webkit|firefox"
 # expect: at least one of each
 ```
 
-If gate (1) shows HEAD ≠ `0ccdd29`, the working tree drifted (someone committed beyond this prompt's compile point). Halt + read recent git log before proceeding.
+If gate (1) shows HEAD ≠ `f900adf`, the working tree drifted (someone committed beyond this prompt's compile point). Halt + read recent git log before proceeding.
 
 If gate (6) shows `status` ≠ `"current"` OR `has_links=false` OR `has_rollup=false`, the engine path is broken — investigate before any code change. Sandra/Mike's engine output is needed for A5.5 regression tests (override→regenerate flow + commit + auto-trigger).
 
@@ -705,7 +706,7 @@ If steps 1-7 fail, halt + ask user. Never proceed against a broken or unexpected
 
 1. §3 pre-flight gate red BEFORE any code change
 2. Engine probe at sub-session entry returns ≠ 200 with valid output
-3. HEAD has drifted unexpectedly past `0ccdd29` (someone committed beyond this prompt's compile point)
+3. HEAD has drifted unexpectedly past `f900adf` (someone committed beyond this prompt's compile point)
 4. Bundle size grows past 290 kB gzipped (locked #85)
 5. Vocab CI flags any new copy
 6. PII grep guard fails on a new commit
@@ -760,7 +761,7 @@ After §3 pre-flight + §12 mode determination:
 ```
 Booted from post-tag-gap-closure-starter-prompt.md.
 
-HEAD: <commit>          # expected: 0ccdd29
+HEAD: <commit>          # expected: f900adf (or later if user committed in between)
 Pre-flight: <pass/fail per gate>
   - Backend pytest: <count> passed (expected: 872 + 2 skipped)
   - Vitest: <count> in <files> (expected: 230 in 26)
