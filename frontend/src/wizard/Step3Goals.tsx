@@ -10,6 +10,7 @@
  * Necessity score → tier mapping (locked decision #6 + #10):
  *   5/4 → Need; 3 → Want; 2/1 → Wish; null → Unsure.
  */
+import { useEffect } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
@@ -52,11 +53,42 @@ function parseStructuredIssue(
 export function Step3Goals() {
   const { t } = useTranslation();
   const form = useFormContext<WizardDraft>();
-  const { register, control, formState } = form;
+  const { register, control, formState, trigger } = form;
   const accounts = useFieldArray({ control, name: "accounts" });
   const goals = useFieldArray({ control, name: "goals" });
   const accountValues = useWatch({ control, name: "accounts" });
   const goalValues = useWatch({ control, name: "goals" });
+
+  // P14 §A1.14 #5 + #16 LOCKED: cross-field re-validation.
+  //
+  // The schema's superRefine emits account-centric errors at
+  // `accounts.<i>.current_value` whose validity depends on data under
+  // `goals.<i>.legs.<j>.allocated_amount`. react-hook-form (even with
+  // `mode: "all"`) will, when a leg field changes, run the resolver but
+  // only merge errors back into `formState.errors` for paths under the
+  // changed field's name; sibling `accounts.<i>.current_value` stays
+  // stale (the alert renders "RRSP #1 has $X unassigned" even after the
+  // user fixes the leg amount). Symmetrically, when an account value
+  // changes, goal-side legs/target-amount errors stay stale.
+  //
+  // Force a full re-trigger of both `accounts` and `goals` whenever any
+  // amount changes so cross-field error rows clear immediately and the
+  // hard-block gate re-opens the Continue button. We serialize only the
+  // amount-bearing fields to keep the effect dependency stable (the
+  // raw arrays would re-render on every keystroke regardless).
+  const allocationSignature = JSON.stringify({
+    accounts: (accountValues ?? []).map((a) => a?.current_value ?? ""),
+    goals: (goalValues ?? []).map((g) => ({
+      target_amount: g?.target_amount ?? "",
+      legs: (g?.legs ?? []).map((l) => ({
+        account_index: l?.account_index ?? 0,
+        allocated_amount: l?.allocated_amount ?? "",
+      })),
+    })),
+  });
+  useEffect(() => {
+    void trigger(["accounts", "goals"]);
+  }, [allocationSignature, trigger]);
 
   // Per-account allocation summary (P14 §A1.14 #5 LOCKED): assigned
   // dollars + percentage. Matches the backend account-centric gate at
