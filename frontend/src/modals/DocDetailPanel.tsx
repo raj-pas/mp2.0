@@ -21,6 +21,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "../components/ui/button";
 import { ConfidenceChip } from "../components/ConfidenceChip";
+import { FactInput } from "../components/FactInput";
 import { Skeleton } from "../components/ui/skeleton";
 import {
   type ContributedFact,
@@ -319,17 +320,7 @@ function FactEditForm({
   const shape = useMemo(() => getCanonicalFieldShape(fieldPath), [fieldPath]);
   const [value, setValue] = useState(() => normalizeInitialValue(initialValue, shape));
   const [rationale, setRationale] = useState("");
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const selectRef = useRef<HTMLSelectElement | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (shape.kind === "enum") {
-      selectRef.current?.focus();
-    } else {
-      inputRef.current?.focus();
-    }
-  }, [shape.kind]);
 
   function validate(next: string): string | null {
     if (next.trim().length === 0) return t("doc_detail.value_required");
@@ -362,42 +353,17 @@ function FactEditForm({
         <span className="font-mono text-[9px] uppercase tracking-widest text-muted">
           {t("doc_detail.edit_value_label")}
         </span>
-        {shape.kind === "enum" ? (
-          <select
-            ref={selectRef}
-            value={value}
-            onChange={(e) => {
-              setValue(e.target.value);
-              setValidationError(null);
-            }}
-            disabled={submitting}
-            className="border border-hairline-2 bg-paper px-2 py-1 font-mono text-[12px] text-ink focus:border-accent focus:outline-none"
-          >
-            <option value="" disabled>
-              {t("doc_detail.value_select_placeholder")}
-            </option>
-            {shape.enum_options?.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <input
-            ref={inputRef}
-            type={shape.kind === "date" ? "date" : shape.kind === "number" ? "number" : "text"}
-            value={value}
-            min={shape.min}
-            max={shape.max}
-            step={shape.step}
-            onChange={(e) => {
-              setValue(e.target.value);
-              setValidationError(null);
-            }}
-            disabled={submitting}
-            className="border border-hairline-2 bg-paper px-2 py-1 font-mono text-[12px] text-ink focus:border-accent focus:outline-none"
-          />
-        )}
+        <FactInput
+          fieldPath={fieldPath}
+          value={value}
+          onChange={(next) => {
+            setValue(next);
+            setValidationError(null);
+          }}
+          disabled={submitting}
+          focusOnMount
+          selectPlaceholder={t("doc_detail.value_select_placeholder")}
+        />
         {validationError && (
           <span role="alert" className="font-mono text-[10px] text-danger">
             {validationError}
@@ -530,46 +496,13 @@ function AddFactSection({
         <span className="font-mono text-[9px] uppercase tracking-widest text-muted">
           {t("doc_detail.edit_value_label")}
         </span>
-        {(() => {
-          const shape = field.length > 0 ? getCanonicalFieldShape(field) : { kind: "text" as const };
-          if (shape.kind === "enum") {
-            return (
-              <select
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                disabled={submitting || field.length === 0}
-                className="border border-hairline-2 bg-paper px-2 py-1 font-mono text-[12px] text-ink focus:border-accent focus:outline-none"
-              >
-                <option value="" disabled>
-                  {t("doc_detail.value_select_placeholder")}
-                </option>
-                {shape.enum_options?.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            );
-          }
-          return (
-            <input
-              type={
-                shape.kind === "date"
-                  ? "date"
-                  : shape.kind === "number"
-                    ? "number"
-                    : "text"
-              }
-              value={value}
-              min={shape.min}
-              max={shape.max}
-              step={shape.step}
-              onChange={(e) => setValue(e.target.value)}
-              disabled={submitting}
-              className="border border-hairline-2 bg-paper px-2 py-1 font-mono text-[12px] text-ink focus:border-accent focus:outline-none"
-            />
-          );
-        })()}
+        <FactInput
+          fieldPath={field}
+          value={value}
+          onChange={setValue}
+          disabled={submitting || field.length === 0}
+          selectPlaceholder={t("doc_detail.value_select_placeholder")}
+        />
       </label>
       <label className="flex flex-col gap-1">
         <span className="font-mono text-[9px] uppercase tracking-widest text-muted">

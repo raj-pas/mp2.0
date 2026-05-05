@@ -82,7 +82,15 @@ export type ProcessingJob = {
   updated_at: string;
 };
 
-export type ReadinessRow = { section: string; label: string };
+/**
+ * P8 (plan v20 §A1.36) added the canonical ``field_path`` so the
+ * frontend P3.3 inline-fix CTA can deep-link the AddBlockerInlineButton
+ * + ResolveAllMissingWizard to the exact missing field. Empty string
+ * ("") for legacy rows or sections without a single canonical field
+ * (e.g. an empty `people[]` list); frontend treats empty as "no
+ * deep-link target" and falls back to a free-form datalist input.
+ */
+export type ReadinessRow = { section: string; label: string; field_path?: string };
 
 /**
  * Wire shape note: fresh workspaces (no facts yet) return `readiness:

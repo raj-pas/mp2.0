@@ -26,7 +26,7 @@
  * card layout is a focused first-cut, with R10 polish layering in
  * evidence quote tooltips and per-conflict reason capture.
  */
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
@@ -34,6 +34,7 @@ import { Button } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
 import { useRememberedClientId } from "../chrome/ClientPicker";
 import {
+  type ReadinessRow,
   type ReviewConflict,
   type ReviewWorkspace,
   type SectionApprovalStatus,
@@ -48,11 +49,30 @@ import {
   useReviewedState,
   useRetryDocument,
 } from "../lib/review";
+import { AddBlockerInlineButton } from "./AddBlockerInlineButton";
 import { ConflictPanel } from "./ConflictPanel";
 import { DocDetailPanel } from "./DocDetailPanel";
+import { formatCadCompact } from "../lib/format";
 import { normalizeApiError } from "../lib/api-error";
 import { toastError, toastSuccess } from "../lib/toast";
 import { cn } from "../lib/cn";
+
+// §A1.20 — lazy-load the bulk wizard. Cold path for most sessions
+// (only fires when an advisor faces ≥4 missing blockers AND clicks
+// the "Resolve all" CTA). Vite emits this as
+// `dist/assets/ResolveAllMissingWizard-*.js`.
+const ResolveAllMissingWizard = lazy(() => import("./ResolveAllMissingWizard"));
+
+// Round 8 #5 — auto-suggest the bulk wizard when N missing blockers
+// crosses this threshold. Highlight the CTA so it reads as the
+// recommended path, not a footnote.
+const BULK_WIZARD_THRESHOLD = 4;
+
+// StatePeekPanel allocation matrix caps (§A1.33 P3.4). The matrix
+// previews up to 8×8 cells inline; everything beyond that condenses
+// into a "+N more" row/column footnote so the panel stays scannable
+// without scrolling on narrow advisor displays.
+const ALLOCATION_MATRIX_CAP = 8;
 
 interface ReviewScreenProps {
   workspaceId: string;
@@ -262,7 +282,10 @@ export function ReviewScreen({ workspaceId }: ReviewScreenProps) {
         </main>
         <aside className="flex flex-col gap-4">
           {(workspace.readiness?.missing ?? []).length > 0 && (
-            <MissingPanel missing={workspace.readiness?.missing ?? []} />
+            <MissingPanel
+              workspaceId={workspaceId}
+              missing={workspace.readiness?.missing ?? []}
+            />
           )}
           <SectionApprovalPanel
             workspace={workspace}
@@ -567,24 +590,66 @@ function ReadyChip({ label, ready }: { label: string; ready: boolean }) {
   );
 }
 
-function MissingPanel({ missing }: { missing: { section: string; label: string }[] }) {
+function MissingPanel({
+  workspaceId,
+  missing,
+}: {
+  workspaceId: string;
+  missing: ReadinessRow[];
+}) {
   const { t } = useTranslation();
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const showBulkCta = missing.length >= BULK_WIZARD_THRESHOLD;
   return (
     <section className="border border-danger/40 bg-paper-2 p-4">
-      <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-danger">
-        {t("review.missing_title")}
-      </h3>
-      <ul className="flex flex-col gap-1">
-        {missing.map((row, idx) => (
-          <li
-            key={`${row.section}-${idx}`}
-            className="flex items-baseline justify-between font-mono text-[10px]"
+      <div className="mb-3 flex items-baseline justify-between gap-2">
+        <h3 className="font-mono text-[10px] uppercase tracking-widest text-danger">
+          {t("review.missing_title")}
+        </h3>
+        {showBulkCta && (
+          <button
+            type="button"
+            onClick={() => setWizardOpen(true)}
+            className={cn(
+              "border border-warning/60 bg-warning/10 px-2 py-0.5",
+              "font-mono text-[10px] uppercase tracking-widest text-warning",
+              "transition-colors hover:bg-warning/20",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+            )}
+            aria-label={t("review.resolve_wizard.cta_aria", { count: missing.length })}
           >
-            <span className="text-muted">{row.section}</span>
-            <span className="text-ink">{row.label}</span>
-          </li>
-        ))}
+            {t("review.resolve_wizard.cta", { count: missing.length })}
+          </button>
+        )}
+      </div>
+      <ul className="flex flex-col gap-1">
+        {missing.map((row, idx) => {
+          const fieldPath = row.field_path ?? "";
+          return (
+            <li
+              key={`${row.section}-${idx}`}
+              className="grid grid-cols-[1fr_auto_auto] items-baseline gap-2 font-mono text-[10px]"
+            >
+              <span className="text-muted">{row.section}</span>
+              <span className="text-ink">{row.label}</span>
+              <AddBlockerInlineButton
+                workspaceId={workspaceId}
+                fieldPath={fieldPath}
+                label={row.label}
+              />
+            </li>
+          );
+        })}
       </ul>
+      {wizardOpen && (
+        <Suspense fallback={null}>
+          <ResolveAllMissingWizard
+            workspaceId={workspaceId}
+            initialMissing={missing}
+            onClose={() => setWizardOpen(false)}
+          />
+        </Suspense>
+      )}
     </section>
   );
 }
@@ -723,7 +788,12 @@ function StatePeekPanel({ state }: { state: Record<string, unknown> | undefined 
   // without reading nested JSON. Falls back to the JSON view inside a
   // <details> for the technical case where the advisor wants the raw
   // shape.
+  //
+  // P3.4 (plan v20 §A1.33): structured allocation matrix beneath the
+  // scalar rows. Defaults open when goal_account_links_count > 0 so
+  // the advisor sees the goal × account intersection inline.
   const summary = summarizeReviewedState(state);
+  const showMatrix = summary.goal_account_links_count > 0;
   return (
     <section className="border border-hairline-2 bg-paper-2 p-4">
       <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted">
@@ -749,6 +819,14 @@ function StatePeekPanel({ state }: { state: Record<string, unknown> | undefined 
           value={summary.household_label || t("review.commit_preview.unset")}
         />
       </dl>
+      {showMatrix && (
+        <details className="mt-3" open>
+          <summary className="font-mono text-[10px] uppercase tracking-widest text-muted">
+            {t("review.allocation_matrix.title")}
+          </summary>
+          <AllocationMatrix matrix={summary.allocation_matrix} />
+        </details>
+      )}
       <details className="mt-3">
         <summary className="font-mono text-[10px] uppercase tracking-widest text-muted">
           {t("review.commit_preview.show_raw")}
@@ -761,6 +839,148 @@ function StatePeekPanel({ state }: { state: Record<string, unknown> | undefined 
   );
 }
 
+function AllocationMatrix({
+  matrix,
+}: {
+  matrix: AllocationMatrixData;
+}) {
+  const { t } = useTranslation();
+  if (matrix.rows.length === 0 || matrix.cols.length === 0) {
+    return (
+      <p className="mt-2 font-mono text-[10px] text-muted">
+        {t("review.allocation_matrix.empty")}
+      </p>
+    );
+  }
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      <div className="overflow-x-auto">
+        <table className="min-w-full border-collapse font-mono text-[10px]">
+          <thead>
+            <tr>
+              <th
+                scope="col"
+                className="border-b border-hairline px-2 py-1 text-left font-medium uppercase tracking-widest text-muted"
+              >
+                {t("review.allocation_matrix.goal_header")}
+              </th>
+              {matrix.cols.map((col) => (
+                <th
+                  key={col.id}
+                  scope="col"
+                  className="border-b border-hairline px-2 py-1 text-right font-medium uppercase tracking-widest text-muted"
+                >
+                  {col.label}
+                </th>
+              ))}
+              {matrix.col_overflow > 0 && (
+                <th
+                  scope="col"
+                  className="border-b border-hairline px-2 py-1 text-right font-medium uppercase tracking-widest text-muted"
+                >
+                  {t("review.allocation_matrix.more", { count: matrix.col_overflow })}
+                </th>
+              )}
+              <th
+                scope="col"
+                className="border-b border-hairline px-2 py-1 text-right font-medium uppercase tracking-widest text-accent-2"
+              >
+                {t("review.allocation_matrix.target_pct_header")}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {matrix.rows.map((row) => (
+              <tr key={row.id}>
+                <th
+                  scope="row"
+                  className="border-b border-hairline px-2 py-1 text-left font-normal text-ink"
+                >
+                  {row.label}
+                </th>
+                {matrix.cols.map((col) => {
+                  const cell = row.cells[col.id];
+                  return (
+                    <td
+                      key={col.id}
+                      className="border-b border-hairline px-2 py-1 text-right text-ink"
+                    >
+                      {cell !== undefined ? formatCadCompact(cell) : "—"}
+                    </td>
+                  );
+                })}
+                {matrix.col_overflow > 0 && (
+                  <td className="border-b border-hairline px-2 py-1 text-right text-muted">
+                    —
+                  </td>
+                )}
+                <td className="border-b border-hairline px-2 py-1 text-right text-accent-2">
+                  {row.target_pct === null ? "—" : `${row.target_pct.toFixed(0)}%`}
+                </td>
+              </tr>
+            ))}
+            {matrix.row_overflow > 0 && (
+              <tr>
+                <th
+                  scope="row"
+                  className="border-b border-hairline px-2 py-1 text-left font-normal text-muted"
+                >
+                  {t("review.allocation_matrix.more", { count: matrix.row_overflow })}
+                </th>
+                {matrix.cols.map((col) => (
+                  <td
+                    key={col.id}
+                    className="border-b border-hairline px-2 py-1 text-right text-muted"
+                  >
+                    —
+                  </td>
+                ))}
+                {matrix.col_overflow > 0 && (
+                  <td className="border-b border-hairline px-2 py-1 text-right text-muted">
+                    —
+                  </td>
+                )}
+                <td className="border-b border-hairline px-2 py-1 text-right text-muted">
+                  —
+                </td>
+              </tr>
+            )}
+            <tr>
+              <th
+                scope="row"
+                className="border-t border-hairline-2 px-2 py-1 text-left font-medium uppercase tracking-widest text-muted"
+              >
+                {t("review.allocation_matrix.account_total")}
+              </th>
+              {matrix.cols.map((col) => (
+                <td
+                  key={col.id}
+                  className="border-t border-hairline-2 px-2 py-1 text-right text-ink"
+                >
+                  {formatCadCompact(col.total)}
+                </td>
+              ))}
+              {matrix.col_overflow > 0 && (
+                <td className="border-t border-hairline-2 px-2 py-1 text-right text-muted">
+                  —
+                </td>
+              )}
+              <td className="border-t border-hairline-2 px-2 py-1 text-right text-muted">
+                —
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {matrix.orphan_count > 0 && (
+        <p className="font-mono text-[10px] text-muted">
+          {t("review.allocation_matrix.orphans_footnote", { count: matrix.orphan_count })}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function CommitPreviewRow({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="flex items-baseline justify-between border-b border-hairline pb-1">
@@ -770,13 +990,42 @@ function CommitPreviewRow({ label, value }: { label: string; value: string | num
   );
 }
 
-function summarizeReviewedState(state: Record<string, unknown>): {
+interface AllocationMatrixCol {
+  id: string;
+  label: string;
+  total: number;
+}
+
+interface AllocationMatrixRow {
+  id: string;
+  label: string;
+  /** allocated_amount keyed by account id; "—" cells are absent. */
+  cells: Record<string, number>;
+  /** Sum allocated for this goal, divided by target_amount × 100. */
+  target_pct: number | null;
+}
+
+interface AllocationMatrixData {
+  rows: AllocationMatrixRow[];
+  cols: AllocationMatrixCol[];
+  /** Goals beyond the rows cap (cap-8 + "+N more"). */
+  row_overflow: number;
+  /** Accounts beyond the cols cap. */
+  col_overflow: number;
+  /** Links whose goal_id or account_id didn't resolve to a known
+   * row/col. Surfaces as a footnote so the advisor knows the matrix
+   * is truncated by data integrity, not just display caps. */
+  orphan_count: number;
+}
+
+export function summarizeReviewedState(state: Record<string, unknown>): {
   people_count: number;
   accounts_count: number;
   goals_count: number;
   goal_account_links_count: number;
   risk_household_score: number | null;
   household_label: string;
+  allocation_matrix: AllocationMatrixData;
 } {
   const people = Array.isArray(state.people) ? state.people : [];
   const accounts = Array.isArray(state.accounts) ? state.accounts : [];
@@ -801,7 +1050,137 @@ function summarizeReviewedState(state: Record<string, unknown>): {
     goal_account_links_count: goalAccountLinks.length,
     risk_household_score: householdScore,
     household_label: householdLabel,
+    allocation_matrix: buildAllocationMatrix(
+      goals,
+      accounts,
+      goalAccountLinks,
+    ),
   };
+}
+
+/**
+ * Build the goal × account allocation matrix from the reviewed-state
+ * arrays. Caps to 8 rows + 8 cols inline; remainder counted into
+ * `row_overflow` / `col_overflow` for the "+N more" footnote.
+ *
+ * Orphan handling: a link whose `goal_id` (or `goal_name_or_id`) doesn't
+ * match any row in `goals[]`, or whose `account_id_or_label` doesn't
+ * match any row in `accounts[]`, is excluded from the visible cells but
+ * counted into `orphan_count` so the matrix footer surfaces a footnote.
+ * This guards the case where a stale link survives a re-extraction.
+ */
+function buildAllocationMatrix(
+  goals: unknown[],
+  accounts: unknown[],
+  links: unknown[],
+): AllocationMatrixData {
+  // Resolve goal rows: first ALLOCATION_MATRIX_CAP visible; remainder
+  // collapses to overflow. The id used for linkage is the goal's
+  // `id` if present, otherwise its `name` (matches the engine
+  // contract's GoalAccountLink.goal_id_or_name field).
+  const goalEntries: { id: string; label: string; target: number | null }[] =
+    goals
+      .filter(isObjectLike)
+      .map((goal) => ({
+        id: stringId(goal.id ?? goal.name ?? ""),
+        label: typeof goal.name === "string" ? goal.name : stringId(goal.id),
+        target: numericValue(goal.target_amount),
+      }))
+      .filter((entry) => entry.id.length > 0);
+
+  const accountEntries: { id: string; label: string }[] = accounts
+    .filter(isObjectLike)
+    .map((account) => ({
+      id: stringId(account.id ?? account.account_id_or_label ?? ""),
+      label:
+        (typeof account.account_type === "string" && account.account_type) ||
+        (typeof account.account_id_or_label === "string"
+          ? account.account_id_or_label
+          : stringId(account.id)),
+    }))
+    .filter((entry) => entry.id.length > 0);
+
+  const visibleGoals = goalEntries.slice(0, ALLOCATION_MATRIX_CAP);
+  const visibleAccounts = accountEntries.slice(0, ALLOCATION_MATRIX_CAP);
+  const visibleGoalIds = new Set(visibleGoals.map((g) => g.id));
+  const visibleAccountIds = new Set(visibleAccounts.map((a) => a.id));
+
+  const cellsByGoal: Record<string, Record<string, number>> = {};
+  const totalsByAccount: Record<string, number> = {};
+  const allocatedByGoal: Record<string, number> = {};
+  let orphanCount = 0;
+
+  for (const link of links) {
+    if (!isObjectLike(link)) continue;
+    const goalId = stringId(
+      link.goal_id ?? link.goal_id_or_name ?? link.goal_name_or_id ?? "",
+    );
+    const accountId = stringId(
+      link.account_id ?? link.account_id_or_label ?? "",
+    );
+    const amount = numericValue(link.allocated_amount) ?? 0;
+    if (!visibleGoalIds.has(goalId) || !visibleAccountIds.has(accountId)) {
+      // Either truly orphan (id not found in any goal/account list) or
+      // beyond the cap (still resolvable, but not in the visible
+      // window). Only the truly-orphan case warrants the footnote;
+      // overflow rows already carry a "+N more" hint.
+      const goalKnown = goalEntries.some((g) => g.id === goalId);
+      const accountKnown = accountEntries.some((a) => a.id === accountId);
+      if (!goalKnown || !accountKnown) {
+        orphanCount += 1;
+      }
+      continue;
+    }
+    cellsByGoal[goalId] ??= {};
+    const row = cellsByGoal[goalId];
+    if (row !== undefined) {
+      row[accountId] = (row[accountId] ?? 0) + amount;
+    }
+    totalsByAccount[accountId] = (totalsByAccount[accountId] ?? 0) + amount;
+    allocatedByGoal[goalId] = (allocatedByGoal[goalId] ?? 0) + amount;
+  }
+
+  const rows: AllocationMatrixRow[] = visibleGoals.map((goal) => {
+    const allocated = allocatedByGoal[goal.id] ?? 0;
+    const targetPct =
+      goal.target !== null && goal.target > 0
+        ? (allocated / goal.target) * 100
+        : null;
+    return {
+      id: goal.id,
+      label: goal.label,
+      cells: cellsByGoal[goal.id] ?? {},
+      target_pct: targetPct,
+    };
+  });
+  const cols: AllocationMatrixCol[] = visibleAccounts.map((account) => ({
+    id: account.id,
+    label: account.label,
+    total: totalsByAccount[account.id] ?? 0,
+  }));
+
+  return {
+    rows,
+    cols,
+    row_overflow: Math.max(goalEntries.length - ALLOCATION_MATRIX_CAP, 0),
+    col_overflow: Math.max(accountEntries.length - ALLOCATION_MATRIX_CAP, 0),
+    orphan_count: orphanCount,
+  };
+}
+
+function stringId(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  return "";
+}
+
+function numericValue(value: unknown): number | null {
+  if (typeof value === "number" && !Number.isNaN(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return null;
 }
 
 function isObjectLike(value: unknown): value is Record<string, unknown> {
