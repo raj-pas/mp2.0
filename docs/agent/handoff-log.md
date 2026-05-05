@@ -2,6 +2,71 @@
 
 ---
 
+## 2026-05-05 (post-tag gap-closure sub-session #3 EXTENDED+) — CRITICAL fix for goal_risk_override→engine flow shipped mid-A6.1 USER MANUAL smoke
+
+**HEAD:** `870563b`. 14 commits past tag `v0.1.2-engine-display` at `e5cd859` (A0 + A1 + A2 + sub-#1 close-out + A3 + A4 + chore + sub-#2 close-out + A5 + sub-#3 partial + 3 starter-prompt rewrite docs + A5.5 spec + sub-#3 EXTENDED close-out + **engine_adapter override→engine fix**).
+
+This session continued sub-session #3 EXTENDED into Phase A6.1 USER MANUAL real-Chrome smoke per locked #100. The user walked Steps 1-7 of the 10-step procedure in actual Chrome (NOT headless, DevTools open). At Step 7 (Save override) the user flagged a UX concern: after saving a Cautious override on Sandra/Mike's `goal_retirement_income`, the banner timestamp + run signature didn't update. Initial diagnosis (REUSED path due to horizon-cap collapse on 4yr horizon) appeared to match locked #74 + REUSED contract. The user pushed back ("Still sure?") and tested on `goal_ski_cabin` (8yr horizon — no horizon cap collapse expected). The Ski cabin re-test confirmed a real production-blocking bug: override saved correctly (DB row + audit event) but the engine output still reflected the SYSTEM score (66.6% Equity Balanced-growth blend), NOT the override (would be ~95% Savings Cautious blend). The override mechanism was theatre — audit-log evidence + DB row, but invisible to the engine optimization path.
+
+**Root cause** (engine_adapter.py review):
+  - `_goal_to_engine` (line 156) passed `goal_risk_score=goal.goal_risk_score` directly to engine `Goal` schema
+  - `committed_construction_snapshot` (line 311) used `goal.goal_risk_score` directly in input snapshot used for input_hash + run_signature
+  - Both ignored `GoalRiskOverride` rows. The `active_goal_override(goal)` helper existed but was only called by preview_views.py:437/575 (slider drag preview) — NOT by `_trigger_portfolio_generation`.
+  - Result: input_hash matched the seeded run; REUSED path returned the seed; engine never re-optimized with the override.
+
+**Fix** (3 files, ~331 insertions):
+  - NEW helper `effective_goal_risk_score(goal)` in engine_adapter.py (line 373) resolves latest GoalRiskOverride.score_1_5 (latest-row-wins per locked #6) or falls back to goal.goal_risk_score. Single source of truth for "what does the engine optimize against."
+  - `_goal_to_engine` and `committed_construction_snapshot` both call the helper. Engine schema stays pure (canon §9.4.2 — engine is a library; web layer translates). Override mechanism stays in DB + audit; web layer resolves before engine input.
+  - NEW test file `web/api/tests/test_goal_risk_override_engine_flow.py` (6 tests): helper unit semantics × 3 (no override / override-wins / latest-of-multiple) + snapshot-reflects-override (positive + non-mutation invariant on unrelated goals) + end-to-end override-changes-effective-score-produces-NEW-run (regression for the bug; asserts NEW PortfolioRun + NEW run_signature + frontier_percentile=5 for Cautious) + negative control override-at-system-score-correctly-REUSES (guards locked #74 from over-eager regeneration).
+  - MODIFIED `web/api/tests/test_full_advisor_lifecycle_with_auto_trigger.py` Step 4 (lifecycle test): this test was explicitly codifying the buggy behavior with comment "GoalRiskOverride doesn't change committed_construction_snapshot; override trigger must hit REUSED path." Updated to assert correct post-fix behavior — override at score 5 (system 3) produces NEW run + portfolio_run_generated audit; final run_count expectation 3 → 4.
+
+**Real-Chrome verification post-fix** (locked #100 — this is exactly why the gate is mandatory):
+  | State | Pre-save | Post-save (post-fix) |
+  |---|---|---|
+  | Banner | RECOMMENDATION 008F5F87 · 1M AGO | RECOMMENDATION CD78E7C1 · JUST NOW |
+  | GOAL RISK tile | Balanced-growth · band 4 highlighted | Cautious · band 1 highlighted |
+  | Equity ideal | 66.6% | 1.0% |
+  | Savings ideal | 0% | 95.4% |
+  | Income ideal | 0% | 3.0% |
+  - ✓ NEW run signature, ✓ fresh timestamp, ✓ all 3 SourcePills flipped to ENGINE RECOMMENDATION with new sig, ✓ engine output reflects override (Cautious de-risking blend).
+  - The Cautious blend (95.4% Savings) is the engine's mathematically-correct response to the override — aggressive but truthful. The advisor sees the actual cost of their override choice and can reset to system if too cautious. This is the closed-loop locked #74 designed.
+
+**Knock-on effects analyzed before commit:**
+  - Preview path (slider drag) unaffected — already correctly calls `active_goal_override` separately for goal-scoring preview
+  - All 9 portfolio-generation triggers (manual / review_commit / wizard_commit / override / realignment / conflict_resolve / defer_conflict / fact_override / section_approve / synthetic_load) benefit uniformly via the shared adapter helper
+  - Existing PortfolioRun rows: append-only; not migrated; future runs on goals with overrides will produce new sigs (correct)
+  - Frontend / Vitest / bundle: unchanged (backend-only)
+  - Engine API unchanged; engine itself stays pure
+  - Goals without overrides: snapshot value unchanged → hash unchanged → existing run reused (no spurious regenerate)
+  - Goals with overrides at SAME score as system: hash unchanged → REUSED (no spurious regenerate; locked #74 + REUSED contract preserved)
+  - Goals with overrides at DIFFERENT score: hash changes → new run (correct closed-loop)
+
+**Gates at HEAD `870563b`:**
+  - Backend pytest: **878 passed + 2 skipped** (was 872+2; +6 net new from override→engine test file)
+  - Frontend: unchanged from prior commit (230 Vitest in 26 files; bundle 269.41 kB gzipped)
+  - Static guards (vocab CI / PII grep / OpenAPI codegen): all OK
+  - Real-Chrome smoke: ✓ verified end-to-end on Sandra/Mike Ski cabin (8yr horizon)
+
+**A6.1 progress** (10-step user-manual smoke):
+  - ✓ Step 1: reset
+  - ✓ Step 2: login (skipped PilotBanner + WelcomeTour absent confirms pre-ack; Step 3 implicit)
+  - ✓ Step 3: PilotBanner + WelcomeTour absent (pre-acked)
+  - ✓ Step 4: AUM strip + HouseholdPortfolioPanel + treemap + 4-tab right rail
+  - ✓ Step 5: 3 SourcePills engine + AdvisorSummaryPanel + RecommendationBanner
+  - ✓ Step 6: slider drag → calibration_drag pill flip → release → engine flip back
+  - ✓ Step 7: Save override (verified via Ski cabin re-test post-fix; confirmed REUSED is correct on retirement_income horizon-cap-collapse case via negative-control test)
+  - ⬜ Step 8: CMA republish → stale overlay → Regenerate cycle (not yet exercised in real Chrome)
+  - ⬜ Step 9: HASH_MISMATCH integrity overlay (optional, requires Django shell event insert)
+  - ⬜ Step 10: DevTools console clean throughout (implicit; user has not flagged any errors so far)
+
+**What's next:** continue A6.1 from Step 8, then A6.2 dress rehearsal, then A7 close-out (subagent reviews + 90% coverage gate + tag cut + delete starter prompt). Estimated 1.5-2.5 hr remaining. The fix is committed but un-pushed; user pushes Mon morning per pre-existing locked rule.
+
+**Locked decisions honored:** #6 (latest-row-wins overrides), #74 (sync inline regenerate), #99 (audit metadata structural fields), #100 (real-Chrome smoke is the regression-catching mechanism — Vitest mocks at component level + Playwright headless missed this; the user's real-Chrome push-back caught it), §3.13 (PII discipline), canon §9.4.2 (engine purity preserved).
+
+**This is exactly the lesson `mp2-protocol` skill warns about**: "10/10 Playwright headless missed the FileList ref race; only actual Chrome with real eyes caught it." Same class of bug surface, different mechanism. The override mechanism would have launched on Mon 2026-05-08 with 3-5 advisors using real client data — every override they saved would have been theatre. This catch is one of the most consequential discoveries of the entire post-tag gap-closure effort.
+
+---
+
 ## 2026-05-04 PM (post-tag gap-closure sub-session #3 of 3 EXTENDED) — Phase A5.5 complete; A6 USER MANUAL + A7 close-out remaining
 
 **HEAD:** `d8c908a`. 11 commits past tag `v0.1.2-engine-display` at `e5cd859` (A0 docs + A1 backend + A2 frontend + A3 OptimizerOutputWidget + A4 stale-state UX + cleanup chore + A5 demo+axe+visual+cross-browser + A5 RiskSlider regression fix bundled + sub-session #3 partial close-out + 3 starter-prompt rewrite docs commits + **A5.5 regression-coverage spec**).
