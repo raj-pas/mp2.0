@@ -254,3 +254,50 @@ describe("HouseholdPortfolioPanel — failure state (mirrors RecommendationBanne
     ).toBeDisabled();
   });
 });
+
+describe("HouseholdPortfolioPanel — stale variants (post-tag locked §3.2 + §3.4)", () => {
+  it("renders stale chip + Regenerate for status='invalidated'", () => {
+    const hh = mockHousehold({
+      latest_portfolio_run: mockPortfolioRun({ status: "invalidated" }),
+    });
+    render(<HouseholdPortfolioPanel household={hh} />);
+    expect(screen.getByText("routes.household.stale_chip_label")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /routes\.household\.regenerate/i }),
+    ).toBeInTheDocument();
+    // aria-live preserved (status region, locked #109)
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("renders stale chip + Regenerate for status='superseded'", () => {
+    const hh = mockHousehold({
+      latest_portfolio_run: mockPortfolioRun({ status: "superseded" }),
+    });
+    render(<HouseholdPortfolioPanel household={hh} />);
+    expect(screen.getByText("routes.household.stale_chip_label")).toBeInTheDocument();
+  });
+
+  it("renders integrity chip with role='alert' and NO Regenerate for status='hash_mismatch'", () => {
+    const hh = mockHousehold({
+      latest_portfolio_run: mockPortfolioRun({ status: "hash_mismatch" }),
+    });
+    render(<HouseholdPortfolioPanel household={hh} />);
+    expect(screen.getByText("routes.household.integrity_chip_label")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /routes\.household\.regenerate/i }),
+    ).not.toBeInTheDocument();
+    // role='alert' — engineering attention; not role='status'
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
+  it("clicking stale Regenerate fires the mutation exactly once", () => {
+    const hh = mockHousehold({
+      latest_portfolio_run: mockPortfolioRun({ status: "declined" }),
+    });
+    render(<HouseholdPortfolioPanel household={hh} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /routes\.household\.regenerate/i }),
+    );
+    expect(generateMutate).toHaveBeenCalledTimes(1);
+  });
+});

@@ -137,7 +137,9 @@
       "generation_failed_title": "Recommendation generation failed",
       "generation_failed_body": "Reason: {{reason}}. Click Retry to attempt regeneration.",
       "generation_failed_inline": "Generation failed ({{reason}})",
-      "readiness_blockers_title": "Resolve before generating"
+      "readiness_blockers_title": "Resolve before generating",
+      "stale_chip_label": "Stale: regenerate to refresh ({{signature}})",
+      "integrity_chip_label": "Integrity issue: see ops-runbook ({{signature}})"
     },
     "account": {
       "back_to_household": "Back to household",
@@ -182,7 +184,17 @@
       "advisor_summary_title": "Why this recommendation",
       "generation_failed_title": "Recommendation generation failed",
       "generation_failed_body": "Reason: {{reason}}. Click Retry to attempt regeneration.",
-      "generation_failed_inline": "Generation failed ({{reason}}) • {{when}}"
+      "generation_failed_inline": "Generation failed ({{reason}}) • {{when}}",
+      "stale_chip_label": "Stale: regenerate to refresh ({{signature}})",
+      "integrity_chip_label": "Integrity issue: see ops-runbook ({{signature}})",
+      "stale_overlay_title": "Recommendation is stale",
+      "stale_overlay_body": "A new CMA was published or this run was superseded. Regenerate to refresh.",
+      "stale_overlay_regenerate": "Regenerate",
+      "declined_overlay_title": "Run was declined",
+      "declined_overlay_body": "This recommendation was declined. Regenerate to retry.",
+      "integrity_overlay_title": "Integrity check failed",
+      "integrity_overlay_body": "Engineering has been notified. Do not act on this recommendation.",
+      "integrity_overlay_run_ref": "Run {{signature}} · ops-runbook §portfolio_run_integrity_alert"
     },
     "review": {
       "placeholder_title": "Review queue",

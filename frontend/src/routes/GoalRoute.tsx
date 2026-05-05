@@ -23,12 +23,14 @@ import { RiskSlider } from "../components/ui/RiskSlider";
 import { AdvisorSummaryPanel } from "../goal/AdvisorSummaryPanel";
 import { GoalAllocationSection } from "../goal/GoalAllocationSection";
 import { GoalProjectionsSection } from "../goal/GoalProjectionsSection";
+import { IntegrityAlertOverlay } from "../goal/IntegrityAlertOverlay";
 import { MovesPanel } from "../goal/MovesPanel";
 import { OptimizerOutputWidget } from "../goal/OptimizerOutputWidget";
 import { RecommendationBanner } from "../goal/RecommendationBanner";
+import { StaleRunOverlay, type StaleStatus } from "../goal/StaleRunOverlay";
 import { isAdvisorRole, useSession } from "../lib/auth";
 import { type Goal, findGoal, useHousehold } from "../lib/household";
-import { useOverrideHistory } from "../lib/preview";
+import { useGeneratePortfolio, useOverrideHistory } from "../lib/preview";
 import { formatCurrencyCAD } from "../lib/format";
 import { descriptorFor, isCanonRisk } from "../lib/risk";
 
@@ -40,6 +42,10 @@ export function GoalRoute() {
   const householdQuery = useHousehold(rememberedId);
   const session = useSession();
   const overridesQuery = useOverrideHistory(goalId ?? null);
+  // Stale-state Regenerate mutation (post-tag locked §3.2). Hook must be
+  // called unconditionally above any early return; passing `rememberedId`
+  // (string | null) is safe — `useGeneratePortfolio` rejects when null.
+  const generate = useGeneratePortfolio(rememberedId);
 
   // Per locked §3.7: parent owns drag-preview state lifted from
   // RiskSlider via `onPreviewChange`. GoalAllocationSection + MovesPanel
@@ -111,6 +117,17 @@ export function GoalRoute() {
   }
 
   const household = householdQuery.data;
+  // Stale-state UX (post-tag locked §3.2): when status is non-current, wrap
+  // engine panels in muted+aria-hidden + show StaleRunOverlay (regenerable
+  // for invalidated/superseded/declined) or IntegrityAlertOverlay
+  // (engineering-only for hash_mismatch). RecommendationBanner above the
+  // overlay still surfaces the warning chip + regenerate so advisor has
+  // both the inline trigger AND the modal-style overlay reinforcement.
+  const runStatus = household.latest_portfolio_run?.status ?? "current";
+  const isStale =
+    runStatus === "invalidated" || runStatus === "superseded" || runStatus === "declined";
+  const isIntegrityIssue = runStatus === "hash_mismatch";
+  const isMuted = isStale || isIntegrityIssue;
   const horizonYears = computeHorizonYears(goal.target_date);
   const horizonText =
     horizonYears === null
@@ -205,30 +222,49 @@ export function GoalRoute() {
         />
       )}
 
-      {effectiveScore !== null && (
-        <GoalAllocationSection
-          goal={goal}
-          household={household}
-          effectiveScore={effectiveScore}
-          isPreviewingOverride={isPreviewingOverride}
-        />
-      )}
+      <div className="relative">
+        <div
+          className={isMuted ? "opacity-40 pointer-events-none" : ""}
+          aria-hidden={isMuted ? true : undefined}
+        >
+          {effectiveScore !== null && (
+            <GoalAllocationSection
+              goal={goal}
+              household={household}
+              effectiveScore={effectiveScore}
+              isPreviewingOverride={isPreviewingOverride}
+            />
+          )}
 
-      <AdvisorSummaryPanel household={household} goalId={goal.id} />
+          <AdvisorSummaryPanel household={household} goalId={goal.id} />
 
-      <div className="grid grid-cols-2 gap-3">
-        <OptimizerOutputWidget
-          householdId={household.id}
-          goalId={goal.id}
-          household={household}
-          isPreviewingOverride={isPreviewingOverride}
-        />
-        <MovesPanel
-          householdId={household.id}
-          goalId={goal.id}
-          household={household}
-          isPreviewingOverride={isPreviewingOverride}
-        />
+          <div className="grid grid-cols-2 gap-3">
+            <OptimizerOutputWidget
+              householdId={household.id}
+              goalId={goal.id}
+              household={household}
+              isPreviewingOverride={isPreviewingOverride}
+            />
+            <MovesPanel
+              householdId={household.id}
+              goalId={goal.id}
+              household={household}
+              isPreviewingOverride={isPreviewingOverride}
+            />
+          </div>
+        </div>
+        {isStale && (
+          <StaleRunOverlay
+            status={runStatus as StaleStatus}
+            onRegenerate={() => generate.mutate()}
+            isPending={generate.isPending}
+          />
+        )}
+        {isIntegrityIssue && (
+          <IntegrityAlertOverlay
+            runSignature={household.latest_portfolio_run?.run_signature ?? null}
+          />
+        )}
       </div>
 
       {effectiveScore !== null && horizonYears !== null && tier !== null && (

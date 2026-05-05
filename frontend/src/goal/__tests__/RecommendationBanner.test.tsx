@@ -306,3 +306,63 @@ describe("RecommendationBanner — failure state", () => {
     ).toBeDisabled();
   });
 });
+
+describe("RecommendationBanner — stale variants (post-tag locked §3.2)", () => {
+  it("renders stale chip + Regenerate for status='invalidated'", () => {
+    const run = mockPortfolioRun({ status: "invalidated" });
+    render(
+      <RecommendationBanner run={run} failure={null} householdId="hh_sandra_mike_chen" />,
+    );
+    expect(screen.getByText("routes.goal.stale_chip_label")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /routes\.goal\.regenerate/i }),
+    ).toBeInTheDocument();
+    // aria-live="polite" preserved (status region, locked #109)
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("renders stale chip + Regenerate for status='superseded'", () => {
+    const run = mockPortfolioRun({ status: "superseded" });
+    render(
+      <RecommendationBanner run={run} failure={null} householdId="hh_sandra_mike_chen" />,
+    );
+    expect(screen.getByText("routes.goal.stale_chip_label")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /routes\.goal\.regenerate/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders stale chip + Regenerate for status='declined'", () => {
+    const run = mockPortfolioRun({ status: "declined" });
+    render(
+      <RecommendationBanner run={run} failure={null} householdId="hh_sandra_mike_chen" />,
+    );
+    expect(screen.getByText("routes.goal.stale_chip_label")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /routes\.goal\.regenerate/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders integrity chip with role='alert' and NO Regenerate for status='hash_mismatch'", () => {
+    const run = mockPortfolioRun({ status: "hash_mismatch" });
+    render(
+      <RecommendationBanner run={run} failure={null} householdId="hh_sandra_mike_chen" />,
+    );
+    expect(screen.getByText("routes.goal.integrity_chip_label")).toBeInTheDocument();
+    // Engineering-only: NO Regenerate button rendered
+    expect(
+      screen.queryByRole("button", { name: /routes\.goal\.regenerate/i }),
+    ).not.toBeInTheDocument();
+    // Uses role='alert' (not role='status') — engineering attention contract
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
+  it("clicking stale Regenerate fires the mutation exactly once", () => {
+    const run = mockPortfolioRun({ status: "invalidated" });
+    render(
+      <RecommendationBanner run={run} failure={null} householdId="hh_sandra_mike_chen" />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /routes\.goal\.regenerate/i }));
+    expect(generateMutate).toHaveBeenCalledTimes(1);
+  });
+});
