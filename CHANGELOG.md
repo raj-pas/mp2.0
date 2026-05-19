@@ -5,6 +5,83 @@ adheres to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions follow `vMAJOR.MINOR.PATCH-pre`. The current pilot is
 tagged `v0.1.0-pilot`.
 
+## Unreleased — Documentation
+
+### Added
+
+- **`docs/team/`** — team-facing onboarding documentation folder.
+  Added 2026-05-12. Contents:
+  - `README.md` — folder index, conventions, recommended reading
+    order per role (new engineer, new PM, leadership), and the
+    "What's in this folder" table.
+  - `architecture-diagrams.md` — six Mermaid diagrams + ASCII
+    fallback: four-layer architecture, upload→commit→portfolio-gen
+    data flow, three-tier matcher decision tree, deployment /
+    infrastructure, review-workspace state machine, PortfolioRun
+    lifecycle + auto-trigger flow.
+  - `glossary.md` — ~80–100 domain terms grouped by theme plus
+    alphabetical index. Load-bearing for the new PM.
+  - `adr/README.md` + `adr/CONTRIBUTING.md` — Architecture Decision
+    Records format (MADR / Nygard hybrid) and authoring workflow.
+  - `adr/0001-engine-as-library.md` through
+    `adr/0013-immutable-audit-via-db-triggers.md` — 13 ADRs in
+    importance order covering the canon's load-bearing architectural
+    decisions. Each ADR has Status / Decision Date / Deciders /
+    Context / Decision / Consequences / Alternatives Considered /
+    Supersession Path / References.
+  - `onboarding-engineer.md` — Day 1 setup + Week 1 subsystem tour +
+    "How we work" norms + red flags + IDE recommendations.
+  - `real-pii-handling.md` — defense-in-depth regime in plain
+    language + access workflow + day-to-day operating discipline +
+    the "never" list + incident procedure + frequently-violated
+    patterns table.
+  - `troubleshooting.md` — common setup errors with fixes (referenced
+    from onboarding).
+  - `product-brief.md` — Som-CEO consumable: the bet, four locked
+    goals, business case, pilot state, metrics.
+  - `ai-doc-ingestion-deep-dive.md` — definitive technical reference
+    for the AI-based document ingestion pipeline. Covers Layer 1
+    (ingestion + secure-root validation + sha256 dedup + ProcessingJob
+    enqueue), Layer 2 (parsing across PDF / DOCX / XLSX / CSV / images
+    + OCR fallback heuristics + native-PDF vision path + classification),
+    Layer 3 (Bedrock ca-central-1 tool-use protocol + the four typed
+    extraction exceptions + per-doc-type prompts + PROMPT_VERSION_BY_TYPE +
+    Phase 9 evidence validation + cost ledger), Layer 4 (3-tier entity
+    matcher with Tier-2 merge candidates + source-priority hierarchy +
+    cross-class silent resolution + same-class conflict surfacing),
+    Layer 5 (reviewed_state JSON contract + readiness gates + section
+    approvals + defer + manual-entry escape hatch + structured blockers),
+    the commit boundary (`_merge_household_state` + cascade-delete +
+    account-type normalization), the sync auto-trigger (5 typed engine
+    exceptions + helper trio + REUSED-path hash detection), the engine
+    adapter (`effective_goal_risk_score` + `committed_construction_snapshot`),
+    the Postgres-backed worker queue, all state machines, the complete
+    audit-action vocabulary (~50 distinct actions), real-PII discipline
+    at every layer, the error-handling matrix, performance characteristics,
+    extension points (how to add a new doc type / fact field /
+    source-priority rule / Tier-2 matcher / audit action), and 11
+    non-obvious patterns ("surprises") a new contributor needs to know.
+- **`.markdownlint.json`** — line length 80, sentence-case headings,
+  inline HTML allowed, MD036 disabled, single h1, first-line h1.
+- **`docs/team/` pointer added to `CLAUDE.md`** under "Useful Project
+  Memory" so future Claude sessions discover the new folder.
+- **`docs/team/` pointer added to `README.md`** as a top-level
+  section for human contributors landing on the repo.
+
+### Notes
+
+- This release is documentation-only — no code paths changed.
+- All artifacts cross-link to the master onboarding dossier at
+  `~/.claude/plans/i-want-you-to-sorted-meadow.md`.
+- All 13 ADRs are `Status: Accepted` since they reflect already-locked
+  decisions in the canon and prior session handoff.
+- The vocabulary CI guard (`scripts/check-vocab.sh`) and PII CI guard
+  (`scripts/check-pii-leaks.sh`) both pass against the new artifacts.
+- Real client surnames are replaced with placeholders / descriptors
+  throughout the new docs per the canon §11.8.3 discipline.
+
+
+
 ## v0.1.3-pilot-quality-closure — 2026-05-05
 
 Comprehensive Pilot Quality Closure. Closes 14 gaps (G1-G14) across

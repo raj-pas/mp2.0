@@ -141,6 +141,25 @@ fails on drift.
 
 ## Useful Project Memory
 
+- `docs/team/` — **team-facing onboarding documentation** (new
+  engineers, new PM, leadership). Added 2026-05-12. Includes:
+  README + architecture-diagrams + glossary (~80–100 terms) + 13 ADRs
+  + engineer onboarding (Day 1 + Week 1 + how-we-work) + real-PII
+  handling (procedural + reference) + troubleshooting + product brief
+  + **AI-doc-ingestion deep dive** (definitive Layer 1-5 reference).
+- `docs/team/adr/` — 13 Architecture Decision Records (engine-as-library,
+  append-only audit, Bedrock ca-central-1, real-PII defense-in-depth,
+  link-first engine output, 5-point risk scale, three-tier matcher,
+  Postgres-only, sync auto-trigger, production-grade-MVP reframe,
+  vocabulary discipline, source-priority hierarchy,
+  immutable-audit-via-DB-triggers). Importance order.
+- `docs/team/ai-doc-ingestion-deep-dive.md` — definitive technical reference
+  for AI-based document ingestion + engine-ready data creation. 18 parts
+  covering every layer mechanic (parsers, Bedrock tool-use, entity alignment,
+  reconciliation, reviewed_state shape, commit boundary, sync auto-trigger,
+  audit emission, state machines, error matrix, performance, extension
+  points, non-obvious patterns). Read this before touching `extraction/`,
+  `web/api/review_state.py`, or the auto-trigger helpers in `views.py`.
 - `docs/agent/session-state.md` — current implementation state and next work
 - `docs/agent/handoff-log.md` — append-only dated handoffs
 - `docs/agent/decisions.md` — implementation decisions distilled from the canon

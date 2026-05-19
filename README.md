@@ -157,6 +157,31 @@ cd frontend
 npm run e2e:real -- --reporter=list --workers=1
 ```
 
+## Team-facing docs
+
+For new engineers, the new product manager, and leadership, see
+[`docs/team/`](docs/team/). Start with
+[`docs/team/README.md`](docs/team/README.md), which has a recommended
+reading order per role plus pointers to:
+
+- [`docs/team/product-brief.md`](docs/team/product-brief.md) — the
+  bet, four goals, business case, pilot state, metrics.
+- [`docs/team/architecture-diagrams.md`](docs/team/architecture-diagrams.md)
+  — six Mermaid diagrams covering the four-layer architecture,
+  upload→commit→portfolio-gen data flow, three-tier matcher,
+  deployment, review-workspace state machine, and auto-trigger
+  lifecycle.
+- [`docs/team/glossary.md`](docs/team/glossary.md) — ~80–100 domain
+  terms.
+- [`docs/team/adr/`](docs/team/adr/) — 13 Architecture Decision
+  Records in importance order.
+- [`docs/team/onboarding-engineer.md`](docs/team/onboarding-engineer.md)
+  — Day 1 + Week 1 + how-we-work norms.
+- [`docs/team/real-pii-handling.md`](docs/team/real-pii-handling.md)
+  — defense-in-depth regime operational guide.
+- [`docs/team/troubleshooting.md`](docs/team/troubleshooting.md) —
+  common setup errors and fixes.
+
 ## Session Protocol
 
 Before changing code, Claude sessions should read:
